@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# API requests → api/index.php
+RewriteRule ^api/?$ api/index.php [L,QSA]
+RewriteRule ^api/(.*)$ api/index.php [L,QSA]
+
+# Web portal setup page
+RewriteRule ^setup$ web/setup.php [L,QSA]
+
+# Prevent direct access to includes
+RewriteRule ^includes/ - [F,L]
+RewriteRule ^config\.php$ - [F,L]

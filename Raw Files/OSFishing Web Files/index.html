@@ -1,0 +1,2200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fishing Game — Web Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════
+   RESET & BASE
+   ═══════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'DM Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+::selection{background:var(--accent);color:#fff}
+::-webkit-scrollbar{width:7px;height:7px}
+::-webkit-scrollbar-track{background:var(--bg-secondary)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+input,button,select{font-family:inherit}
+a{color:var(--accent);text-decoration:none}
+
+/* ═══════════════════════════════════════
+   THEME VARIABLES
+   ═══════════════════════════════════════ */
+:root{
+  --bg-primary:#1a1e1a;--bg-secondary:#222822;--bg-card:#2a302a;--bg-card-hover:#323a32;
+  --bg-sidebar:#141814;--bg-sidebar-hover:#1e241e;--bg-input:#222822;--bg-badge:#323a32;
+  --text-primary:#e0ddd5;--text-secondary:#a09888;--text-muted:#706860;
+  --text-sidebar:#8a8578;--text-sidebar-active:#e0ddd5;--text-on-accent:#fff;
+  --accent:#d4884e;--accent-hover:#e09860;--accent-soft:rgba(212,136,78,.15);
+  --success:#5aaa6e;--success-soft:rgba(90,170,110,.15);
+  --danger:#cc5555;--danger-soft:rgba(204,85,85,.15);
+  --warning:#d4aa4e;--warning-soft:rgba(212,170,78,.15);
+  --info:#5090d4;--info-soft:rgba(80,144,212,.15);
+  --border:#3a423a;--border-light:#323a32;
+  --shadow:0 2px 12px rgba(0,0,0,.3);--shadow-lg:0 8px 32px rgba(0,0,0,.4);
+  --rarity-common:#8a8578;--rarity-uncommon:#5aaa6e;--rarity-rare:#5090d4;
+  --rarity-epic:#a070d4;--rarity-legendary:#d4884e;
+  --topo-stroke:#3a423a;
+}
+[data-theme="light"]{
+  --bg-primary:#f5f0e8;--bg-secondary:#ebe4d6;--bg-card:#ffffff;--bg-card-hover:#faf8f4;
+  --bg-sidebar:#2c3e2d;--bg-sidebar-hover:#3a5139;--bg-input:#f0ebe0;--bg-badge:#e8e0d0;
+  --text-primary:#2a2520;--text-secondary:#6b6058;--text-muted:#9a8f82;
+  --text-sidebar:#d4cfc5;--text-sidebar-active:#f0ebe0;--text-on-accent:#fff;
+  --accent:#c4713b;--accent-hover:#a85e30;--accent-soft:rgba(196,113,59,.12);
+  --success:#4a8c5c;--success-soft:rgba(74,140,92,.12);
+  --danger:#b04040;--danger-soft:rgba(176,64,64,.12);
+  --warning:#c49a3b;--warning-soft:rgba(196,154,59,.12);
+  --info:#3b7cc4;--info-soft:rgba(59,124,196,.12);
+  --border:#d8d0c4;--border-light:#e8e0d4;
+  --shadow:0 2px 12px rgba(42,37,32,.08);--shadow-lg:0 8px 32px rgba(42,37,32,.12);
+  --rarity-common:#7a7568;--rarity-uncommon:#4a8c5c;--rarity-rare:#3b7cc4;
+  --rarity-epic:#8b5cc4;--rarity-legendary:#c4713b;
+  --topo-stroke:#d8d0c4;
+}
+
+/* ═══════════════════════════════════════
+   ANIMATION
+   ═══════════════════════════════════════ */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+.fade-in{animation:fadeIn .3s ease}
+
+/* ═══════════════════════════════════════
+   LAYOUT
+   ═══════════════════════════════════════ */
+body{background:var(--bg-primary);color:var(--text-primary)}
+#app{display:flex;min-height:100vh}
+
+/* LOGIN */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-primary);position:relative}
+.login-wrap::before{content:'';position:absolute;inset:0;opacity:.35;
+  background-image:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='30' cy='30' r='20' fill='none' stroke='%233a423a' stroke-width='.5'/%3E%3Ccircle cx='30' cy='30' r='10' fill='none' stroke='%233a423a' stroke-width='.5'/%3E%3C/svg%3E");
+  background-size:60px 60px}
+[data-theme="light"] .login-wrap::before{
+  background-image:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='30' cy='30' r='20' fill='none' stroke='%23d8d0c4' stroke-width='.5'/%3E%3Ccircle cx='30' cy='30' r='10' fill='none' stroke='%23d8d0c4' stroke-width='.5'/%3E%3C/svg%3E")}
+.login-card{position:relative;z-index:1;background:var(--bg-card);border-radius:16px;padding:44px 38px;max-width:400px;width:92%;border:1px solid var(--border-light);box-shadow:var(--shadow-lg);text-align:center}
+.login-card h1{font-size:24px;font-weight:900;color:var(--text-primary);letter-spacing:-.5px;margin:0 0 4px}
+.login-card .sub{font-size:13px;color:var(--text-muted);margin:0 0 28px}
+.login-card .fish-icon{font-size:48px;margin-bottom:10px}
+.theme-btn-corner{position:absolute;top:16px;right:16px;z-index:2}
+
+/* SIDEBAR */
+.sidebar{width:240px;min-height:100vh;background:var(--bg-sidebar);display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,.05);flex-shrink:0;transition:width .25s ease;overflow:hidden}
+.sidebar.collapsed{width:64px}
+.sidebar-brand{padding:20px 18px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.06)}
+.sidebar.collapsed .sidebar-brand{padding:20px 14px;justify-content:center}
+.brand-icon{width:36px;height:36px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.brand-text{overflow:hidden;white-space:nowrap}
+.sidebar.collapsed .brand-text{display:none}
+.brand-text h2{font-size:15px;font-weight:800;color:var(--text-sidebar-active);letter-spacing:-.3px;margin:0}
+.brand-text span{font-size:10px;color:var(--text-sidebar);text-transform:uppercase;letter-spacing:1px}
+.sidebar-nav{flex:1;padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:none;cursor:pointer;background:transparent;color:var(--text-sidebar);font-weight:500;font-size:13px;width:100%;text-align:left;white-space:nowrap;border-left:3px solid transparent;transition:all .15s;font-family:inherit}
+.sidebar.collapsed .nav-item{padding:10px 16px;justify-content:center}
+.sidebar.collapsed .nav-label{display:none}
+.nav-item:hover{background:var(--bg-sidebar-hover)}
+.nav-item.active{background:var(--bg-sidebar-hover);color:var(--text-sidebar-active);font-weight:700;border-left-color:var(--accent)}
+.nav-item.active .nav-icon{color:var(--accent)}
+.nav-icon{flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center}
+.sidebar-footer{padding:12px 8px;border-top:1px solid rgba(255,255,255,.06)}
+.sidebar-footer button{display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;border:none;cursor:pointer;background:transparent;color:var(--text-sidebar);font-size:12px;font-family:inherit;width:100%;white-space:nowrap}
+.sidebar-footer button:hover{background:var(--bg-sidebar-hover)}
+
+/* MOBILE */
+.mobile-header{display:none;padding:12px 16px;border-bottom:1px solid var(--border-light);background:var(--bg-card);align-items:center;gap:12px}
+.mobile-header button{background:none;border:none;cursor:pointer;padding:4px;color:var(--text-primary)}
+.mobile-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99;display:none}
+.mobile-overlay.show{display:block}
+.sidebar-mobile{position:fixed;top:0;left:0;bottom:0;z-index:100;transform:translateX(-100%);transition:transform .25s ease}
+.sidebar-mobile.show{transform:translateX(0)}
+@media(max-width:768px){
+  .sidebar-desktop{display:none!important}
+  .mobile-header{display:flex!important}
+  .main-content{padding:20px 16px!important}
+  /* Boost small text by 2px on mobile for readability */
+  body{font-size:16px}
+  .stat-label{font-size:14px!important}
+  .card-body,.card,td,th{font-size:14px!important}
+  /* Bump anything explicitly small */
+  [style*="font-size:10px"]{font-size:12px!important}
+  [style*="font-size:11px"]{font-size:13px!important}
+  [style*="font-size:12px"]{font-size:14px!important}
+  [style*="font-size:13px"]{font-size:15px!important}
+}
+
+/* MAIN */
+.main-area{flex:1;min-width:0}
+.main-content{padding:32px 36px;max-width:1100px}
+
+/* ═══════════════════════════════════════
+   COMPONENTS
+   ═══════════════════════════════════════ */
+
+/* Cards */
+.card{background:var(--bg-card);border-radius:14px;border:1px solid var(--border-light);box-shadow:var(--shadow);overflow:hidden;transition:all .2s}
+
+/* Stat cards */
+.stat-grid{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:28px}
+.stat-card{background:var(--bg-card);border-radius:14px;padding:20px 22px;border:1px solid var(--border-light);box-shadow:var(--shadow);flex:1 1 140px;min-width:140px}
+.stat-label{font-size:12px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.stat-value{font-size:28px;font-weight:800;line-height:1.1}
+.stat-sub{font-size:12px;color:var(--text-secondary);margin-top:4px}
+
+/* Progress bars */
+.progress-wrap{position:relative}
+.progress-track{background:var(--bg-input);border-radius:99px;overflow:hidden}
+.progress-fill{height:100%;border-radius:99px;transition:width .6s ease}
+.progress-label{font-size:11px;color:var(--text-muted);margin-top:3px}
+
+/* Buttons */
+.btn{border:none;border-radius:10px;cursor:pointer;font-weight:600;font-family:inherit;transition:all .15s;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{filter:brightness(1.1)}
+.btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
+.btn-sm{padding:6px 14px;font-size:12px}
+.btn-md{padding:10px 20px;font-size:13px}
+.btn-lg{padding:14px 28px;font-size:15px}
+.btn-primary{background:var(--accent);color:var(--text-on-accent)}
+.btn-secondary{background:var(--bg-badge);color:var(--text-primary);border:1px solid var(--border)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-success{background:var(--success);color:#fff}
+.btn-ghost{background:transparent;color:var(--text-secondary)}
+.btn-ghost:hover{background:var(--bg-badge)}
+
+/* Inputs */
+.input{width:100%;padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:14px;outline:none;transition:border-color .2s}
+.input:focus{border-color:var(--accent)}
+.input-label{display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px}
+
+/* Badges */
+.rarity-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+.rarity-common{color:var(--rarity-common);background:rgba(138,133,120,.12);border:1px solid rgba(138,133,120,.25)}
+.rarity-uncommon{color:var(--rarity-uncommon);background:rgba(90,170,110,.12);border:1px solid rgba(90,170,110,.25)}
+.rarity-rare{color:var(--rarity-rare);background:rgba(80,144,212,.12);border:1px solid rgba(80,144,212,.25)}
+.rarity-epic{color:var(--rarity-epic);background:rgba(160,112,212,.12);border:1px solid rgba(160,112,212,.25)}
+.rarity-legendary{color:var(--rarity-legendary);background:rgba(212,136,78,.12);border:1px solid rgba(212,136,78,.25)}
+
+/* Tables */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 14px;border-bottom:2px solid var(--border);color:var(--text-muted);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.8px;white-space:nowrap}
+td{padding:12px 14px;color:var(--text-primary);white-space:nowrap;border-bottom:1px solid var(--border-light)}
+tr:hover td{background:var(--bg-card-hover)}
+
+/* Section header */
+.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px}
+.section-title{font-size:20px;font-weight:800;color:var(--text-primary);letter-spacing:-.3px}
+
+/* Filter bar */
+.filter-bar{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;align-items:center}
+
+/* Tabs */
+.tab-bar{display:flex;gap:4px;margin-bottom:20px;background:var(--bg-input);border-radius:10px;padding:4px;width:fit-content}
+.tab-btn{padding:8px 18px;border-radius:8px;border:none;background:transparent;color:var(--text-muted);font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;transition:all .15s}
+.tab-btn.active{background:var(--bg-card);color:var(--text-primary);box-shadow:var(--shadow)}
+
+/* Grid layouts */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:768px){.two-col{grid-template-columns:1fr}.card-grid{grid-template-columns:1fr}}
+
+/* Card inner padding */
+.card-body{padding:22px}
+
+/* Reward tags */
+.reward-tag{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;display:inline-block;margin:2px}
+.reward-tag.accent{background:var(--accent-soft);color:var(--accent)}
+.reward-tag.success{background:var(--success-soft);color:var(--success)}
+
+/* Equipment row */
+.equip-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0}
+.equip-row .label{font-size:12px;color:var(--text-muted)}
+.equip-row .value{font-size:13px;font-weight:600;color:var(--text-primary)}
+
+/* Theme toggle switch */
+.theme-switch{width:56px;height:30px;border-radius:15px;border:none;cursor:pointer;position:relative;transition:background .2s}
+.theme-switch .knob{width:24px;height:24px;border-radius:12px;background:var(--bg-card);position:absolute;top:3px;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center;font-size:12px}
+
+/* Owned badge */
+.owned-badge{padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;background:var(--success-soft);color:var(--success)}
+
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px;color:var(--text-muted)}
+.empty-state .icon{font-size:48px;margin-bottom:12px;opacity:.3}
+.empty-state .title{font-size:16px;font-weight:600;color:var(--text-secondary);margin-bottom:6px}
+
+/* Rod stats mini grid */
+.rod-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:var(--text-secondary);margin-bottom:14px}
+.rod-stats strong{color:var(--text-primary)}
+
+/* Journal unknown */
+.journal-unknown{opacity:.35}
+
+/* ═══════════════════════════════════════
+   EMBED MODE (HUD media prim)
+   Full mobile-style layout. No sidebar.
+   Big text, big buttons, single column.
+   ═══════════════════════════════════════ */
+html.embed body{font-size:28px;line-height:1.4;overflow-x:hidden}
+html.embed #app{display:block;min-height:100vh}
+html.embed .sidebar-desktop,
+html.embed .sidebar-mobile,
+html.embed .mobile-overlay,
+html.embed .mobile-header{display:none!important}
+html.embed .main-area{margin:0;width:100%}
+html.embed .main-content{padding:30px 24px!important;max-width:100%}
+html.embed .login-wrap{min-height:100vh}
+html.embed .login-card{padding:50px 40px;max-width:90%;border-radius:20px}
+html.embed .login-card h1{font-size:42px}
+html.embed .login-card .sub{font-size:24px;margin-bottom:30px}
+html.embed .login-card .fish-icon{font-size:60px;margin-bottom:16px}
+html.embed .input{padding:20px 22px;font-size:26px;border-radius:12px;margin-bottom:8px}
+html.embed .input-label{font-size:20px;margin-bottom:8px}
+html.embed .input-group{margin-bottom:20px}
+html.embed .btn{padding:16px 24px;font-size:26px;border-radius:12px}
+html.embed .btn-sm{padding:12px 18px;font-size:22px}
+html.embed .section-header{margin-bottom:20px}
+html.embed .section-header h2,
+html.embed h1{font-size:38px!important}
+html.embed h2{font-size:32px!important}
+html.embed h3{font-size:26px!important}
+html.embed p{font-size:24px}
+html.embed .card{border-radius:14px;margin-bottom:16px}
+html.embed .card-body{padding:20px 22px}
+html.embed .card-grid{grid-template-columns:1fr 1fr!important;gap:14px}
+html.embed .stat-grid{grid-template-columns:1fr 1fr!important;gap:12px}
+html.embed .stat-value{font-size:36px}
+html.embed .stat-label{font-size:18px}
+html.embed .two-col{grid-template-columns:1fr!important;gap:14px}
+html.embed .tab-bar{gap:6px;margin-bottom:16px}
+html.embed .tab-btn{padding:12px 20px;font-size:24px;border-radius:10px}
+html.embed .filter-bar{gap:6px;margin-bottom:14px;flex-wrap:wrap}
+html.embed .filter-bar .btn{font-size:20px;padding:10px 16px}
+html.embed table{font-size:22px}
+html.embed th{padding:12px 14px;font-size:18px}
+html.embed td{padding:12px 14px}
+html.embed .reward-tag{font-size:18px;padding:6px 12px}
+html.embed .progress-wrap{height:12px!important;border-radius:6px!important}
+html.embed .nav-embed{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;padding:0 0 16px;border-bottom:2px solid var(--border)}
+html.embed .nav-embed-btn{padding:14px 20px;border:none;border-radius:10px;cursor:pointer;font:inherit;font-size:22px;font-weight:600;background:var(--bg-card);color:var(--text-secondary);transition:.15s}
+html.embed .nav-embed-btn:hover{background:var(--bg-card-hover)}
+html.embed .nav-embed-btn.active{background:var(--accent-soft);color:var(--accent);font-weight:700}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CONFIG — CHANGE THIS TO YOUR API PATH
+// ═══════════════════════════════════════════════
+const API_BASE = '/fishing/api/';
+
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+const state = {
+  loggedIn: false, page: 'dashboard', sidebarCollapsed: false, mobileOpen: false,
+  theme: localStorage.getItem('fishing_theme') || 'dark', loading: false, toast: null,
+  // Data from server
+  player: null, profile: null, fishInventory: [], baitInventory: [], ownedRods: [],
+  quests: { active: [], available: [], completed: [] },
+  shop: { bait: [], rods: [] }, leaderboards: {}, collection: null, catchLog: [], titles: [],
+  // UI
+  fishFilter: 'all', fishSort: 'caught_at', questTab: 'active', shopTab: 'bait', leaderboardTab: 'biggest',
+  pairedDevices: [], pairingCode: '',
+  mySpots: [], spotStats: { used: 0, limit: 3 },
+  myLines: [], rodGallery: [], buffInventory: [], trophyFish: [], pairAttempts: [],
+  faqs: [], questionSent: false,
+};
+
+// ═══════════════════════════════════════════════
+// SVG ICONS
+// ═══════════════════════════════════════════════
+const icons = {
+  dashboard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>',
+  fish: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.46-3.44 6-7 6-3.56 0-7.56-2.54-8.5-6z"/><path d="M2 12h4"/></svg>',
+  bait: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>',
+  quest: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
+  shop: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
+  trophy: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M6 2h12v7a6 6 0 0 1-12 0V2z"/></svg>',
+  journal: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+  log: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/></svg>',
+  settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.18V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  sun: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
+  moon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+  menu: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>',
+  collapse: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>',
+  expand: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>',
+};
+
+// ═══════════════════════════════════════════════
+// DOM HELPERS
+// ═══════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const h = (tag, attrs, ...children) => {
+  const el = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k,v]) => {
+    if (k === 'class') el.className = v;
+    else if (k === 'html') el.innerHTML = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
+    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else el.setAttribute(k, v);
+  });
+  children.flat(Infinity).forEach(c => { if (c != null) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+  return el;
+};
+function rarityBadge(r) { return h('span', { class: `rarity-badge rarity-${r}` }, r); }
+function progressBar(val, max, ht, col) { ht=ht||8; col=col||'linear-gradient(90deg,var(--accent),var(--warning))'; const p=Math.min(100,(val/Math.max(1,max))*100); return h('div',{class:'progress-wrap'},h('div',{class:'progress-track',style:{height:ht+'px'}},h('div',{class:'progress-fill',style:{width:p+'%',background:col,height:'100%'}}))); }
+function medals(i) { return ['🥇','🥈','🥉'][i] || (i+1); }
+function statCard(l, v, s, a) { return h('div',{class:'stat-card'},h('div',{class:'stat-label'},l),h('div',{class:'stat-value',style:{color:a||'var(--text-primary)'}},String(v)),s?h('div',{class:'stat-sub'},s):null); }
+function equipRow(l, v) { return h('div',{class:'equip-row'},h('span',{class:'label'},l),h('span',{class:'value'},v)); }
+function setTheme(t) { state.theme=t; document.documentElement.setAttribute('data-theme',t); localStorage.setItem('fishing_theme',t); }
+function toggleTheme() { setTheme(state.theme==='dark'?'light':'dark'); render(); }
+function loadingMsg() { return h('div',{style:{textAlign:'center',padding:'60px',color:'var(--text-muted)'}},h('div',{style:{fontSize:'24px',marginBottom:'10px'}},'🎣'),h('div',null,'Loading...')); }
+function emptyMsg(t) { return h('div',{class:'empty-state'},h('div',{class:'icon'},'🐟'),h('div',{class:'title'},t||'Nothing here yet'),h('div',null,'Data will appear once you start fishing in-world.')); }
+
+function showToast(msg, isError) {
+  state.toast = { msg, isError };
+  render();
+  setTimeout(() => { state.toast = null; render(); }, 3000);
+}
+
+function setPage(page) { state.page = page; state.mobileOpen = false; render(); loadPageData(page); }
+
+// ═══════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════
+// Embed auth credentials (populated from URL params in embed mode)
+let embedAuth = null;
+
+async function api(action, params = {}) {
+  // In embed mode, include the auth token with every request
+  if (embedAuth) {
+    params._embed_token_id = embedAuth.tokenId;
+    params._embed_sig = embedAuth.sig;
+    params._embed_ts = embedAuth.ts;
+  }
+  const body = new URLSearchParams({ action, ...params });
+  try {
+    const res = await fetch(API_BASE, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, credentials:'include', body });
+    return await res.json();
+  } catch (e) { console.error('API error:', e); return { success:false, error:'Connection failed' }; }
+}
+
+// ═══════════════════════════════════════════════
+// DATA LOADING
+// ═══════════════════════════════════════════════
+async function loadDashboard() {
+  const r = await api('web_dashboard');
+  if (r.success) {
+    state.profile = r; state.player = r.player;
+    // Pop pair flash messages if session was restored from cookie
+    if (sessionStorage.getItem('flashPaired') === '1') {
+      sessionStorage.removeItem('flashPaired');
+      showToast('HUD paired successfully!');
+    }
+    if (sessionStorage.getItem('flashPairPending') === '1') {
+      sessionStorage.removeItem('flashPairPending');
+      const claim = await api('web_claim_pending_pair');
+      if (claim.success) showToast('HUD paired automatically!');
+    }
+  }
+  const q = await api('web_quest_active');
+  if (q.success) state.quests.active = q.quests || [];
+  const c = await api('web_collection');
+  if (c.success) state.collection = c;
+  render();
+}
+async function loadFishInventory() {
+  const r = await api('web_fish_inventory', { sort: state.fishSort, order: state.fishSort==='caught_at'?'DESC':'DESC', limit:'200' });
+  if (r.success) state.fishInventory = r.fish || [];
+  render();
+}
+async function loadBaitInventory() {
+  const r = await api('web_bait_inventory');
+  if (r.success) state.baitInventory = r.bait || [];
+  render();
+}
+async function loadQuests() {
+  const [a, v, c] = await Promise.all([api('web_quest_active'), api('web_quest_available'), api('web_quest_completed')]);
+  if (a.success) state.quests.active = a.quests || [];
+  if (v.success) state.quests.available = v.quests || [];
+  if (c.success) state.quests.completed = c.quests || [];
+  // If user has no active quests, default to the available tab so they can pick one
+  if ((state.quests.active || []).length === 0 && state.questTab === 'active') {
+    state.questTab = 'available';
+  }
+  render();
+}
+async function loadShop() {
+  const r = await api('web_shop');
+  if (r.success) { state.shop.bait = r.bait || []; state.shop.rods = r.rods || []; }
+  const o = await api('web_rods');
+  if (o.success) state.ownedRods = o.rods || [];
+  const l = await api('web_list_lines');
+  if (l.success) state.myLines = l.lines || [];
+  const b = await api('buff_items');
+  if (b.success) state.shop.buffItems = (b.buff_items||[]).filter(i=>i.source==='shop'&&i.shop_price>0);
+  state.shop.transactions = state.shop.transactions || [];
+  render();
+}
+
+async function loadShopTransactions() {
+  const r = await api('web_shop_transactions');
+  if (r.success) state.shop.transactions = r.transactions || [];
+  render();
+}
+
+async function buyBuff(buffItemId) {
+  const r = await api('web_buff_buy', { buff_item_id: String(buffItemId) });
+  if (r.success) { showToast(r.message); loadShop(); loadTackle(); loadDashboard(); }
+  else showToast(r.error, true);
+}
+async function loadLeaderboards() {
+  const tab = state.leaderboardTab;
+  if (tab === 'biggest') { const r = await api('leaderboard_biggest'); if (r.success) state.leaderboards.biggest = r.leaderboard || []; }
+  else { const r = await api('leaderboard_catches', { period:'alltime' }); if (r.success) state.leaderboards.catches = r.leaderboard || []; }
+  render();
+}
+async function loadJournal() {
+  const r = await api('web_collection');
+  if (r.success) state.collection = r;
+  render();
+}
+async function loadCatchLog() {
+  const r = await api('web_catch_log', { limit:'100' });
+  if (r.success) state.catchLog = r.log || [];
+  render();
+}
+async function loadPairedDevices() {
+  const r = await api('web_paired_devices');
+  if (r.success) state.pairedDevices = r.devices || [];
+  render();
+}
+async function pairHud() {
+  const code = state.pairingCode.trim();
+  if (!code || code.length < 6) { showToast('Enter a valid 6-digit code', true); return; }
+  const r = await api('web_pair_claim', { code, device_name: 'HUD' });
+  if (r.success) { showToast('HUD paired successfully!'); state.pairingCode = ''; loadPairedDevices(); }
+  else { showToast(r.error || 'Pairing failed', true); }
+}
+async function revokeDevice(deviceId) {
+  if (!confirm('Revoke this device? The HUD will need to re-pair.')) return;
+  const r = await api('web_revoke_device', { device_id: String(deviceId) });
+  if (r.success) { showToast('Device revoked'); loadPairedDevices(); }
+  else { showToast(r.error, true); }
+}
+async function loadMySpots() {
+  const r = await api('web_my_spots');
+  if (r.success) { state.mySpots = r.spots || []; state.spotStats = r.stats || { used: 0, limit: 3 }; }
+  render();
+}
+
+async function loadTackle() {
+  loadBaitInventory();
+  loadMyLines();
+  loadBuffInventory();
+}
+
+async function loadBuffInventory() {
+  const r = await api('web_buff_inventory');
+  if (r.success) state.buffInventory = r.buff_inventory || [];
+  render();
+}
+
+async function loadTrophy() {
+  const r = await api('web_trophy_list');
+  if (r.success) state.trophyFish = r.saved_fish || [];
+  render();
+}
+
+async function saveFish(fishId) {
+  const note = prompt('Add a note for this fish (optional):') || '';
+  const r = await api('web_trophy_save', { fish_id: String(fishId), note });
+  if (r.success) { showToast(r.message); loadFishInventory(); loadTrophy(); }
+  else showToast(r.error, true);
+}
+
+async function returnFishToInventory(savedId) {
+  const r = await api('web_trophy_return', { saved_id: String(savedId) });
+  if (r.success) { showToast(r.message); loadTrophy(); loadFishInventory(); }
+  else showToast(r.error, true);
+}
+
+async function updateTrophyNote(savedId) {
+  const note = prompt('Edit note:') || '';
+  const r = await api('web_trophy_note', { saved_id: String(savedId), note });
+  if (r.success) { showToast('Note updated'); loadTrophy(); }
+  else showToast(r.error, true);
+}
+
+async function loadMyLines() {
+  const r = await api('web_list_lines');
+  if (r.success) { state.myLines = r.lines || []; }
+  render();
+}
+
+async function loadRodGallery() {
+  const r = await api('list_rods');
+  if (r.success) { state.rodGallery = r.rods || []; }
+  render();
+}
+
+async function loadHelp() {
+  const r = await api('get_faq');
+  if (r.success) { state.faqs = r.faqs || []; }
+  state.questionSent = false;
+  render();
+}
+
+async function submitQuestion() {
+  const el = document.getElementById('help-question');
+  if (!el) return;
+  const q = el.value.trim();
+  if (q.length < 5) { showToast('Please write a longer question', true); return; }
+  const r = await api('submit_question', { question: q });
+  if (r.success) { state.questionSent = true; showToast('Question submitted!'); render(); }
+  else showToast(r.error, true);
+}
+
+async function equipLine(lineId) {
+  const r = await api('web_line_equip', { line_id: String(lineId) });
+  if (r.success) {
+    showToast('Line equipped: ' + (r.line ? r.line.name : ''));
+    if (state.profile) state.profile.equipped_line = r.line;
+    loadMyLines();
+  } else {
+    showToast(r.error, true);
+  }
+}
+
+async function buyLine(lineId) {
+  const r = await api('web_line_buy', { line_id: String(lineId) });
+  if (r.success) {
+    showToast(r.message);
+    if (state.player && typeof r.points_remaining === 'number') {
+      state.player.fishing_points = r.points_remaining;
+    }
+    loadMyLines();
+    loadDashboard();
+  } else {
+    showToast(r.error, true);
+  }
+}
+async function renameSpot(spotId, currentName) {
+  const newName = prompt('New name for this spot:', currentName);
+  if (!newName || newName === currentName) return;
+  const r = await api('web_spot_rename', { spot_id: String(spotId), name: newName });
+  if (r.success) { showToast('Spot renamed'); loadMySpots(); }
+  else showToast(r.error, true);
+}
+async function toggleSpot(spotId, active) {
+  const r = await api('web_spot_toggle', { spot_id: String(spotId), active: active ? '1' : '0' });
+  if (r.success) { showToast(active ? 'Spot activated' : 'Spot deactivated'); loadMySpots(); }
+  else showToast(r.error, true);
+}
+async function deleteSpot(spotId) {
+  if (!confirm('Delete this spot? The in-world object will re-register as a new spot if reset.')) return;
+  const r = await api('web_spot_delete', { spot_id: String(spotId) });
+  if (r.success) { showToast('Spot deleted'); loadMySpots(); }
+  else showToast(r.error, true);
+}
+async function loadSettings() {
+  const r = await api('web_titles');
+  if (r.success) state.titles = r.titles || [];
+  loadPairedDevices();
+  loadPairAttempts();
+  loadMySpots();
+  render();
+}
+
+async function loadPairAttempts() {
+  const r = await api('web_pair_attempts');
+  if (r.success) state.pairAttempts = r.attempts || [];
+  render();
+}
+
+async function restartTutorial() {
+  if (!confirm('Restart the tutorial? Touch your HUD afterward to begin again.')) return;
+  const r = await api('web_tutorial_restart');
+  if (r.success) showToast(r.message || 'Tutorial reset');
+  else showToast(r.error || 'Failed', true);
+}
+
+function loadPageData(page) {
+  const loaders = { dashboard:loadDashboard, fish:loadFishInventory, tackle:loadTackle, quests:loadQuests, shop:loadShop, leaderboards:loadLeaderboards, map:loadMapGrids, trophy:loadTrophy, journal:loadJournal, log:loadCatchLog, settings:loadSettings, rods:loadRodGallery, help:loadHelp };
+  if (loaders[page]) loaders[page]();
+}
+
+// ═══════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════
+async function doLogin() {
+  const user = $('login-user').value.trim();
+  const pass = $('login-pass').value;
+  if (!user || !pass) { showLoginError('Enter username and password'); return; }
+  const btn = $('login-btn'); if(btn) { btn.disabled=true; btn.textContent='Signing in...'; }
+  const r = await api('web_login', { username: user, password: pass });
+  if (r.success) {
+    state.loggedIn = true;
+    state.player = r.player;
+
+    // If user was redirected from /pair before logging in, claim it now
+    if (sessionStorage.getItem('flashPairPending') === '1') {
+      sessionStorage.removeItem('flashPairPending');
+      const claim = await api('web_claim_pending_pair');
+      if (claim.success) {
+        showToast('HUD paired automatically!');
+      } else {
+        showToast(claim.error || 'Pairing claim failed', true);
+      }
+    }
+    if (sessionStorage.getItem('flashPaired') === '1') {
+      sessionStorage.removeItem('flashPaired');
+      showToast('HUD paired successfully!');
+    }
+
+    const pendingPair = sessionStorage.getItem('pendingPairCode');
+    if (pendingPair) {
+      sessionStorage.removeItem('pendingPairCode');
+      state.pairingCode = pendingPair;
+      state.page = 'settings';
+      render();
+      loadPageData('settings');
+      setTimeout(() => pairHud(), 800);
+    } else {
+      render();
+      loadPageData('dashboard');
+    }
+  } else {
+    showLoginError(r.error || 'Login failed');
+    if(btn) { btn.disabled=false; btn.textContent='Sign In'; }
+  }
+}
+
+async function doLogout() {
+  await api('web_logout');
+  state.loggedIn = false; state.player = null; state.profile = null;
+  render();
+}
+
+async function sellFish(fishIds) {
+  const r = await api('web_fish_sell', { fish_ids: JSON.stringify(fishIds) });
+  if (r.success) { showToast(r.message); loadFishInventory(); loadDashboard(); }
+  else showToast(r.error || 'Sell failed', true);
+}
+
+async function sellByRarity(rarityId) {
+  const isEmbed = document.documentElement.classList.contains('embed');
+  if (!isEmbed && !confirm('Sell all fish of this rarity? Check quests first!')) return;
+  const r = await api('web_fish_sell_rarity', { rarity_id: String(rarityId) });
+  if (r.success) { showToast(r.message); loadFishInventory(); loadDashboard(); }
+  else showToast(r.error || 'No fish to sell', true);
+}
+
+async function equipBait(baitId) {
+  const r = await api('web_bait_equip', { bait_id: String(baitId) });
+  if (r.success) { showToast('Equipped ' + (r.bait_name||'bait')); loadBaitInventory(); loadDashboard(); }
+  else showToast(r.error, true);
+}
+
+async function buyBait(baitId, bundles) {
+  const r = await api('web_shop_buy_bait', { bait_id: String(baitId), bundles: String(bundles) });
+  if (r.success) { showToast(r.message); loadShop(); loadDashboard(); }
+  else showToast(r.error, true);
+}
+
+async function buyRod(rodId) {
+  const r = await api('web_shop_buy_rod', { rod_id: String(rodId) });
+  if (r.success) { showToast(r.message); loadShop(); loadDashboard(); }
+  else showToast(r.error, true);
+}
+
+async function equipRod(rodId) {
+  const r = await api('web_rod_equip', { rod_id: String(rodId) });
+  if (r.success) { showToast('Rod equipped!'); loadShop(); loadDashboard(); }
+  else showToast(r.error, true);
+}
+
+async function acceptQuest(questId) {
+  const r = await api('web_quest_accept', { quest_id: String(questId) });
+  if (r.success) { showToast(r.message); loadQuests(); }
+  else showToast(r.error, true);
+}
+
+async function abandonQuest(playerQuestId) {
+  if (!confirm('Abandon this quest? Fish will be returned.')) return;
+  const r = await api('web_quest_abandon', { player_quest_id: String(playerQuestId) });
+  if (r.success) { showToast(r.message); loadQuests(); }
+  else showToast(r.error, true);
+}
+
+async function claimQuest(playerQuestId) {
+  const r = await api('web_quest_claim', { player_quest_id: String(playerQuestId) });
+  if (r.success) {
+    showToast(r.message);
+    if (r.rewards && r.rewards.length) showToast('Rewards: ' + r.rewards.join(', '));
+    loadQuests(); loadDashboard();
+  }
+  else showToast(r.error, true);
+}
+
+async function activateTitle(titleId) {
+  const r = await api('web_title_activate', { title_id: String(titleId) });
+  if (r.success) { showToast('Title updated'); loadSettings(); loadDashboard(); }
+  else showToast(r.error, true);
+}
+
+async function changePassword() {
+  const cur = prompt('Current password:'); if (!cur) return;
+  const np = prompt('New password (min 6 chars):'); if (!np) return;
+  const r = await api('web_change_password', { current_password: cur, new_password: np });
+  if (r.success) showToast('Password changed');
+  else showToast(r.error, true);
+}
+
+function showLoginError(msg) { const el=$('login-error'); if(el){el.textContent=msg; el.style.display='block';} }
+
+// ═══════════════════════════════════════════════
+// RENDER: LOGIN
+// ═══════════════════════════════════════════════
+function renderLogin() {
+  const app=$('app'); app.innerHTML='';
+  app.appendChild(h('div',{class:'login-wrap'},
+    h('div',{class:'theme-btn-corner'},h('button',{class:'btn btn-secondary btn-sm',onClick:toggleTheme,html:(state.theme==='dark'?icons.sun:icons.moon)+' '+(state.theme==='dark'?'Light':'Dark')})),
+    h('div',{class:'login-card'},
+      h('div',{class:'fish-icon'},'🎣'),
+      h('h1',null,'OSFishing'),
+      h('p',{class:'sub'},'Sign in to your fishing portal'),
+      h('div',{style:{background:'var(--warning-bg,rgba(255,180,0,0.12))',border:'1px solid var(--warning,#f0a500)',borderRadius:'8px',padding:'10px 14px',marginBottom:'16px',fontSize:'12px',color:'var(--text-secondary)',textAlign:'left',lineHeight:'1.5'}},
+        h('span',{style:{fontWeight:700,color:'var(--warning,#f0a500)'}},'⚠️ New Account Required  '),
+        'This is a separate fishing game account — ',
+        h('strong',null,'do not use your grid login details.'),
+        ' Register below to create a new username and password just for OSFishing.'
+      ),
+      h('div',{style:{display:'flex',flexDirection:'column',gap:'14px',textAlign:'left',marginTop:'8px'}},
+        h('div',null,h('label',{class:'input-label'},'Username'),h('input',{class:'input',id:'login-user',placeholder:'Your username',type:'text'})),
+        h('div',null,h('label',{class:'input-label'},'Password'),h('input',{class:'input',id:'login-pass',placeholder:'Your password',type:'password'})),
+        h('div',{id:'login-error',style:{color:'var(--danger)',fontSize:'13px',display:'none'}}),
+        h('button',{class:'btn btn-primary btn-lg',id:'login-btn',style:{width:'100%',justifyContent:'center',marginTop:'8px'},onClick:doLogin},'Sign In'),
+        h('div',{style:{textAlign:'center',fontSize:'12px',color:'var(--text-muted)',marginTop:'4px'}},
+          'No account? ',
+          h('a',{href:'#',style:{color:'var(--accent)'},onClick:e=>{e.preventDefault();showPage('settings');}},'Register in Settings'),
+          ' after pairing your HUD.'
+        )
+      )
+    )
+  ));
+  $('login-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+  $('login-user').addEventListener('keydown', e => { if(e.key==='Enter') $('login-pass').focus(); });
+}
+
+// ═══════════════════════════════════════════════
+// RENDER: SIDEBAR
+// ═══════════════════════════════════════════════
+function renderSidebar(mobile) {
+  const c = state.sidebarCollapsed && !mobile;
+  const navItems = [
+    {key:'dashboard',label:'Dashboard',icon:icons.dashboard},{key:'fish',label:'Fish Inventory',icon:icons.fish},
+    {key:'tackle',label:'Tackle',icon:icons.bait},{key:'rods',label:'Rods',icon:icons.fish},
+    {key:'quests',label:'Quests',icon:icons.quest},
+    {key:'trophy',label:'Trophy',icon:'🏆'},
+    {key:'shop',label:'Shop',icon:icons.shop},{key:'leaderboards',label:'Leaderboards',icon:icons.trophy},
+    {key:'map',label:'Grid Map',icon:'🗺️'},
+    {key:'journal',label:'Journal',icon:icons.journal},{key:'log',label:'Catch Log',icon:icons.log},
+    {key:'help',label:'Help',icon:icons.quest},
+    {key:'settings',label:'Settings',icon:icons.settings},
+  ];
+
+  // Quest notification indicators
+  const hasClaimable = (state.quests.active||[]).some(q=>{
+    const progress = q.progress||[];
+    return progress.length > 0 && progress.every(pr=>Number(pr.current_count)>=Number(pr.required_qty));
+  });
+  const hasAvailable = (state.quests.available||[]).length > 0;
+  let questBadge = null;
+  if (hasClaimable && hasAvailable) questBadge = '!';
+  else if (hasClaimable) questBadge = '!';
+  else if (hasAvailable) questBadge = '?';
+
+  return h('div',{class:'sidebar'+(c?' collapsed':'')},
+    h('div',{class:'sidebar-brand'},h('div',{class:'brand-icon'},'🎣'),h('div',{class:'brand-text'},h('h2',null,'OSFishing'),h('span',null,'Web Portal'))),
+    h('nav',{class:'sidebar-nav'},...navItems.map(item=>h('button',{class:'nav-item'+(state.page===item.key?' active':''),onClick:()=>setPage(item.key)},
+      h('span',{class:'nav-icon',html:item.icon}),
+      h('span',{class:'nav-label'},item.label),
+      item.key==='quests' && questBadge ? h('span',{style:{marginLeft:'auto',color:'#ffd700',fontWeight:900,fontSize:'14px',lineHeight:1}},questBadge) : null
+    ))),
+    h('div',{class:'sidebar-footer'},
+      !mobile?h('button',{onClick:()=>{state.sidebarCollapsed=!state.sidebarCollapsed;render();}},h('span',{html:c?icons.expand:icons.collapse}),...(c?[]:[' Collapse'])):null,
+      h('button',{onClick:toggleTheme},h('span',{html:state.theme==='dark'?icons.sun:icons.moon}),...(c?[]:[state.theme==='dark'?' Light Mode':' Dark Mode']))
+    )
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: DASHBOARD
+// ═══════════════════════════════════════════════
+function renderDashboard() {
+  const p = state.player;
+  if (!p) return loadingMsg();
+  const pr = state.profile || {};
+  const xpToNext = pr.xp_to_next || 0;
+  const nextLvl = pr.next_level || (p.level+1);
+  const rod = pr.equipped_rod;
+  const bait = pr.equipped_bait;
+  const col = state.collection || { caught_species:0, total_species:36, completion_pct:0 };
+  const activeQ = state.quests.active || [];
+  // XP bar: estimate progress within level
+  const xpNeeded = xpToNext > 0 ? xpToNext + 100 : 1000; // rough estimate
+  const xpInLevel = xpNeeded - xpToNext;
+  const catchRate = p.total_casts > 0 ? ((p.total_catches / p.total_casts) * 100).toFixed(1) : '0';
+
+  return h('div',{class:'fade-in'},
+    h('div',{style:{marginBottom:'28px'}},
+      h('h1',{style:{fontSize:'28px',fontWeight:900,letterSpacing:'-.5px'}},`Welcome back, ${p.display_name}`),
+      h('p',{style:{color:'var(--text-secondary)',fontSize:'14px',marginTop:'4px'}},`${pr.active_title||''} — Level ${p.level}`)
+    ),
+    h('div',{style:{marginBottom:'24px'}},
+      h('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:'6px'}},
+        h('span',{class:'stat-label',style:{marginBottom:0}},'Experience'),
+        h('span',{style:{fontSize:'12px',color:'var(--text-secondary)'}},`${p.xp} XP — ${xpToNext} to Level ${nextLvl}`)
+      ),
+      progressBar(xpInLevel, xpNeeded, 10)
+    ),
+    h('div',{class:'stat-grid'},
+      statCard('Fishing Points', p.fishing_points.toLocaleString(), null, 'var(--accent)'),
+      statCard('Total Catches', p.total_catches),
+      statCard('Total Casts', p.total_casts, `${catchRate}% catch rate`),
+      statCard('Fish Held', pr.held_fish || 0)
+    ),
+    h('div',{class:'two-col'},
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Equipment'),
+        equipRow('Rod', rod ? rod.name : 'None'),
+        equipRow('Line', pr.equipped_line ? `${pr.equipped_line.name} (${pr.equipped_line.weight_lb}lb)` : 'None'),
+        equipRow('Bait', bait ? `${bait.name} (${bait.quantity})` : 'None equipped')
+      )),
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Active Quests'),
+        ...(activeQ.length > 0 ? activeQ.slice(0,3).map((q,i) => {
+          const progress = q.progress || [];
+          // Sum all requirements for overall progress
+          const totalRequired = progress.reduce((s,p)=>s+Number(p.required_qty),0);
+          const totalCurrent = progress.reduce((s,p)=>s+Math.min(Number(p.current_count),Number(p.required_qty)),0);
+          // Use lowest % requirement as the bottleneck indicator
+          const allDone = totalRequired > 0 && totalCurrent >= totalRequired;
+          const color = allDone ? '#ffd700' : 'var(--info)';
+          return h('div',{style:{marginBottom:i<2?'12px':'0'}},
+            h('div',{style:{fontSize:'13px',fontWeight:600,marginBottom:'4px'}},q.title),
+            totalRequired > 0 ? progressBar(totalCurrent, totalRequired, 6, color) : null,
+            totalRequired > 0 ? h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}},`${totalCurrent}/${totalRequired}`) : null
+          );
+        }) : [h('div',{style:{fontSize:'13px',color:'var(--text-muted)'}},'No active quests. Visit the Quest Log to accept one!')])
+      ))
+    ),
+    h('div',{class:'card',style:{marginTop:'18px'}},h('div',{class:'card-body'},
+      h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Collection Progress'),
+      progressBar(col.caught_species, col.total_species, 10, 'var(--accent)'),
+      h('div',{style:{fontSize:'12px',color:'var(--text-secondary)',marginTop:'6px'}},`${col.caught_species} of ${col.total_species} species discovered (${col.completion_pct||0}%)`)
+    ))
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: FISH INVENTORY
+// ═══════════════════════════════════════════════
+function renderFishInventory() {
+  const filter = state.fishFilter, sort = state.fishSort;
+  let fish = (state.fishInventory||[]).filter(f => filter === 'all' || f.rarity_name === filter);
+  if (sort === 'weight') fish.sort((a,b) => b.weight - a.weight);
+  else if (sort === 'value') fish.sort((a,b) => (b.point_value||0) - (a.point_value||0));
+  const totalValue = fish.reduce((s,f) => s + (f.point_value||0), 0);
+
+  if (state.fishInventory.length === 0 && !state.loading) return h('div',{class:'fade-in'},h('div',{class:'section-header'},h('h2',{class:'section-title'},'Fish Inventory')),emptyMsg('No fish in your inventory'));
+
+  const filterBtns = ['all','common','uncommon','rare','epic','legendary'].map(r => h('button',{class:'btn btn-sm '+(filter===r?'btn-primary':'btn-secondary'),onClick:()=>{state.fishFilter=r;render();}},r==='all'?'All':r.charAt(0).toUpperCase()+r.slice(1)));
+  const sortBtns = ['caught_at','weight','value'].map(s => h('button',{class:'btn btn-sm '+(sort===s?'btn-primary':'btn-secondary'),onClick:()=>{state.fishSort=s;render();}},s==='caught_at'?'Recent':s.charAt(0).toUpperCase()+s.slice(1)));
+
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Fish Inventory'),h('span',{style:{fontSize:'13px',color:'var(--text-secondary)'},html:`Total value: <strong style="color:var(--accent)">${totalValue} pts</strong>`})),
+    h('div',{class:'filter-bar'},...filterBtns,h('div',{style:{marginLeft:'auto',display:'flex',gap:'6px'}},...sortBtns)),
+    h('div',{class:'card'},h('div',{class:'table-wrap'},h('table',null,
+      h('thead',null,h('tr',null,...['Species','Weight','Rarity','Spot','Bait','Value','Actions'].map(hd=>h('th',null,hd)))),
+      h('tbody',null,...fish.map(f=>h('tr',null,
+        h('td',{style:{fontWeight:600}},f.species_name),h('td',null,f.weight+' lbs'),h('td',null,rarityBadge(f.rarity_name)),
+        h('td',{style:{color:'var(--text-secondary)'}},f.spot_name||'—'),h('td',{style:{color:'var(--text-secondary)'}},f.bait_name||'—'),
+        h('td',null,h('span',{style:{fontWeight:700,color:'var(--accent)'}},(f.point_value||0)+' pts')),
+        h('td',null,h('button',{class:'btn btn-ghost btn-sm',onClick:()=>sellFish([f.id])},'Sell'),
+          h('button',{class:'btn btn-ghost btn-sm',style:{color:'#ffd700'},onClick:()=>saveFish(f.id)},'🏆')
+        )
+      )))
+    ))),
+    h('div',{style:{display:'flex',gap:'10px',marginTop:'16px'}},
+      h('button',{class:'btn btn-danger btn-sm',onClick:()=>sellByRarity(1)},'Sell All Common'),
+      h('button',{class:'btn btn-secondary btn-sm',onClick:()=>sellByRarity(2)},'Sell All Uncommon')
+    )
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: BAIT
+// ═══════════════════════════════════════════════
+function renderTackle() {
+  const bait = state.baitInventory || [];
+  const ownedLines = (state.myLines || []).filter(l => l.owned == 1);
+  const equipped = state.player ? state.player.equipped_bait_id : null;
+
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Tackle')),
+    h('p',{style:{color:'var(--text-muted)',fontSize:'13px',marginBottom:'24px'}},'Equip your bait and fishing line. Buy new lines from the Shop.'),
+
+    // ── BAIT SECTION ──
+    h('div',{style:{fontSize:'16px',fontWeight:700,marginBottom:'12px'}},'Bait'),
+    bait.length === 0 ? emptyMsg('No bait yet. Gather some in-world or buy from the shop!') :
+    h('div',{class:'card-grid',style:{marginBottom:'28px'}},...bait.map(b=>h('div',{class:'card',style:{border:equipped==b.id?'2px solid var(--accent)':''}},h('div',{class:'card-body'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+        h('div',null,h('div',{style:{fontSize:'15px',fontWeight:700}},b.name),h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}},b.description||'')),
+        h('div',{style:{fontSize:'22px',fontWeight:800,color:'var(--accent)',minWidth:'50px',textAlign:'right'}},String(b.quantity))
+      ),
+      b.gather_location ? h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginBottom:'10px'}},'Found at: '+b.gather_location) : null,
+      h('button',{class:'btn btn-sm '+(equipped==b.id?'btn-primary':'btn-secondary'),style:{width:'100%'},onClick:()=>equipBait(b.id)},equipped==b.id?'✓ Equipped':'Equip')
+    )))),
+
+    // ── LINE SECTION (owned only, card grid matching bait) ──
+    h('div',{style:{fontSize:'16px',fontWeight:700,marginBottom:'12px'}},'Fishing Line'),
+    ownedLines.length === 0 ? emptyMsg('No lines owned. Buy one from the Shop!') :
+    h('div',{class:'card-grid'},...ownedLines.map(l => {
+      const isEquipped = l.equipped == 1;
+      return h('div',{class:'card',style:{border:isEquipped?'2px solid var(--accent)':''}},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+          h('div',null,
+            h('div',{style:{fontSize:'15px',fontWeight:700}},l.name),
+            h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}},l.description||'')
+          ),
+          h('div',{style:{textAlign:'right',fontSize:'12px',whiteSpace:'nowrap'}},
+            h('div',{style:{fontWeight:700,color:'var(--accent)'}},l.weight_lb+'lb'),
+            h('div',{style:{fontSize:'10px',color:'var(--text-muted)'}},'Vis: '+l.visibility)
+          )
+        ),
+        h('button',{class:'btn btn-sm '+(isEquipped?'btn-primary':'btn-secondary'),style:{width:'100%'},onClick:()=>equipLine(l.id)},isEquipped?'✓ Equipped':'Equip')
+      ));
+    })),
+
+    // ── BUFF ITEMS SECTION ──
+    h('div',{style:{fontSize:'16px',fontWeight:700,marginBottom:'12px',marginTop:'28px'}},'Buff Items'),
+    h('p',{style:{color:'var(--text-muted)',fontSize:'12px',marginBottom:'12px'}},'Use these on fishing spots to boost everyone fishing there.'),
+    (!state.buffInventory || state.buffInventory.length === 0) ? emptyMsg('No buff items. Craft them at the butchering table, earn from quests, or buy from the shop.') :
+    h('div',{class:'card-grid'},...state.buffInventory.map(b=>h('div',{class:'card'},h('div',{class:'card-body'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+        h('div',null,
+          h('div',{style:{fontSize:'15px',fontWeight:700}},b.name),
+          h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}},b.description||'')
+        ),
+        h('div',{style:{fontSize:'22px',fontWeight:800,color:'var(--accent)',minWidth:'50px',textAlign:'right'}},String(b.quantity))
+      ),
+      h('div',{style:{display:'flex',gap:'8px',fontSize:'11px',color:'var(--text-muted)',marginTop:'4px'}},
+        h('span',null,'⏱ '+b.duration_mins+'min'),
+        h('span',null,'Source: '+b.source)
+      )
+    ))))
+  );
+}
+
+function renderRodGallery() {
+  const rods = state.rodGallery || [];
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Rod Collection')),
+    h('p',{style:{color:'var(--text-muted)',fontSize:'13px',marginBottom:'24px'}},'Fishing rods are cosmetic — they change the look of the rod your avatar holds but don\'t affect stats. Collect them all!'),
+    rods.length === 0 ? emptyMsg('No rods available') :
+    h('div',{class:'card-grid',style:{gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))'}},...rods.map(r=>h('div',{class:'card'},h('div',{class:'card-body',style:{textAlign:'center'}},
+      h('div',{style:{fontSize:'36px',marginBottom:'8px'}},'🎣'),
+      h('div',{style:{fontSize:'16px',fontWeight:700}},r.name),
+      h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'4px'}},
+        'Tier '+(r.tier||1)+' — Lvl '+(r.min_level||1)+'+'),
+      h('div',{style:{fontSize:'12px',color:'var(--text-secondary)',marginTop:'10px'}},r.description||''),
+      h('div',{style:{fontSize:'11px',marginTop:'14px',padding:'8px 12px',background:'var(--bg-input)',borderRadius:'6px',color:'var(--text-muted)'}},
+        (r.cost_points||0) > 0
+          ? '💰 Available at in-world shop — '+(r.cost_points||0)+' pts'
+          : '🎁 Quest reward or rare drop')
+    ))))
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: QUESTS
+// ═══════════════════════════════════════════════
+function renderQuests() {
+  const tab = state.questTab;
+  const activeQuests = state.quests.active || [];
+  const availableQuests = state.quests.available || [];
+
+  // Compute indicators
+  const claimable = activeQuests.filter(q=>{
+    const p = q.progress||[];
+    return p.length > 0 && p.every(pr=>Number(pr.current_count)>=Number(pr.required_qty));
+  });
+  const hasClaimable = claimable.length > 0;
+  const hasAvailable = availableQuests.length > 0;
+
+  const tabBar = h('div',{class:'tab-bar'},
+    h('button',{class:'tab-btn'+(tab==='active'?' active':''),onClick:()=>{state.questTab='active';render();}},
+      'Active ('+activeQuests.length+')',
+      hasClaimable ? h('span',{style:{color:'#ffd700',fontWeight:900,marginLeft:'4px'}},'!') : null
+    ),
+    h('button',{class:'tab-btn'+(tab==='available'?' active':''),onClick:()=>{state.questTab='available';render();}},
+      'Available',
+      hasAvailable ? h('span',{style:{color:'#ffd700',fontWeight:900,marginLeft:'4px'}},'?') : null
+    ),
+    h('button',{class:'tab-btn'+(tab==='completed'?' active':''),onClick:()=>{state.questTab='completed';render();}},'Completed')
+  );
+
+  // Sort active quests: claimable first
+  const sortedActive = [...activeQuests].sort((a,b)=>{
+    const aDone = (a.progress||[]).length>0 && (a.progress||[]).every(p=>Number(p.current_count)>=Number(p.required_qty));
+    const bDone = (b.progress||[]).length>0 && (b.progress||[]).every(p=>Number(p.current_count)>=Number(p.required_qty));
+    return bDone - aDone;
+  });
+
+  // ── Helpers ──
+  function repeatBadge(q) {
+    if (q.is_daily || q.repeat_type === 'daily')
+      return h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',background:'rgba(100,160,255,0.18)',color:'#7ec8e3',marginRight:'6px'}},'DAILY');
+    if (q.is_weekly || q.repeat_type === 'weekly')
+      return h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',background:'rgba(100,180,140,0.18)',color:'#81c784',marginRight:'6px'}},'WEEKLY');
+    return null;
+  }
+  function questCardStyle(q) {
+    if (q.is_daily || q.repeat_type === 'daily')
+      return {marginBottom:'14px',borderLeft:'3px solid #7ec8e3',background:'rgba(100,160,255,0.04)'};
+    if (q.is_weekly || q.repeat_type === 'weekly')
+      return {marginBottom:'14px',borderLeft:'3px solid #81c784',background:'rgba(100,180,140,0.04)'};
+    return {marginBottom:'14px'};
+  }
+  function tierBadge(q) {
+    if (!q.quest_tier || q.quest_tier < 2) return null;
+    return h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',background:'rgba(212,136,78,0.18)',color:'var(--accent)',marginRight:'4px'}},'T'+q.quest_tier);
+  }
+
+  let content;
+  if (tab === 'active') {
+    const qs = sortedActive;
+    content = qs.length ? qs.map(q => {
+      const progress = q.progress || [];
+      const allDone = progress.length > 0 && progress.every(pr => Number(pr.current_count) >= Number(pr.required_qty));
+      return h('div',{class:'card',style:{...questCardStyle(q),border:allDone?'2px solid #ffd700':''}},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'10px'}},
+          h('div',null,
+            h('div',{style:{display:'flex',alignItems:'center',gap:'4px',marginBottom:'4px'}},
+              repeatBadge(q), tierBadge(q),
+              h('span',{style:{fontSize:'16px',fontWeight:700}},q.title)
+            ),
+            h('div',{style:{fontSize:'13px',color:'var(--text-secondary)'}},q.description)
+          ),
+          h('div',{style:{display:'flex',gap:'6px'}},
+            allDone ? h('button',{class:'btn btn-primary btn-sm',style:{fontWeight:700},onClick:()=>claimQuest(q.id)},'✨ Claim!') : null,
+            h('button',{class:'btn btn-danger btn-sm',onClick:()=>abandonQuest(q.id)},'Abandon')
+          )
+        ),
+        ...progress.map(pr=>h('div',{style:{marginBottom:'8px'}},
+          h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',color:'var(--text-muted)',marginBottom:'4px'}},
+            h('span',null,pr.req_description || pr.fish_name || 'Requirement'),
+            h('span',{style:{fontWeight:700,color:Number(pr.current_count)>=Number(pr.required_qty)?'var(--success)':''}},`${pr.current_count} / ${pr.required_qty}`)
+          ),
+          progressBar(pr.current_count, pr.required_qty, 8, Number(pr.current_count)>=Number(pr.required_qty)?'var(--success)':'var(--info)')
+        )),
+        q.rewards ? h('div',{style:{display:'flex',gap:'6px',marginTop:'12px',flexWrap:'wrap'}},...(Array.isArray(q.rewards)?q.rewards:[]).map(r=>h('span',{class:'reward-tag accent'},typeof r==='string'?r:r.description||'Reward'))) : null
+      ));
+    }) : [emptyMsg('No active quests')];
+  } else if (tab === 'available') {
+    const qs = state.quests.available || [];
+    content = qs.length ? qs.map(q => h('div',{class:'card',style:questCardStyle(q)},h('div',{class:'card-body'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
+        h('div',null,
+          h('div',{style:{display:'flex',alignItems:'center',gap:'4px',marginBottom:'4px'}},
+            repeatBadge(q), tierBadge(q),
+            h('span',{style:{fontSize:'16px',fontWeight:700}},q.title)
+          ),
+          h('div',{style:{fontSize:'13px',color:'var(--text-secondary)',marginTop:'2px'}},q.description),
+          h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'4px'}},`Requires Level ${q.min_level}`),
+          q.rewards ? h('div',{style:{display:'flex',gap:'6px',marginTop:'8px',flexWrap:'wrap'}},...(Array.isArray(q.rewards)?q.rewards:[]).map(r=>h('span',{class:'reward-tag success'},typeof r==='string'?r:r.description||'Reward'))) : null
+        ),
+        h('button',{class:'btn btn-primary btn-sm',onClick:()=>acceptQuest(q.id),...(state.player&&state.player.level<q.min_level?{disabled:'true'}:{})},'Accept')
+      )
+    ))) : [emptyMsg('No quests available at your level')];
+  } else {
+    const qs = state.quests.completed || [];
+    content = qs.length ? [h('div',{class:'card'},h('div',{class:'table-wrap'},h('table',null,
+      h('thead',null,h('tr',null,h('th',null,'Quest'),h('th',null,'Type'),h('th',null,'Times'),h('th',null,'Last Completed'))),
+      h('tbody',null,...qs.map(q=>h('tr',null,
+        h('td',{style:{fontWeight:600}},
+          h('div',{style:{display:'flex',alignItems:'center',gap:'4px'}},
+            repeatBadge(q), q.title
+          )
+        ),
+        h('td',null,q.repeat_type==='daily'?'Daily':q.repeat_type==='weekly'?'Weekly':'One-time'),
+        h('td',{style:{fontWeight:700,color:'var(--accent)',textAlign:'center'}},
+          (q.repeat_type && q.repeat_type !== 'none' && q.times_completed > 1)
+            ? '×'+q.times_completed : '—'
+        ),
+        h('td',{style:{color:'var(--text-muted)',fontSize:'12px'}},q.completed_at ? q.completed_at.slice(0,16) : '—')
+      )))
+    )))] : [emptyMsg('No completed quests yet')];
+  }
+  return h('div',{class:'fade-in'},h('div',{class:'section-header'},h('h2',{class:'section-title'},'Quest Log')),tabBar,...content);
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: SHOP
+// ═══════════════════════════════════════════════
+function renderShop() {
+  const tab = state.shopTab, pts = state.player ? state.player.fishing_points : 0;
+  const lvl = state.player ? state.player.level : 1;
+  const tabBar = h('div',{class:'tab-bar'},...['bait','lines','rods','buffs','transactions'].map(t=>h('button',{class:'tab-btn'+(tab===t?' active':''),onClick:()=>{state.shopTab=t;if(t==='transactions')loadShopTransactions();render();}},t==='bait'?'Bait':t==='lines'?'Line':t==='rods'?'Rods':t==='buffs'?'Buffs':'History')));
+  let content;
+
+  if (tab === 'bait') {
+    const items = state.shop.bait || [];
+    content = items.length ? h('div',{class:'card-grid'},...items.map(b=>h('div',{class:'card'},h('div',{class:'card-body'},
+      h('div',{style:{fontSize:'15px',fontWeight:700,marginBottom:'4px'}},b.name),
+      h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}},`${b.shop_quantity} per bundle`),
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        h('span',{style:{fontSize:'18px',fontWeight:800,color:'var(--accent)'}},`${b.shop_price} pts`),
+        h('div',{style:{display:'flex',gap:'6px'}},
+          h('button',{class:'btn btn-primary btn-sm',onClick:()=>buyBait(b.id,1)},'Buy x1'),
+          h('button',{class:'btn btn-secondary btn-sm',onClick:()=>buyBait(b.id,5)},'Buy x5')))
+    )))) : emptyMsg('Shop is empty');
+
+  } else if (tab === 'lines') {
+    const lines = (state.myLines || []).filter(l => Number(l.cost_points) > 0 || l.owned != 1);
+    content = lines.length ? h('div',{class:'card-grid'},...lines.map(l => {
+      const affordable = pts >= Number(l.cost_points||0);
+      const levelOk = lvl >= Number(l.min_level||0);
+      const owned = l.owned == 1;
+      return h('div',{class:'card',style:{opacity:(!owned&&!levelOk)?'.5':'1'}},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+          h('div',null,
+            h('div',{style:{fontSize:'15px',fontWeight:700}},l.name),
+            h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}},l.description||'')
+          ),
+          owned ? h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 8px',borderRadius:'4px',background:'var(--success-soft)',color:'var(--success)'}},'OWNED') : null
+        ),
+        h('div',{style:{fontSize:'12px',color:'var(--text-secondary)',marginBottom:'10px'}},
+          l.weight_lb+'lb strength • Visibility: '+l.visibility+' • Lvl '+l.min_level+'+'),
+        !owned
+          ? h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+              h('span',{style:{fontSize:'18px',fontWeight:800,color:'var(--accent)'}},l.cost_points+' pts'),
+              h('button',{class:'btn btn-primary btn-sm',...((!affordable||!levelOk)?{disabled:true}:{}),onClick:()=>buyLine(l.id)},
+                !levelOk?'Requires Lvl '+l.min_level:!affordable?'Need '+l.cost_points+' pts':'Buy'))
+          : null
+      ));
+    })) : emptyMsg('All lines purchased!');
+
+  } else {
+    const items = state.shop.rods || [];
+    const ownedIds = (state.ownedRods||[]).map(r => r.id);
+    content = items.length ? h('div',{class:'card-grid',style:{gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))'}},...items.map(r=>{
+      const locked = state.player && state.player.level < r.min_level;
+      const owned = ownedIds.includes(r.id);
+      return h('div',{class:'card',style:{opacity:locked?'.5':'1'}},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+          h('div',null,h('div',{style:{fontSize:'16px',fontWeight:700}},r.name),h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},`Tier ${r.tier} — Requires Lvl ${r.min_level}`)),
+          owned ? h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 8px',borderRadius:'4px',background:'var(--success-soft)',color:'var(--success)'}},'Owned') : null
+        ),
+        h('div',{class:'rod-stats'},h('div',{html:`Range: <strong>${r.cast_range}m</strong>`}),h('div',{html:`Reel: <strong>${r.reel_speed}x</strong>`}),h('div',{html:`Line: <strong>${r.line_strength} str</strong>`})),
+        !owned
+          ? h('button',{class:'btn btn-primary btn-sm',style:{width:'100%'},onClick:()=>buyRod(r.id),...(locked?{disabled:'true'}:{})},locked?`Locked (Lvl ${r.min_level})`:`Buy — ${r.shop_price} pts`)
+          : h('button',{class:'btn btn-secondary btn-sm',style:{width:'100%'},onClick:()=>equipRod(r.id)},'Equip')
+      ));
+    })) : emptyMsg('No rods available');
+  }
+  if (tab === 'buffs') {
+    const items = state.shop.buffItems || [];
+    content = items.length ? h('div',{class:'card-grid'},...items.map(b=>{
+      const locked = lvl < (b.min_level||1);
+      return h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'15px',fontWeight:700,marginBottom:'4px'}},b.name),
+        h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginBottom:'8px'}},b.description||''),
+        h('div',{style:{display:'flex',gap:'8px',fontSize:'11px',color:'var(--text-muted)',marginBottom:'12px'}},
+          h('span',null,'⏱ '+b.duration_mins+'min'),
+          h('span',null,'Lvl '+b.min_level+'+')
+        ),
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          h('span',{style:{fontWeight:700,color:'var(--accent)'}},b.shop_price+' pts'),
+          h('button',{class:'btn btn-primary btn-sm',onClick:()=>buyBuff(b.id),...(locked?{disabled:'true'}:{})},locked?'Locked':'Buy')
+        )
+      ));
+    })) : emptyMsg('No buff items in shop. Reach level 3 to unlock.');
+  }
+  if (tab === 'transactions') {
+    const txns = state.shop.transactions || [];
+    content = txns.length ? h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...['When','Shop','Item','Action','Qty','Points'].map(x=>h('th',null,x)))),
+      h('tbody',null,...txns.map(t=>h('tr',null,
+        h('td',{style:{fontSize:'11px',color:'var(--text-muted)'}},t.created_at ? t.created_at.slice(0,16) : '—'),
+        h('td',null,t.shop_name||'—'),
+        h('td',{style:{fontWeight:600}},t.item_name),
+        h('td',null,h('span',{style:{color:t.action==='buy'?'var(--danger)':'var(--success)',fontWeight:700}},t.action==='buy'?'Bought':'Sold')),
+        h('td',null,String(t.quantity||1)),
+        h('td',{style:{fontWeight:700,color:t.action==='buy'?'var(--danger)':'var(--success)'}},
+          (t.action==='buy'?'-':'+')+(t.points_amount||0)+' pts')
+      )))
+    ))) : emptyMsg('No transactions yet.');
+  }
+  return h('div',{class:'fade-in'},h('div',{class:'section-header'},h('h2',{class:'section-title'},'Shop'),h('span',{style:{fontSize:'14px',fontWeight:700,color:'var(--accent)'}},`${pts.toLocaleString()} pts`)),tabBar,content);
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: LEADERBOARDS
+// ═══════════════════════════════════════════════
+function renderLeaderboards() {
+  const tab = state.leaderboardTab;
+  const tabBar = h('div',{class:'tab-bar'},...[['biggest','Biggest Fish'],['catches','Most Catches']].map(([k,l])=>h('button',{class:'tab-btn'+(tab===k?' active':''),onClick:()=>{state.leaderboardTab=k;render();loadLeaderboards();}},l)));
+  let table;
+  if (tab === 'biggest') {
+    const data = state.leaderboards.biggest || [];
+    table = data.length ? h('table',null,
+      h('thead',null,h('tr',null,...['#','Player','Species','Weight','Rarity'].map(hd=>h('th',null,hd)))),
+      h('tbody',null,...data.map((e,i)=>h('tr',null,
+        h('td',{style:{fontWeight:800,fontSize:'16px'}},String(medals(i))),
+        h('td',{style:{fontWeight:600,color:state.player&&e.display_name===state.player.display_name?'var(--accent)':''}},e.display_name),
+        h('td',null,e.fish_name||e.species_name||'—'),h('td',{style:{fontWeight:700}},e.weight+' lbs'),h('td',null,rarityBadge(e.rarity_name||'common'))
+      )))) : null;
+  } else {
+    const data = state.leaderboards.catches || [];
+    table = data.length ? h('table',null,
+      h('thead',null,h('tr',null,...['#','Player','Total Catches','Level'].map(hd=>h('th',null,hd)))),
+      h('tbody',null,...data.map((e,i)=>h('tr',null,
+        h('td',{style:{fontWeight:800,fontSize:'16px'}},String(medals(i))),h('td',{style:{fontWeight:600}},e.display_name),
+        h('td',null,h('span',{style:{fontWeight:700,color:'var(--accent)'}},String(e.total_catches))),h('td',null,'Lvl '+e.level)
+      )))) : null;
+  }
+  return h('div',{class:'fade-in'},h('div',{class:'section-header'},h('h2',{class:'section-title'},'Leaderboards')),tabBar,
+    table ? h('div',{class:'card'},h('div',{class:'table-wrap'},table)) : emptyMsg('No entries yet. Be the first!'));
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: JOURNAL
+// ═══════════════════════════════════════════════
+function renderJournal() {
+  const c = state.collection || { total_species:36, caught_species:0, completion_pct:0, species:[] };
+  const sp = c.species || [];
+  const unknownCount = Math.min(12, c.total_species - c.caught_species);
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Fish Journal'),h('span',{style:{fontSize:'13px',color:'var(--text-secondary)'}},`${c.caught_species} / ${c.total_species} species (${c.completion_pct||0}%)`)),
+    h('div',{style:{marginBottom:'20px'}},progressBar(c.caught_species, c.total_species, 12, 'var(--accent)')),
+    h('div',{class:'card-grid',style:{gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))'}},
+      ...sp.map(s=>h('div',{class:'card'},h('div',{class:'card-body',style:{padding:'16px'}},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}},h('span',{style:{fontSize:'14px',fontWeight:700}},s.name),rarityBadge(s.rarity_name||'common')),
+        h('div',{style:{fontSize:'12px',color:'var(--text-secondary)'},html:`Caught: <strong>${s.times_caught}x</strong> — Best: <strong>${s.best_weight} lbs</strong>`})
+      ))),
+      ...Array.from({length:unknownCount},()=>h('div',{class:'card journal-unknown'},h('div',{class:'card-body',style:{padding:'16px'}},h('div',{style:{fontSize:'14px',fontWeight:700,color:'var(--text-muted)'}},'???'),h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'Undiscovered species'))))
+    )
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: CATCH LOG
+// ═══════════════════════════════════════════════
+function renderCatchLog() {
+  const log = state.catchLog || [];
+  if (!log.length) return h('div',{class:'fade-in'},h('div',{class:'section-header'},h('h2',{class:'section-title'},'Catch History')),emptyMsg('No catches recorded yet'));
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Catch History')),
+    h('div',{class:'card'},h('div',{class:'table-wrap'},h('table',null,
+      h('thead',null,h('tr',null,...['Species','Weight','Rarity','Spot','Bait','Date'].map(hd=>h('th',null,hd)))),
+      h('tbody',null,...log.map(f=>h('tr',null,
+        h('td',{style:{fontWeight:600}},f.species_name),h('td',null,f.weight+' lbs'),h('td',null,rarityBadge(f.rarity_name||'common')),
+        h('td',{style:{color:'var(--text-secondary)'}},f.spot_name||'—'),h('td',{style:{color:'var(--text-secondary)'}},f.bait_name||'—'),
+        h('td',{style:{color:'var(--text-muted)',fontSize:'12px'}},f.caught_at||'—')
+      )))
+    )))
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: SETTINGS
+// ═══════════════════════════════════════════════
+function renderSettings() {
+  const p = state.player || {};
+  const titles = state.titles || [];
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Settings')),
+    h('div',{style:{display:'grid',gap:'18px',maxWidth:'500px'}},
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Appearance'),
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          h('div',null,h('div',{style:{fontSize:'13px',fontWeight:600}},'Theme'),h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'Switch between light and dark mode')),
+          h('button',{class:'theme-switch',style:{background:state.theme==='dark'?'var(--accent)':'var(--bg-badge)'},onClick:toggleTheme},
+            h('div',{class:'knob',style:{left:state.theme==='dark'?'29px':'3px'},html:state.theme==='dark'?'🌙':'☀️'}))
+        )
+      )),
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Account'),
+        equipRow('Username', p.username || p.display_name || '—'),
+        equipRow('Member since', p.created_at ? p.created_at.split(' ')[0] : '—'),
+        h('div',{style:{borderTop:'1px solid var(--border-light)',paddingTop:'12px',marginTop:'12px'}},
+          h('button',{class:'btn btn-secondary btn-sm',onClick:changePassword},'Change Password'))
+      )),
+      titles.length > 0 ? h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Active Title'),
+        h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}},...titles.map(t=>
+          h('button',{class:'btn btn-sm '+(t.is_active?'btn-primary':'btn-secondary'),onClick:()=>activateTitle(t.id)},t.title)
+        ))
+      )) : null,
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Pair HUD'),
+        h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}},'Enter the 6-digit code shown on your in-world HUD to pair it.'),
+        h('div',{style:{display:'flex',gap:'8px'}},
+          h('input',{class:'input',placeholder:'XXX-XXX',style:{flex:'1',letterSpacing:'2px',textAlign:'center',fontWeight:700},value:state.pairingCode,onInput:e=>{state.pairingCode=e.target.value;}}),
+          h('button',{class:'btn btn-primary btn-md',onClick:pairHud},'Pair')
+        )
+      )),
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Paired Devices'),
+        (state.pairedDevices||[]).filter(d=>d.is_active==1).length === 0
+          ? h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'No devices paired yet.')
+          : h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+              ...(state.pairedDevices||[]).filter(d=>d.is_active==1).map(d=>
+                h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',background:'var(--bg-input)',borderRadius:'8px'}},
+                  h('div',null,
+                    h('div',{style:{fontSize:'13px',fontWeight:600}}, (d.grid_name ? d.grid_name + ' ' : '') + (d.device_name || 'HUD')),
+                    h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},'Last used: '+(d.last_used||'never'))
+                  ),
+                  h('button',{class:'btn btn-danger btn-sm',onClick:()=>revokeDevice(d.id)},'Revoke')
+                )
+              )
+            )
+      )),
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'8px'}},'Pairing Activity'),
+        h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginBottom:'12px'}},
+          'Recent attempts to pair a HUD to this account. Helps you spot unauthorized access.'),
+        (state.pairAttempts||[]).length === 0
+          ? h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'No pairing activity yet.')
+          : h('div',{style:{display:'flex',flexDirection:'column',gap:'6px',maxHeight:'320px',overflowY:'auto'}},
+              ...(state.pairAttempts||[]).slice(0,20).map(a=>
+                h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:'var(--bg-input)',borderRadius:'6px',fontSize:'11px'}},
+                  h('div',null,
+                    h('div',{style:{fontWeight:600}},
+                      (a.avatar_name || a.attempted_uuid.substring(0,8)+'…') +
+                      (a.grid_name ? ' on ' + a.grid_name : '')
+                    ),
+                    h('div',{style:{color:'var(--text-muted)',fontSize:'10px'}},a.attempted_at)
+                  ),
+                  h('span',{style:{color:a.succeeded==1?'var(--success)':'var(--text-muted)',fontWeight:600}},
+                    a.succeeded==1 ? '✓ paired' : '— attempted'
+                  )
+                )
+              )
+            )
+      )),
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'8px'}},'Tutorial'),
+        h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginBottom:'12px'}},
+          'Restart the in-world tutorial walkthrough. After clicking, touch your HUD to begin again.'),
+        h('button',{class:'btn btn-secondary',onClick:restartTutorial},'Restart Tutorial')
+      )),
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}},
+          h('div',{style:{fontSize:'14px',fontWeight:700}},'My Fishing Spots'),
+          h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},`${state.spotStats.used} of ${state.spotStats.limit} used`)
+        ),
+        (state.mySpots||[]).length === 0
+          ? h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'You haven\'t placed any spots yet. Rez a fishing spot object in-world to register it.')
+          : h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+              ...(state.mySpots||[]).map(s =>
+                h('div',{style:{padding:'12px',background:'var(--bg-input)',borderRadius:'8px',opacity:s.is_active==1?'1':'0.6'}},
+                  h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+                    h('div',null,
+                      h('div',{style:{fontSize:'13px',fontWeight:700}},s.name),
+                      h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},`${s.water_type} — ${s.region_name || 'unknown region'}`),
+                      h('div',{style:{fontSize:'10px',color:'var(--text-muted)'}},`<${Math.round(s.pos_x)}, ${Math.round(s.pos_y)}, ${Math.round(s.pos_z)}>`)
+                    ),
+                    h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 8px',borderRadius:'4px',background:s.is_active==1?'var(--success-soft)':'var(--danger-soft)',color:s.is_active==1?'var(--success)':'var(--danger)'}},s.is_active==1?'ACTIVE':'INACTIVE')
+                  ),
+                  h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}},
+                    h('button',{class:'btn btn-secondary btn-sm',onClick:()=>renameSpot(s.id,s.name)},'Rename'),
+                    h('button',{class:'btn btn-secondary btn-sm',onClick:()=>toggleSpot(s.id,s.is_active!=1)},s.is_active==1?'Deactivate':'Activate'),
+                    h('button',{class:'btn btn-danger btn-sm',onClick:()=>deleteSpot(s.id)},'Delete')
+                  )
+                )
+              )
+            )
+      )),
+      h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Session'),
+        h('button',{class:'btn btn-danger btn-sm',onClick:doLogout},'Log Out')
+      ))
+    )
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: HELP & TUTORIAL
+// ═══════════════════════════════════════════════
+function renderHelp() {
+  const faqs = state.faqs || [];
+
+  function section(icon, title, ...content) {
+    return h('div',{class:'card',style:{marginBottom:'16px'}},h('div',{class:'card-body'},
+      h('div',{style:{display:'flex',gap:'12px',alignItems:'flex-start'}},
+        h('div',{style:{fontSize:'32px',flexShrink:0,lineHeight:1}},icon),
+        h('div',{style:{flex:1}},
+          h('h3',{style:{fontSize:'16px',fontWeight:700,marginBottom:'8px'}},title),
+          ...content
+        )
+      )
+    ));
+  }
+
+  function tip(text) {
+    return h('div',{style:{fontSize:'12px',color:'var(--text-secondary)',marginBottom:'6px',paddingLeft:'12px',borderLeft:'2px solid var(--accent)'}},text);
+  }
+
+  function controlRow(key, action) {
+    return h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid var(--border-light)'}},
+      h('div',null,h('span',{style:{background:'var(--bg-badge)',padding:'3px 10px',borderRadius:'4px',fontSize:'12px',fontWeight:700,fontFamily:'monospace',color:'var(--accent)'}},key)),
+      h('span',{style:{fontSize:'12px',color:'var(--text-secondary)'}},action)
+    );
+  }
+
+  function badge(color, text) {
+    return h('span',{style:{background:color,color:'#fff',padding:'2px 8px',borderRadius:'4px',fontSize:'11px',fontWeight:700,marginRight:'6px'}},text);
+  }
+
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Help & Guide')),
+    h('p',{style:{color:'var(--text-muted)',fontSize:'13px',marginBottom:'20px'}},'Everything you need to know to get started and master OSFishing.'),
+
+    // ── GETTING STARTED ──
+    section('🎣', 'Getting Started',
+      tip('1. Get a Fishing HUD from a kiosk in-world and attach it'),
+      tip('2. The HUD will tell you to register an account on this website — click the link it offers'),
+      tip('3. Create your account (separate username/password — never reuse your grid password)'),
+      tip('4. Touch your HUD again — it offers a one-click pair link. Click it; pairing is automatic'),
+      tip('5. The HUD asks "Start tutorial?" — if you say yes, it walks you through everything step by step'),
+      tip('6. The tutorial covers quests, equipping bait, finding spots, casting, reeling, and selling fish'),
+      h('div',{style:{marginTop:'10px',padding:'10px',background:'var(--accent-soft)',borderRadius:'8px',fontSize:'12px',color:'var(--accent)'}},
+        '💡 You can replay the tutorial any time from Settings → Restart Tutorial, or by saying /tutorial in chat with the HUD attached.'
+      )
+    ),
+
+    // ── HUD OVERVIEW ──
+    section('🎮', 'Your HUD',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'The HUD has five buttons across the bottom and three status bars on top.'),
+      h('div',{style:{marginBottom:'10px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--accent)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'1px'}},'Buttons (left to right)'),
+        controlRow('Tackle ⚓', 'Equip rods, lines, and bait'),
+        controlRow('Fish 🐟', 'View your fish inventory'),
+        controlRow('Play ▶', 'Start fishing (when near a spot with bait equipped)'),
+        controlRow('Quests 📋', 'Browse and accept quests'),
+        controlRow('Shop 🛒', 'Buy and sell items')
+      ),
+      h('div',null,
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--accent)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'1px'}},'Status bars'),
+        h('div',{style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.8'}},[
+          'Only the relevant bar is visible at any given time:', h('br'),
+          '• ', h('strong',null,'XP bar'), ' (default) — shows progress to next level', h('br'),
+          '• ', h('strong',null,'Power bar'), ' (charging cast) — hold E or PgUp to charge', h('br'),
+          '• ', h('strong',null,'Tension bar'), ' (fighting fish) — keeps the line from snapping'
+        ])
+      )
+    ),
+
+    // ── PAIRING & ACCOUNT ──
+    section('🔐', 'Account & Pairing',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Your HUD pairs to your account once per grid.'),
+      tip('Pair from any approved grid — your HUD remembers each grid you\'ve paired on'),
+      tip('Re-visit a grid you\'ve paired on before? Just attach the HUD — it logs in automatically'),
+      tip('Manual pairing code is always available as a fallback if the auto-pair link doesn\'t work'),
+      h('div',{style:{marginTop:'10px',padding:'10px',background:'var(--accent-soft)',borderRadius:'8px',fontSize:'12px',color:'var(--accent)'}},
+        '🔍 You can see all paired devices and pairing activity in Settings.'
+      )
+    ),
+
+    section('🎮', 'Controls',
+      h('div',{style:{marginBottom:'10px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--accent)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'1px'}},'Casting'),
+        controlRow('Page Up / E', 'Hold to charge cast power — longer hold = further cast (+10% max fish weight at full power)'),
+        controlRow('Release', 'Cast the line')
+      ),
+      h('div',{style:{marginBottom:'10px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--accent)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'1px'}},'Hooking'),
+        controlRow('Page Down / C', 'Set the hook when you see BITE!')
+      ),
+      h('div',{style:{marginBottom:'10px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--accent)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'1px'}},'Fighting a Fish'),
+        controlRow('Page Down / C', 'Hold to reel in'),
+        controlRow('Page Up / E', 'Let line out — reduces tension, fish stays put'),
+        controlRow('← / A', 'Pull left (counter fish rushing right)'),
+        controlRow('→ / D', 'Pull right (counter fish rushing left)')
+      ),
+      h('div',{style:{marginBottom:'10px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--accent)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'1px'}},'Junk Fights'),
+        controlRow('Page Down / C', 'Reel in — tension builds fast, watch the bar!'),
+        controlRow('Page Up / E', 'Let line out — relieves tension, item stays put'),
+        h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginTop:'6px',fontStyle:'italic'}},'Junk has no fight states — it\'s pure dead weight. Reel and release to manage tension.')
+      ),
+      h('div',null,
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--accent)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'1px'}},'Waiting'),
+        controlRow('Page Down / C', 'Reel in your line (cancel cast)')
+      )
+    ),
+
+    // ── FISH STATES ──
+    section('🐟', 'Reading the Fight',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'10px'}},'Fish cycle through four states. Watch the HUD display and react accordingly.'),
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}},
+        h('div',{style:{background:'var(--bg-input)',padding:'10px',borderRadius:'8px'}},
+          h('div',{style:{fontSize:'13px',fontWeight:700,color:'var(--success)'}},'EXHAUSTED'),
+          h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}},'Reel hard! Best chance to gain distance.')
+        ),
+        h('div',{style:{background:'var(--bg-input)',padding:'10px',borderRadius:'8px'}},
+          h('div',{style:{fontSize:'13px',fontWeight:700,color:'var(--danger)'}},'STRUGGLING'),
+          h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}},'Stop reeling! Tension spikes fast.')
+        ),
+        h('div',{style:{background:'var(--bg-input)',padding:'10px',borderRadius:'8px'}},
+          h('div',{style:{fontSize:'13px',fontWeight:700,color:'#7ec8e3'}},'RUSHING LEFT'),
+          h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}},'Pull RIGHT to counter and tire it out.')
+        ),
+        h('div',{style:{background:'var(--bg-input)',padding:'10px',borderRadius:'8px'}},
+          h('div',{style:{fontSize:'13px',fontWeight:700,color:'#7ec8e3'}},'RUSHING RIGHT'),
+          h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}},'Pull LEFT to counter and tire it out.')
+        )
+      ),
+      h('div',{style:{fontSize:'12px',color:'var(--text-muted)',fontStyle:'italic'}},'Watch the bobber too — it moves in the direction the fish is pulling.')
+    ),
+
+    // ── LINE & BAIT ──
+    section('🧵', 'Line & Bait Strategy',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Matching your gear to the water type dramatically increases your catch rate.'),
+      tip('Heavy lines are strong but visible — small fish will see them and refuse to bite'),
+      tip('Light lines are stealthy but snap easily on large fish — check the tension bar'),
+      tip('Each fish species has favourite bait — check affinities on the Fish page'),
+      tip('Longer casts give heavier fish — up to +10% weight at maximum cast distance'),
+      h('div',{style:{marginTop:'10px',padding:'10px',background:'var(--accent-soft)',borderRadius:'8px',fontSize:'12px',color:'var(--accent)'}},
+        '💡 Use Twine or Thin Mono in ponds, Standard Mono in rivers, Braided Nylon+ in lakes, Heavy Braid or better in the ocean.'
+      ),
+      h('div',{style:{marginTop:'10px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--text-secondary)',marginBottom:'6px'}},'Line Strength Caps:'),
+        h('div',{style:{fontSize:'11px',color:'var(--text-muted)',lineHeight:'1.8'}},[
+          'Twine (2.5 lb) → Thin Mono (3 lb) → Standard Mono (6 lb) → Braided Nylon (12 lb)',
+          h('br'), 'Heavy Braid (25 lb) → Deep Sea Cable (50 lb) → Titanium Leader (100 lb)'
+        ])
+      )
+    ),
+
+    // ── JUNK FISHING ──
+    section('🎁', 'Junk Fishing',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Fishing spots can contain physical objects hidden in the water — fish them up and keep them!'),
+      tip('Some spots have junk items registered — you may hook one instead of a fish'),
+      tip('Junk fights are different: no fish states, just dead weight. Reel carefully and manage tension'),
+      tip('Heavier junk in deeper water needs much stronger line — ocean junk can snap anything lighter than Heavy Braid'),
+      tip('The Magnet bait (Level 8) gives +30% junk chance and almost never catches fish'),
+      tip('Treasure Scent buff adds +50% junk chance on top of your base rate'),
+      tip('Long-press a fishing spot to see what junk items it contains and their rarity'),
+      h('div',{style:{marginTop:'10px',padding:'10px',background:'var(--accent-soft)',borderRadius:'8px',fontSize:'12px',color:'var(--accent)'}},
+        '⚠️ Only the Magnet bait is lost when your line breaks — regular bait is always safe.'
+      )
+    ),
+
+    // ── GATHERING BAIT ──
+    section('🪱', 'Gathering Bait',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Find bait gather points around the world and sit to collect free bait.'),
+      tip('Sit on a gather point to start — bait appears every 10-30 seconds'),
+      tip('Each spot has limited stock — it replenishes automatically over time'),
+      tip('You can also buy bait from in-world shops or the Shop page (limited to 20/day on the web)'),
+      tip('Magnets are always available in the web shop — no daily limit')
+    ),
+
+    // ── BUTCHERING ──
+    section('🔪', 'Butchering & Crafting',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Sit at a Butchering Table to break down your catch into useful materials.'),
+      tip('Butchering fish produces Fish Chunks — great bait for predator fish'),
+      tip('Rare fish occasionally yield special baits: Shimmering Minnow, River Pearl, Deep Lake Grub, or Abyssal Eye — each attracts legendary fish of that water type'),
+      h('div',{style:{marginTop:'8px',marginBottom:'8px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--text-secondary)',marginBottom:'6px'}},'Crafting (Level 5+):'),
+        h('div',{style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.8'}},[
+          badge('#d4884e','Chum Bucket'), '2× rare fish → +25% bite chance on a spot',
+          h('br'),
+          badge('#d4884e','Lucky Lure Oil'), '1× legendary fish → +15% rare fish chance on a spot'
+        ])
+      ),
+      tip('Craft items from the "Craft Item" option when sitting at the Butchering Table')
+    ),
+
+    // ── BUFFS ──
+    section('✨', 'Spot Buffs',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Activate buff items on fishing spots to boost everyone fishing there.'),
+      h('div',{style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'2',marginBottom:'8px'}},[
+        badge('#d4884e','Chum Bucket'), '+25% bite chance — craft at butchering table', h('br'),
+        badge('#d4884e','Lucky Lure Oil'), '+15% rarity boost — craft at butchering table', h('br'),
+        badge('#66bb6a','Growth Tonic'), '+20% fish weight — quest reward (Lvl 4+)', h('br'),
+        badge('#66bb6a','Angler\'s Blessing'), '+25% XP — quest reward (Lvl 4+)', h('br'),
+        badge('#66bb6a','Treasure Scent'), '+50% junk chance — quest reward (Lvl 4+)', h('br'),
+        badge('#7ec8e3','Calm Waters'), '-20% fight difficulty — buy from shop (Lvl 3+)', h('br'),
+        badge('#7ec8e3','Bait Saver'), '25% chance bait not consumed — shop (Lvl 3+)', h('br'),
+        badge('#ffd700','Double Hook'), '30% double catch — admin reward only', h('br'),
+        badge('#ffd700','Golden Hour'), '+10% everything — admin reward only'
+      ]),
+      tip('Long-press any fishing spot and select "Use Buff" to activate an item from your inventory'),
+      tip('Same buff type stacks duration (up to 2 hours max per type)'),
+      tip('All buff types can be active simultaneously — stack them for maximum effect'),
+      tip('Anyone can buff any spot — share the love!')
+    ),
+
+    // ── QUESTS ──
+    section('📋', 'Quests',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Complete quests for bonus rewards including buff items, points, and XP.'),
+      tip('One-time quests unlock as you level up — check the Quests page'),
+      tip('Daily quests reset at midnight — complete them every day for bonus rewards'),
+      tip('Weekly quests reset every Monday — bigger challenges, bigger rewards'),
+      tip('Quest progress tracks automatically as you fish and gather — just claim when complete'),
+      h('div',{style:{marginTop:'8px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--text-secondary)',marginBottom:'6px'}},'Daily Quest Rewards (Lvl 4+):'),
+        h('div',{style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.8'}},[
+          '• Rare Haul (3 rare fish) → Growth Tonic', h('br'),
+          '• Bait Collector (20 gathered bait) → Angler\'s Blessing', h('br'),
+          '• Big Fish Day (fish over 5 lbs) → Treasure Scent'
+        ])
+      )
+    ),
+
+    // ── FISHING SPOTS ──
+    section('📍', 'Fishing Spots',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Place your own fishing spots in the world and manage them from the spot menu.'),
+      tip('Rez a Fishing Spot prim and touch it to begin the setup wizard'),
+      tip('Choose water type (unlocked by level), name, visibility (public/private), and whether to activate it'),
+      tip('Your spot limit increases with your level'),
+      tip('Spots remember their setup across region restarts using LinksetData'),
+      tip('Short tap a spot = refresh display and ping nearby HUDs'),
+      tip('Long press (3 seconds) a spot = open menu'),
+      h('div',{style:{marginTop:'8px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--text-secondary)',marginBottom:'6px'}},'Owner Menu:'),
+        h('div',{style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.8'}},[
+          '• Use Buff — activate a buff item from your inventory', h('br'),
+          '• Add Junk — register an object from the prim\'s inventory as fishable loot', h('br'),
+          '• Edit — rename, activate/deactivate, set public/private, delete'
+        ])
+      ),
+      h('div',{style:{marginTop:'8px'}},
+        h('div',{style:{fontSize:'12px',fontWeight:700,color:'var(--text-secondary)',marginBottom:'6px'}},'Water Type Requirements:'),
+        h('div',{style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.8'}},[
+          '🟢 Pond — Level 1  ', h('br'),
+          '🔵 River — Level 3  ', h('br'),
+          '🔷 Lake — Level 5  ', h('br'),
+          '🌊 Ocean — Level 10'
+        ])
+      )
+    ),
+
+    // ── SHOPS ──
+    section('🏪', 'Bait Shops',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Buy and sell bait at in-world shops or on the web portal Shop page.'),
+      tip('Web shop: limited to 20 bait purchases per day (Magnets are always available)'),
+      tip('In-world vendors: no daily limit — buy or sell any quantity, touch to open menu'),
+      tip('Sell bait back to shops for half the buy price to earn fishing points'),
+      tip('System shops auto-restock 10 units per hour up to their maximum'),
+      tip('Player-owned shops don\'t auto-restock — stock grows from player sell-backs'),
+      tip('Check the Grid Map page to find shops in each region')
+    ),
+
+    // ── LEVELING ──
+    section('⭐', 'Leveling & Progression',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Earn XP from every catch, junk haul, and line break. Higher levels unlock more of the game.'),
+      tip('Rarer fish give significantly more XP — chase epics and legendaries for fast progression'),
+      tip('Heavier fish give bonus XP — cast distance matters, longer casts can yield heavier fish'),
+      tip('Junk items give XP scaled by water type — ocean junk gives the most'),
+      tip('Even line breaks give a small XP reward for the effort'),
+      tip('The XP curve steepens sharply after level 10 — stock up on rare bait and buffs'),
+      h('div',{style:{marginTop:'10px',padding:'10px',background:'var(--accent-soft)',borderRadius:'8px',fontSize:'12px',color:'var(--accent)'}},
+        '💡 Stack Angler\'s Blessing buff at a buffed spot with rare bait for the fastest XP gains.'
+      )
+    ),
+
+    // ── MULTI-GRID ──
+    section('🌐', 'Multi-Grid Support',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'OSFishing supports playing across multiple OpenSim grids with one account.'),
+      tip('Set your home grid from the Map page — it loads first when you visit the Map'),
+      tip('Each grid you pair on stores its own pairing token — no need to re-pair when revisiting'),
+      tip('Public fishing spots from approved grids appear on the Map'),
+      tip('Region names in the Map are clickable hop:// URLs — your viewer teleports you there'),
+      tip('Your username/password works the same on every grid')
+    ),
+
+    // ── TROPHIES ──
+    section('🏆', 'Trophy Wall',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'Save your most prized catches as trophies you can display in-world.'),
+      tip('From your Fish Inventory, click "Save as Trophy" on any fish you want to keep'),
+      tip('Saved fish appear on the Trophy page — separate from your sellable inventory'),
+      tip('Add notes to each trophy (e.g. where/when you caught it)'),
+      tip('Rez a Trophy Plaque in-world and touch it — pick a saved fish to display on the wall'),
+      tip('The plaque shows the fish at its actual caught size with rarity-tinted lighting'),
+      tip('You can return a trophy from the plaque back to your saved list any time'),
+      h('div',{style:{marginTop:'10px',padding:'10px',background:'var(--accent-soft)',borderRadius:'8px',fontSize:'12px',color:'var(--accent)'}},
+        '💡 Saved fish stay in their own collection — they don\'t count toward your sellable inventory and never expire.'
+      )
+    ),
+
+    // ── PASSWORD ──
+    section('🔑', 'Forgot Your Password?',
+      h('p',{style:{fontSize:'13px',color:'var(--text-secondary)',marginBottom:'8px'}},'No email needed — reset your password in-world.'),
+      tip('Find the Password Reset kiosk in-world and touch it'),
+      tip('Your avatar identity (UUID) verifies who you are — no email required'),
+      tip('Enter and confirm a new password — it updates instantly'),
+      h('div',{style:{marginTop:'8px',padding:'10px',background:'var(--accent-soft)',borderRadius:'8px',fontSize:'12px',color:'var(--accent)'}},
+        '⚠️ Remember: your OSFishing password is separate from your grid login. Never use the same password.'
+      )
+    ),
+
+    // ── FAQ ──
+    faqs.length > 0 ? h('div',{style:{marginTop:'28px'}},
+      h('h2',{style:{fontSize:'18px',fontWeight:800,marginBottom:'14px'}},'Frequently Asked Questions'),
+      h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+        ...faqs.map(f => h('div',{class:'card'},h('div',{class:'card-body'},
+          h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'6px'}},f.question),
+          h('div',{style:{fontSize:'13px',color:'var(--text-secondary)'}},f.answer)
+        )))
+      )
+    ) : null,
+
+    // ── ASK A QUESTION ──
+    h('div',{style:{marginTop:'28px'}},
+      h('h2',{style:{fontSize:'18px',fontWeight:800,marginBottom:'14px'}},'Have a Question?'),
+      state.questionSent
+        ? h('div',{class:'card'},h('div',{class:'card-body',style:{textAlign:'center'}},
+            h('div',{style:{fontSize:'28px',marginBottom:'8px'}},'✅'),
+            h('div',{style:{fontSize:'14px',fontWeight:600}},'Your question has been submitted!'),
+            h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginTop:'4px'}},'Check back later for an answer in the FAQ section.')
+          ))
+        : h('div',{class:'card'},h('div',{class:'card-body'},
+            h('p',{style:{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}},'Can\'t find what you need? Ask here and we\'ll get back to you.'),
+            h('textarea',{id:'help-question',class:'input',placeholder:'Type your question here...',style:{minHeight:'80px',marginBottom:'10px',resize:'vertical'}}),
+            h('button',{class:'btn btn-primary',onClick:submitQuestion},'Submit Question')
+          ))
+    )
+  );
+}
+
+// ═══════════════════════════════════════════════
+// GRID MAP
+// ═══════════════════════════════════════════════
+let mapGrids = [];
+let mapRegions = [];
+let mapSelectedGrid = '';
+let mapHopGateway = null;
+let mapZoom = 1;
+let mapPanX = 0;
+let mapPanY = 0;
+let mapDragging = false;
+let mapDragStart = null;
+
+async function setHomeGrid(gridName) {
+  const r = await api('web_set_home_grid', { grid_name: gridName });
+  if (r.success) {
+    showToast('Home grid set to ' + gridName);
+    if (state.profile) state.profile.home_grid = gridName;
+    render();
+  } else {
+    showToast(r.error, true);
+  }
+}
+
+function buildHopUrl(regionName, spot) {
+  if (!mapHopGateway || !regionName) return null;
+  const x = spot && spot.pos_x !== null ? Math.round(parseFloat(spot.pos_x)) : 128;
+  const y = spot && spot.pos_y !== null ? Math.round(parseFloat(spot.pos_y)) : 128;
+  const z = spot && spot.pos_z !== null ? Math.round(parseFloat(spot.pos_z)) : 25;
+  return `hop://${mapHopGateway}/${encodeURIComponent(regionName)}/${x}/${y}/${z}`;
+}
+
+async function loadMapGrids() {
+  const r = await api('grid_list_approved');
+  if (r.success) mapGrids = r.grids||[];
+  // Default to user's home grid if set, else first
+  if (!mapSelectedGrid && mapGrids.length > 0) {
+    if (state.profile && state.profile.home_grid) {
+      const home = mapGrids.find(g=>g.grid_name === state.profile.home_grid);
+      if (home) mapSelectedGrid = home.grid_name;
+    }
+    if (!mapSelectedGrid) mapSelectedGrid = mapGrids[0].grid_name;
+  }
+  // Even with no grids selected, try loading regions (will show empty state)
+  await loadMapData();
+}
+
+let mapShops = [];
+
+async function loadMapData() {
+  const r = await api('grid_map', { grid_name: mapSelectedGrid });
+  if (r.success) {
+    mapRegions = r.regions||[];
+    mapHopGateway = r.hop_gateway || null;
+  } else {
+    mapRegions = [];
+    mapHopGateway = null;
+  }
+  const s = await api('shop_map', { grid_name: mapSelectedGrid });
+  if (s.success) mapShops = s.shops||[];
+  else mapShops = [];
+  // Reset zoom/pan when switching grids
+  mapZoom = 1;
+  mapPanX = 0;
+  mapPanY = 0;
+  render();
+}
+
+function renderGridMap() {
+  // Find bounds for the visual map
+  let minX=99999,maxX=-99999,minY=99999,maxY=-99999;
+  mapRegions.forEach(r=>{
+    if(r.region_x!==null&&r.region_y!==null){
+      if(r.region_x<minX)minX=r.region_x;if(r.region_x>maxX)maxX=r.region_x;
+      if(r.region_y<minY)minY=r.region_y;if(r.region_y>maxY)maxY=r.region_y;
+    }
+  });
+  // Add padding
+  minX-=1;maxX+=1;minY-=1;maxY+=1;
+  const rangeX=Math.max(maxX-minX,3);const rangeY=Math.max(maxY-minY,3);
+
+  const gridNick = mapGrids.find(g=>g.grid_name===mapSelectedGrid);
+  const displayName = gridNick?(gridNick.nickname||gridNick.grid_name):mapSelectedGrid;
+
+  const homeGrid = state.profile && state.profile.home_grid;
+  const sortedGrids = [...mapGrids].sort((a,b)=>{
+    if (a.grid_name === homeGrid) return -1;
+    if (b.grid_name === homeGrid) return 1;
+    return (a.grid_name || '').localeCompare(b.grid_name || '');
+  });
+
+  return h('div',null,
+    // Grid selector
+    h('div',{style:{display:'flex',gap:'10px',alignItems:'center',marginBottom:'16px',flexWrap:'wrap'}},
+      h('span',{style:{fontWeight:700,fontSize:'18px'}},'🗺️ Grid Map'),
+      h('select',{style:{padding:'6px 12px',borderRadius:'6px',background:'var(--card)',color:'var(--text)',border:'1px solid var(--border)'},
+        value:mapSelectedGrid,onChange:e=>{mapSelectedGrid=e.target.value;loadMapData();}},
+        ...sortedGrids.map(g=>h('option',{value:g.grid_name},
+          (g.grid_name === homeGrid ? '🏠 ' : '') + (g.nickname||g.grid_name)
+        ))
+      ),
+      h('span',{style:{color:'var(--text-secondary)',fontSize:'13px'}},mapRegions.length+' regions'),
+      mapSelectedGrid && mapSelectedGrid !== homeGrid
+        ? h('button',{class:'btn btn-ghost btn-sm',onClick:()=>setHomeGrid(mapSelectedGrid)},'Set as home')
+        : null
+    ),
+    // Map + sidebar
+    h('div',{style:{display:'flex',gap:'16px',flexWrap:'wrap'}},
+      // Visual map
+      h('div',{class:'card',style:{flex:'1',minWidth:'300px',padding:'0',position:'relative',aspectRatio:'1',overflow:'hidden'}},
+        mapRegions.length === 0
+          ? h('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',minHeight:'300px',color:'var(--text-muted)',textAlign:'center',padding:'24px'}},
+              mapGrids.length === 0
+                ? 'No public fishing spots have been set up yet anywhere.'
+                : 'No public spots on ' + (mapSelectedGrid || 'this grid') + ' yet.'
+            )
+          : h('div',{
+              style:{position:'relative',width:'100%',height:'100%',minHeight:'300px',cursor:mapDragging?'grabbing':'grab',userSelect:'none',overflow:'hidden'},
+              onMouseDown:e=>{
+                // Don't start drag if clicking on a link
+                if (e.target.tagName === 'A' || e.target.closest('a')) return;
+                mapDragging = true;
+                mapDragStart = {x:e.clientX-mapPanX, y:e.clientY-mapPanY, ox:e.clientX, oy:e.clientY, moved:false};
+                render();
+              },
+              onMouseMove:e=>{
+                if (mapDragging && mapDragStart) {
+                  const dx = e.clientX - mapDragStart.ox;
+                  const dy = e.clientY - mapDragStart.oy;
+                  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) mapDragStart.moved = true;
+                  mapPanX = e.clientX - mapDragStart.x;
+                  mapPanY = e.clientY - mapDragStart.y;
+                  render();
+                }
+              },
+              onMouseUp:()=>{ mapDragging = false; mapDragStart = null; render(); },
+              onMouseLeave:()=>{ mapDragging = false; mapDragStart = null; render(); },
+              onWheel:e=>{ e.preventDefault(); const delta = e.deltaY > 0 ? 0.9 : 1.1; mapZoom = Math.max(0.5, Math.min(5, mapZoom * delta)); render(); }
+            },
+            // Inner pan/zoom container — all dots positioned inside this
+            h('div',{style:{position:'absolute',width:'100%',height:'100%',
+                            transform:`translate(${mapPanX}px, ${mapPanY}px) scale(${mapZoom})`,
+                            transformOrigin:'center center',transition:mapDragging?'none':'transform 0.1s'}},
+              ...mapRegions.filter(r=>r.region_x!==null).map(r=>{
+                const px=((r.region_x-minX)/rangeX)*100;
+                const py=(1-(r.region_y-minY)/rangeY)*100;
+                const hasJunk=r.spots.some(s=>parseInt(s.junk_count)>0);
+                const hasBuffs=r.spots.some(s=>parseInt(s.active_buffs)>0);
+                const spotCount=r.spots.length;
+                const waterTypes=[...new Set(r.spots.map(s=>s.water_type))];
+                const wtColor=waterTypes.includes('ocean')?'#1a6bc4':waterTypes.includes('lake')?'#2a8ac4':waterTypes.includes('river')?'#4a9ac4':'#5aaa6e';
+                const sampleSpot = r.spots[0];
+                const hopUrl = buildHopUrl(r.region_name, sampleSpot);
+                const labelEl = hopUrl
+                  ? h('a',{href:hopUrl,target:'_blank',rel:'noopener',style:{fontSize:'9px',color:'var(--accent)',whiteSpace:'nowrap',marginTop:'2px',textDecoration:'underline',display:'block'},onClick:e=>e.stopPropagation()},r.region_name)
+                  : h('div',{style:{fontSize:'9px',color:'var(--text-muted)',whiteSpace:'nowrap',marginTop:'2px'}},r.region_name);
+                return h('div',{style:{position:'absolute',left:px+'%',top:py+'%',transform:'translate(-50%,-50%)',textAlign:'center'},
+                  title:r.region_name+' ('+r.region_x+','+r.region_y+')\n'+spotCount+' spot(s): '+waterTypes.join(', ')+(hasJunk?' 🎁':'')+(hasBuffs?' ✨':'')},
+                  h('div',{style:{width:'14px',height:'14px',borderRadius:'50%',background:wtColor,border:'2px solid var(--text)',margin:'0 auto',position:'relative'}},
+                    hasJunk?h('span',{style:{position:'absolute',top:'-8px',right:'-8px',fontSize:'10px'}},'🎁'):null,
+                    hasBuffs?h('span',{style:{position:'absolute',bottom:'-8px',right:'-8px',fontSize:'10px'}},'✨'):null
+                  ),
+                  labelEl
+                );
+              }),
+              // Shop dots
+              ...mapShops.filter(s=>s.region_x!==null).map(s=>{
+                const px=((parseInt(s.region_x)-minX)/rangeX)*100;
+                const py=(1-(parseInt(s.region_y)-minY)/rangeY)*100;
+                return h('div',{style:{position:'absolute',left:px+'%',top:py+'%',transform:'translate(-50%,-100%)',cursor:'pointer',textAlign:'center'},
+                  title:'🏪 '+s.name+(s.is_system?'\n(System Shop)':'\n(Player Shop)')},
+                  h('span',{style:{fontSize:'16px'}},'🏪'),
+                  h('div',{style:{fontSize:'8px',color:'var(--text-muted)',whiteSpace:'nowrap'}},s.name)
+                );
+              })
+            ),
+            // Zoom controls
+            h('div',{style:{position:'absolute',bottom:'10px',right:'10px',display:'flex',flexDirection:'column',gap:'4px',background:'var(--card)',border:'1px solid var(--border)',borderRadius:'6px',padding:'4px',boxShadow:'0 2px 8px rgba(0,0,0,0.3)'}},
+              h('button',{class:'btn btn-sm btn-ghost',style:{padding:'2px 8px',fontSize:'14px',fontWeight:700},onClick:e=>{e.stopPropagation();mapZoom=Math.min(5,mapZoom*1.25);render();}},'+'),
+              h('button',{class:'btn btn-sm btn-ghost',style:{padding:'2px 8px',fontSize:'14px',fontWeight:700},onClick:e=>{e.stopPropagation();mapZoom=Math.max(0.5,mapZoom*0.8);render();}},'−'),
+              h('button',{class:'btn btn-sm btn-ghost',style:{padding:'2px 6px',fontSize:'10px'},onClick:e=>{e.stopPropagation();mapZoom=1;mapPanX=0;mapPanY=0;render();},title:'Reset view'},'⊙')
+            )
+          )
+      ),
+      // Sidebar: region list
+      h('div',{style:{width:'280px',maxHeight:'500px',overflowY:'auto'}},
+        ...mapRegions.map(r=>{
+          return h('div',{class:'card',style:{marginBottom:'8px',padding:'10px'}},
+            h('div',{style:{fontWeight:700,fontSize:'14px',marginBottom:'4px'}},
+              r.region_name + (r.region_x!==null ? ' ('+r.region_x+','+r.region_y+')' : '')
+            ),
+            ...r.spots.map(s=>{
+              const junk=parseInt(s.junk_count)||0;
+              const buffs=parseInt(s.active_buffs)||0;
+              const isActive = (s.is_active==='1' || s.is_active===1);
+              const hopUrl = buildHopUrl(r.region_name, s);
+              const spotLabel = h('span',null,
+                (isActive?'🟢':'🔴')+' ',
+                hopUrl
+                  ? h('a',{href:hopUrl,target:'_blank',rel:'noopener',style:{color:'var(--accent)',textDecoration:'underline',fontWeight:600}},s.name)
+                  : h('span',{style:{fontWeight:600}},s.name),
+                ' ',
+                h('span',{style:{color:'var(--text-muted)'}},s.water_type),
+                junk>0?' 🎁':'',
+                buffs>0?' ✨':''
+              );
+              return h('div',{style:{fontSize:'12px',color:'var(--text-secondary)',padding:'2px 0',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+                spotLabel,
+                s.owner_name?h('span',{style:{fontSize:'10px',color:'var(--text-muted)'}},s.owner_name):null
+              );
+            })
+          );
+        })
+      )
+    ),
+    // Legend
+    h('div',{style:{display:'flex',gap:'16px',marginTop:'12px',fontSize:'12px',color:'var(--text-muted)',flexWrap:'wrap'}},
+      h('span',null,'🟢 Active  🔴 Inactive'),
+      h('span',null,'🎁 Has junk loot'),
+      h('span',null,'✨ Active buffs'),
+      h('span',null,h('span',{style:{display:'inline-block',width:'10px',height:'10px',borderRadius:'50%',background:'#5aaa6e',marginRight:'3px'}}), 'Pond'),
+      h('span',null,h('span',{style:{display:'inline-block',width:'10px',height:'10px',borderRadius:'50%',background:'#4a9ac4',marginRight:'3px'}}), 'River'),
+      h('span',null,h('span',{style:{display:'inline-block',width:'10px',height:'10px',borderRadius:'50%',background:'#2a8ac4',marginRight:'3px'}}), 'Lake'),
+      h('span',null,h('span',{style:{display:'inline-block',width:'10px',height:'10px',borderRadius:'50%',background:'#1a6bc4',marginRight:'3px'}}), 'Ocean')
+    )
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: TROPHY / SAVED FISH
+// ═══════════════════════════════════════════════
+function renderTrophy() {
+  const fish = state.trophyFish || [];
+  const rarityColors = {common:'#9D9D9D',uncommon:'#1EFF00',rare:'#0070FF',epic:'#A335EE',legendary:'#FF8000'};
+
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},
+      h('h2',{class:'section-title'},'🏆 Trophy Collection'),
+      h('span',{style:{fontSize:'13px',color:'var(--text-muted)'}},fish.length+' saved fish')
+    ),
+    h('p',{style:{fontSize:'13px',color:'var(--text-muted)',marginBottom:'20px'}},
+      'Your prized catches. Save fish from your inventory, add notes, and mount them on wall plaques in-world.'
+    ),
+    fish.length === 0 ? emptyMsg('No trophy fish yet. Click 🏆 on a fish in your inventory to save it here.') :
+    h('div',{class:'card-grid'},
+      ...fish.map(f => {
+        const rarityColor = rarityColors[f.rarity_name] || '#9D9D9D';
+        const date = f.caught_at ? f.caught_at.slice(0,10) : '—';
+        return h('div',{class:'card',style:{borderTop:'3px solid '+rarityColor}},
+          h('div',{class:'card-body'},
+            // Species + rarity
+            h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+              h('div',null,
+                h('div',{style:{fontSize:'16px',fontWeight:700}},f.species_name),
+                h('div',{style:{fontSize:'12px',fontWeight:700,color:rarityColor}},f.rarity_name.toUpperCase())
+              ),
+              h('div',{style:{fontSize:'22px',fontWeight:800,color:'var(--accent)',textAlign:'right'}},
+                f.weight.toFixed(2)+' lb'
+              )
+            ),
+            // Details
+            h('div',{style:{fontSize:'11px',color:'var(--text-muted)',lineHeight:'1.8',marginBottom:'10px'}},
+              h('div',null,'📍 '+( f.caught_region||'Unknown')),
+              h('div',null,'📅 '+date),
+              f.bait_name ? h('div',null,'🪱 '+f.bait_name) : null
+            ),
+            // Note
+            h('div',{style:{
+              background:'var(--bg-input)',borderRadius:'6px',padding:'8px 10px',
+              fontSize:'12px',color:f.note?'var(--text-secondary)':'var(--text-muted)',
+              fontStyle:f.note?'normal':'italic',marginBottom:'12px',minHeight:'32px',
+              cursor:'pointer'
+            },onClick:()=>updateTrophyNote(f.saved_id),title:'Click to edit note'},
+              f.note || 'Click to add a note...'
+            ),
+            // Actions
+            h('div',{style:{display:'flex',gap:'8px'}},
+              h('button',{class:'btn btn-ghost btn-sm',onClick:()=>returnFishToInventory(f.saved_id)},'↩ Return'),
+              h('div',{style:{fontSize:'10px',color:'var(--text-muted)',marginLeft:'auto',alignSelf:'center'}},
+                'ID #'+f.fish_id
+              )
+            )
+          )
+        );
+      })
+    )
+  );
+}
+
+// ═══════════════════════════════════════════════
+// MAIN RENDER
+// ═══════════════════════════════════════════════
+const pageRenderers = { dashboard:renderDashboard, fish:renderFishInventory, tackle:renderTackle, rods:renderRodGallery, quests:renderQuests, shop:renderShop, leaderboards:renderLeaderboards, map:renderGridMap, trophy:renderTrophy, journal:renderJournal, log:renderCatchLog, help:renderHelp, settings:renderSettings };
+
+function render() {
+  setTheme(state.theme);
+  const app = $('app');
+  if (!state.loggedIn) { renderLogin(); return; }
+  app.innerHTML = '';
+
+  const isEmbed = document.documentElement.classList.contains('embed');
+  const pageRenderer = pageRenderers[state.page] || renderDashboard;
+
+  if (isEmbed) {
+    // Embed mode: inline nav bar at top, no sidebar
+    const embedNav = h('div',{class:'nav-embed'},
+      ...[ ['dashboard','Home'], ['fish','Fish'], ['tackle','Tackle'], ['rods','Rods'],
+           ['quests','Quests'], ['trophy','Trophy'], ['shop','Shop'],
+           ['leaderboards','Ranks'], ['map','Map'], ['journal','Journal'],
+           ['log','Log'], ['help','Help'], ['settings','Settings']
+      ].map(([k,l]) => h('button',{
+        class:'nav-embed-btn'+(state.page===k?' active':''),
+        onClick:()=>{ state.page=k; render(); loadPageData(k); }
+      },l))
+    );
+    const content = h('div',{class:'main-content'}, embedNav, pageRenderer());
+    app.appendChild(content);
+  } else {
+    // Normal desktop mode
+    const sidebarDesktop = h('div',{class:'sidebar-desktop'},renderSidebar(false));
+    const overlay = h('div',{class:'mobile-overlay'+(state.mobileOpen?' show':''),onClick:()=>{state.mobileOpen=false;render();}});
+    const sidebarMobile = h('div',{class:'sidebar-mobile'+(state.mobileOpen?' show':'')},renderSidebar(true));
+    const mobileHeader = h('div',{class:'mobile-header'},h('button',{onClick:()=>{state.mobileOpen=true;render();},html:icons.menu}),h('span',{style:{fontWeight:700}},'Fishing Game'));
+    const mainContent = h('div',{class:'main-area'}, mobileHeader, h('div',{class:'main-content'}, pageRenderer()));
+
+    app.appendChild(sidebarDesktop);
+    app.appendChild(overlay);
+    app.appendChild(sidebarMobile);
+    app.appendChild(mainContent);
+  }
+
+  // Toast notification
+  if (state.toast) {
+    const toast = h('div',{style:{position:'fixed',bottom:'20px',right:'20px',padding:'12px 20px',borderRadius:'10px',background:state.toast.isError?'var(--danger)':'var(--success)',color:'#fff',fontSize:'13px',fontWeight:600,boxShadow:'var(--shadow-lg)',zIndex:1000,animation:'fadeIn .2s ease'}},state.toast.msg);
+    app.appendChild(toast);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+
+// Check URL for ?pair=XXX-XXX param and auto-fill / auto-claim
+// Also check for ?page=X to navigate directly (used by HUD media panel)
+// Also check for ?embed=1 for compact mode
+(function() {
+  const params = new URLSearchParams(window.location.search);
+
+  // Embed mode — compact layout for HUD media prim
+  if (params.get('embed') === '1') {
+    document.documentElement.classList.add('embed');
+  }
+
+  // Auto-auth via token (HUD passes token_id, sig, and ts)
+  const tokenId = params.get('token_id');
+  const sig = params.get('sig');
+  const ts = params.get('ts');
+  if (tokenId && sig) {
+    // Store credentials for all subsequent API calls
+    embedAuth = { tokenId, sig, ts: ts || '0' };
+
+    // Show loading instead of login form while we auto-authenticate
+    state.loading = true;
+    document.getElementById('app').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:var(--text-muted);font-size:14px">Connecting...</div>';
+
+    // Try auto-login via the pairing token
+    (async function() {
+      const r = await api('web_auto_login', { token_id: tokenId, sig: sig, ts: ts || '0' });
+      if (r.success) {
+        state.loggedIn = true;
+        state.player = r.player;
+        state.loading = false;
+        const pageParam = params.get('page');
+        if (pageParam) state.page = pageParam;
+        render();
+        loadPageData(state.page);
+      } else {
+        // Auto-login failed — show login form
+        state.loading = false;
+        embedAuth = null;
+        render();
+      }
+    })();
+    return; // Skip normal init — auto-login handles render
+  }
+
+  const pairCode = params.get('pair');
+  if (pairCode) {
+    state.pairingCode = pairCode;
+    state.page = 'settings';
+    sessionStorage.setItem('pendingPairCode', pairCode);
+    history.replaceState({}, '', window.location.pathname);
+  }
+  // Flash: came back from /pair after successful auto-pair
+  if (params.get('paired') === '1') {
+    sessionStorage.setItem('flashPaired', '1');
+    history.replaceState({}, '', window.location.pathname);
+  }
+  // Flash: was redirected from /pair pre-login; need to login then re-claim
+  if (params.get('pair_pending') === '1') {
+    sessionStorage.setItem('flashPairPending', '1');
+    history.replaceState({}, '', window.location.pathname);
+  }
+  const pageParam = params.get('page');
+  if (pageParam) {
+    const validPages = ['dashboard','fish','tackle','rods','quests','shop','leaderboards','journal','log','settings'];
+    if (validPages.includes(pageParam)) {
+      state.page = pageParam;
+    }
+    history.replaceState({}, '', window.location.pathname);
+  }
+})();
+
+render();
+</script>
+</body>
+</html>

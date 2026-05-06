@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fishing Game — Admin Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#1a1e1a;color:#e0ddd5;-webkit-font-smoothing:antialiased}
+a{color:#d4884e;text-decoration:none}
+:root{
+  --bg:#1a1e1a;--bg2:#222822;--card:#2a302a;--card-hover:#323a32;--input:#222822;
+  --text:#e0ddd5;--text2:#a09888;--muted:#706860;
+  --accent:#d4884e;--accent-hover:#e09860;--accent-soft:rgba(212,136,78,.15);
+  --success:#5aaa6e;--success-soft:rgba(90,170,110,.15);
+  --danger:#cc5555;--danger-soft:rgba(204,85,85,.15);
+  --warning:#d4aa4e;--border:#3a423a;
+  --shadow:0 2px 12px rgba(0,0,0,.3);
+}
+#app{max-width:1200px;margin:0 auto;padding:20px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.header h1{font-size:24px;font-weight:800;letter-spacing:-.5px}
+.header .badge{background:var(--danger-soft);color:var(--danger);padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700}
+.tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap}
+.tab{padding:8px 16px;border:none;background:var(--bg2);color:var(--muted);border-radius:8px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;transition:.15s}
+.tab:hover{background:var(--card);color:var(--text2)}
+.tab.active{background:var(--accent-soft);color:var(--accent)}
+.card{background:var(--card);border-radius:12px;border:1px solid var(--border);margin-bottom:16px;overflow:hidden}
+.card-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.card-header h3{font-size:15px;font-weight:700}
+.card-body{padding:20px}
+.stat-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:var(--bg2);border-radius:10px;padding:16px;text-align:center}
+.stat .val{font-size:24px;font-weight:800;color:var(--accent)}
+.stat .lbl{font-size:11px;color:var(--muted);margin-top:4px}
+input,select,textarea{background:var(--input);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font:inherit;font-size:13px;width:100%}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+textarea{resize:vertical;min-height:60px}
+.search-bar{display:flex;gap:8px;margin-bottom:16px}
+.search-bar input{flex:1}
+.btn{padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font:inherit;font-size:12px;font-weight:600;transition:.15s}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent-hover)}
+.btn-secondary{background:var(--bg2);color:var(--text2);border:1px solid var(--border)}.btn-secondary:hover{background:var(--card)}
+.btn-danger{background:var(--danger-soft);color:var(--danger)}.btn-danger:hover{background:var(--danger);color:#fff}
+.btn-success{background:var(--success-soft);color:var(--success)}
+.btn-sm{padding:4px 10px;font-size:11px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 12px;color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:hover td{background:var(--card-hover)}
+.badge-admin{background:var(--accent-soft);color:var(--accent);padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-banned{background:var(--danger-soft);color:var(--danger);padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-active{background:var(--success-soft);color:var(--success);padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-inactive{background:var(--danger-soft);color:var(--danger);padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-system{background:rgba(80,144,212,.15);color:#5090d4;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.form-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:12px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:11px;color:var(--muted);font-weight:600}
+.detail-panel{background:var(--bg2);border-radius:10px;padding:16px;margin-bottom:16px}
+.detail-panel h4{font-size:13px;font-weight:700;margin-bottom:10px;color:var(--accent)}
+.inline-edit{display:flex;gap:6px;align-items:center}
+.inline-edit input{width:80px}
+.toast{position:fixed;bottom:20px;right:20px;padding:12px 20px;border-radius:10px;color:#fff;font-size:13px;font-weight:600;box-shadow:var(--shadow);z-index:1000;animation:fadeIn .2s}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.back-btn{background:none;border:none;color:var(--accent);cursor:pointer;font:inherit;font-size:13px;font-weight:600;padding:0;margin-bottom:12px}
+.back-btn:hover{text-decoration:underline}
+.empty{text-align:center;padding:40px;color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const API = '../api/';
+const $ = id => document.getElementById(id);
+
+const state = {
+  loggedIn: false, tab: 'stats', toast: null,
+  stats: null,
+  players: [], playerTotal: 0, playerSearch: '', playerDetail: null, exclusionDetail: null,
+  spots: [], spotSearch: '', spotView: 'active',
+  fish: [], fishDetail: null,
+  lines: [],
+  baitTypes: [],
+  announcements: [],
+  affinities: [],
+  questions: [], questionFilter: 'new',
+  adminFaqs: [],
+  gatherPoints: [], gatherSearch: '',
+  grids: [],
+};
+
+// ── API ──
+async function api(action, params = {}) {
+  const body = new URLSearchParams();
+  body.append('action', action);
+  for (const [k,v] of Object.entries(params)) body.append(k, v);
+  try {
+    const r = await fetch(API, { method:'POST', body, credentials:'same-origin' });
+    return await r.json();
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function toast(msg, err=false) {
+  state.toast = { msg, err };
+  render();
+  setTimeout(() => { state.toast = null; render(); }, 3000);
+}
+
+// ── DOM helpers ──
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  if (attrs) for (const [k,v] of Object.entries(attrs)) {
+    if (k === 'html') { el.innerHTML = v; continue; }
+    if (k === 'onClick' || k === 'onclick') { el.addEventListener('click', v); continue; }
+    if (k === 'onInput' || k === 'oninput') { el.addEventListener('input', v); continue; }
+    if (k === 'onChange' || k === 'onchange') { el.addEventListener('change', v); continue; }
+    if (k === 'onKeydown') { el.addEventListener('keydown', v); continue; }
+    if (k === 'style' && typeof v === 'object') { Object.assign(el.style, v); continue; }
+    if (v === true) el.setAttribute(k, '');
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const c of children) {
+    if (c == null || c === false) continue;
+    if (Array.isArray(c)) c.forEach(x => x && el.appendChild(typeof x === 'string' ? document.createTextNode(x) : x));
+    else el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  }
+  return el;
+}
+
+// ── Loaders ──
+async function loadStats() {
+  const r = await api('admin_stats');
+  if (r.success) state.stats = r;
+  render();
+}
+async function loadPlayers() {
+  const r = await api('admin_list_players', { search: state.playerSearch });
+  if (r.success) { state.players = r.players||[]; state.playerTotal = r.total||0; }
+  render();
+}
+async function loadPlayerDetail(pid) {
+  const r = await api('admin_get_player', { player_id: String(pid) });
+  if (r.success) state.playerDetail = r;
+  else toast(r.error, true);
+  state.exclusionDetail = null;  // reset when switching players
+  render();
+}
+async function loadExclusionDetail(pid) {
+  const r = await api('admin_player_exclusions', { player_id: String(pid) });
+  if (r.success) state.exclusionDetail = { player_id: pid, ...r };
+  else toast(r.error, true);
+  render();
+}
+async function loadSpots() {
+  const r = await api('admin_list_spots', { search: state.spotSearch, view: state.spotView });
+  if (r.success) state.spots = r.spots||[];
+  render();
+}
+async function unarchiveSpot(sid) {
+  if (!confirm('Restore this archived spot to the active list (will be inactive)?')) return;
+  const r = await api('admin_unarchive_spot', { spot_id: String(sid) });
+  if (r.success) { toast('Spot un-archived'); loadSpots(); } else toast(r.error, true);
+}
+async function loadFish() {
+  const r = await api('admin_list_fish');
+  if (r.success) state.fish = r.fish||[];
+  render();
+}
+async function loadLines() {
+  const r = await api('admin_list_lines');
+  if (r.success) state.lines = r.lines||[];
+  render();
+}
+async function loadBaitTypes() {
+  const r = await api('admin_list_bait');
+  if (r.success) state.baitTypes = r.bait||[];
+  render();
+}
+async function loadAnnouncements() {
+  const r = await api('admin_list_announcements');
+  if (r.success) state.announcements = r.announcements||[];
+  render();
+}
+async function loadQuestions() {
+  const r = await api('admin_list_questions', { status: state.questionFilter || 'new' });
+  if (r.success) state.questions = r.questions||[];
+  render();
+}
+async function replyQuestion(qid, reply) {
+  const r = await api('admin_reply_question', { question_id:String(qid), reply });
+  if (r.success) { toast('Reply saved'); loadQuestions(); } else toast(r.error, true);
+}
+async function dismissQuestion(qid) {
+  const r = await api('admin_dismiss_question', { question_id:String(qid) });
+  if (r.success) { toast('Dismissed'); loadQuestions(); } else toast(r.error, true);
+}
+async function loadAdminFaqs() {
+  const r = await api('admin_list_faq');
+  if (r.success) state.adminFaqs = r.faqs||[];
+  render();
+}
+async function createFAQ(question, answer) {
+  const r = await api('admin_create_faq', { question, answer });
+  if (r.success) { toast('FAQ created'); loadAdminFaqs(); } else toast(r.error, true);
+}
+async function updateFAQ(fid, data) {
+  const r = await api('admin_update_faq', { faq_id:String(fid), ...data });
+  if (r.success) { toast('FAQ updated'); loadAdminFaqs(); } else toast(r.error, true);
+}
+async function deleteFAQ(fid) {
+  const r = await api('admin_delete_faq', { faq_id:String(fid) });
+  if (r.success) { toast('FAQ deleted'); loadAdminFaqs(); } else toast(r.error, true);
+}
+async function loadGatherPoints() {
+  const r = await api('admin_list_gather', { search: state.gatherSearch });
+  if (r.success) state.gatherPoints = r.gather_points||[];
+  render();
+}
+async function updateGatherPoint(gid, data) {
+  const r = await api('admin_update_gather', { point_id:String(gid), ...data });
+  if (r.success) { toast('Updated'); loadGatherPoints(); } else toast(r.error, true);
+}
+async function deleteGatherPoint(gid) {
+  if (!confirm('Delete this gather point?')) return;
+  const r = await api('admin_delete_gather', { point_id:String(gid) });
+  if (r.success) { toast('Deleted'); loadGatherPoints(); } else toast(r.error, true);
+}
+async function refillGatherPoint(gid) {
+  const r = await api('admin_refill_gather', { point_id:String(gid) });
+  if (r.success) { toast('Refilled'); loadGatherPoints(); } else toast(r.error, true);
+}
+async function loadGrids() {
+  const r = await api('admin_grid_list');
+  if (r.success) state.grids = r.grids||[];
+  render();
+}
+async function approveGrid(gid) {
+  const r = await api('admin_grid_approve', { grid_id:String(gid) });
+  if (r.success) { toast('Grid approved'); loadGrids(); } else toast(r.error, true);
+}
+async function denyGrid(gid) {
+  const r = await api('admin_grid_deny', { grid_id:String(gid) });
+  if (r.success) { toast('Grid denied'); loadGrids(); } else toast(r.error, true);
+}
+async function nicknameGrid(gid) {
+  const n = prompt('Set nickname for this grid:');
+  if (!n) return;
+  const r = await api('admin_grid_nickname', { grid_id:String(gid), nickname:n });
+  if (r.success) { toast('Nickname set'); loadGrids(); } else toast(r.error, true);
+}
+async function setHopGateway(gid, current) {
+  const g = prompt('Hop gateway (e.g. "playground.darkheartsos.com:8002"):\n\nLeave blank to remove.', current);
+  if (g === null) return;
+  const r = await api('admin_grid_hop_gateway', { grid_id:String(gid), hop_gateway:g });
+  if (r.success) { toast('Hop gateway updated'); loadGrids(); } else toast(r.error, true);
+}
+async function deleteGrid(gid) {
+  if (!confirm('Delete this grid entry?')) return;
+  const r = await api('admin_grid_delete', { grid_id:String(gid) });
+  if (r.success) { toast('Grid deleted'); loadGrids(); } else toast(r.error, true);
+}
+async function loadAffinity(fishId) {
+  const r = await api('admin_bait_affinity', { fish_id: String(fishId) });
+  if (r.success) state.affinities = r.affinities||[];
+  render();
+}
+
+// ── Actions ──
+async function updatePlayer(pid, data) {
+  const r = await api('admin_update_player', { player_id: String(pid), ...data });
+  if (r.success) { toast('Player updated'); loadPlayerDetail(pid); } else toast(r.error, true);
+}
+async function grantBait(pid, baitId, qty) {
+  const r = await api('admin_grant_bait', { player_id:String(pid), bait_id:String(baitId), quantity:String(qty) });
+  if (r.success) { toast('Bait granted'); loadPlayerDetail(pid); } else toast(r.error, true);
+}
+async function grantLine(pid, lineId) {
+  const r = await api('admin_grant_line', { player_id:String(pid), line_id:String(lineId) });
+  if (r.success) { toast('Line granted'); loadPlayerDetail(pid); } else toast(r.error, true);
+}
+async function updateSpot(sid, data) {
+  const r = await api('admin_update_spot', { spot_id:String(sid), ...data });
+  if (r.success) { toast('Spot updated'); loadSpots(); } else toast(r.error, true);
+}
+async function deleteSpot(sid) {
+  if (!confirm('Delete this spot permanently?')) return;
+  const r = await api('admin_delete_spot', { spot_id:String(sid) });
+  if (r.success) { toast('Spot deleted'); loadSpots(); } else toast(r.error, true);
+}
+async function updateFish(fid, data) {
+  const r = await api('admin_update_fish', { fish_id:String(fid), ...data });
+  if (r.success) toast('Fish updated'); else toast(r.error, true);
+}
+async function updateLine(lid, data) {
+  const r = await api('admin_update_line', { line_id:String(lid), ...data });
+  if (r.success) { toast('Line updated'); loadLines(); } else toast(r.error, true);
+}
+async function updateBait(bid, data) {
+  const r = await api('admin_update_bait', { bait_id:String(bid), ...data });
+  if (r.success) { toast('Bait updated'); loadBaitTypes(); } else toast(r.error, true);
+}
+async function setAffinity(fishId, baitId, aff) {
+  const r = await api('admin_set_affinity', { fish_id:String(fishId), bait_id:String(baitId), affinity:String(aff) });
+  if (r.success) { toast('Affinity set'); loadAffinity(fishId); } else toast(r.error, true);
+}
+async function createAnnouncement() {
+  const t = prompt('Title:'); if (!t) return;
+  const b = prompt('Body:'); if (!b) return;
+  const p = prompt('Priority (info/warning/urgent):', 'info') || 'info';
+  const r = await api('admin_create_announcement', { title:t, body:b, priority:p });
+  if (r.success) { toast('Announcement created'); loadAnnouncements(); } else toast(r.error, true);
+}
+async function toggleAnnouncement(aid, active) {
+  const r = await api('admin_toggle_announcement', { announcement_id:String(aid), active:active?'1':'0' });
+  if (r.success) { toast(active?'Activated':'Deactivated'); loadAnnouncements(); } else toast(r.error, true);
+}
+async function deleteAnnouncement(aid) {
+  if (!confirm('Delete this announcement?')) return;
+  const r = await api('admin_delete_announcement', { announcement_id:String(aid) });
+  if (r.success) { toast('Deleted'); loadAnnouncements(); } else toast(r.error, true);
+}
+
+// ── Tab switching ──
+function setTab(t) {
+  state.tab = t;
+  state.playerDetail = null;
+  state.fishDetail = null;
+  const loaders = { stats:loadStats, players:loadPlayers, spots:loadSpots, fish:loadFish, lines:loadLines, bait:loadBaitTypes, announcements:loadAnnouncements, questions:loadQuestions, faq:loadAdminFaqs, gather:loadGatherPoints, grids:loadGrids };
+  if (loaders[t]) loaders[t]();
+  else render();
+}
+
+// ── RENDER: Stats ──
+function renderStats() {
+  const s = state.stats;
+  if (!s) return h('div',{class:'empty'},'Loading...');
+  return h('div',null,
+    h('div',{class:'stat-row'},
+      ...[['Total Players',s.total_players],['Active (7d)',s.active_players],['Total Catches',s.total_catches],
+          ['Total Casts',s.total_casts],['Active Spots',s.total_spots],['Fish Held',s.total_fish_held]
+      ].map(([l,v])=>h('div',{class:'stat'},h('div',{class:'val'},String(v)),h('div',{class:'lbl'},l)))
+    )
+  );
+}
+
+// ── RENDER: Players ──
+function renderPlayers() {
+  if (state.playerDetail) return renderPlayerDetail();
+  return h('div',null,
+    h('div',{class:'search-bar'},
+      h('input',{placeholder:'Search players...',value:state.playerSearch,onInput:e=>{state.playerSearch=e.target.value;},onKeydown:e=>{if(e.key==='Enter')loadPlayers();}}),
+      h('button',{class:'btn btn-primary',onClick:loadPlayers},'Search')
+    ),
+    h('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'12px'}},state.playerTotal+' players found'),
+    h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...['ID','Name','Level','Points','Casts','Catches','Line','Status',''].map(x=>h('th',null,x)))),
+      h('tbody',null,...state.players.map(p=>h('tr',null,
+        h('td',null,String(p.id)),
+        h('td',{style:{fontWeight:600}},p.display_name || p.username),
+        h('td',null,String(p.level)),
+        h('td',{style:{color:'var(--accent)',fontWeight:700}},String(p.fishing_points)),
+        h('td',null,String(p.total_casts)),
+        h('td',null,String(p.total_catches)),
+        h('td',{style:{fontSize:'11px',color:'var(--muted)'}},p.line_name||'—'),
+        h('td',null,
+          p.is_admin==1?h('span',{class:'badge-admin'},'ADMIN'):null,
+          p.is_banned==1?h('span',{class:'badge-banned'},'BANNED'):null
+        ),
+        h('td',null,h('button',{class:'btn btn-secondary btn-sm',onClick:()=>loadPlayerDetail(p.id)},'View'))
+      )))
+    )))
+  );
+}
+
+function renderPlayerDetail() {
+  const d = state.playerDetail;
+  if (!d) return h('div',{class:'empty'},'Loading...');
+  const p = d.player;
+  return h('div',null,
+    h('button',{class:'back-btn',onClick:()=>{state.playerDetail=null;render();}},'← Back to players'),
+    h('div',{class:'card'},h('div',{class:'card-header'},
+      h('h3',null,p.display_name+' (ID: '+p.id+')'),
+      h('div',{style:{display:'flex',gap:'6px'}},
+        p.is_banned==1
+          ? h('button',{class:'btn btn-success btn-sm',onClick:()=>updatePlayer(p.id,{is_banned:'0'})},'Unban')
+          : h('button',{class:'btn btn-danger btn-sm',onClick:()=>{if(confirm('Ban this player?'))updatePlayer(p.id,{is_banned:'1'});}},'Ban'),
+        p.is_admin==1
+          ? h('button',{class:'btn btn-secondary btn-sm',onClick:()=>updatePlayer(p.id,{is_admin:'0'})},'Remove Admin')
+          : h('button',{class:'btn btn-secondary btn-sm',onClick:()=>updatePlayer(p.id,{is_admin:'1'})},'Make Admin')
+      )
+    ),h('div',{class:'card-body'},
+      h('div',{class:'form-row'},
+        editField('Level', p.level, v=>updatePlayer(p.id,{level:v})),
+        editField('XP', p.xp, v=>updatePlayer(p.id,{xp:v})),
+        editField('Points', p.fishing_points, v=>updatePlayer(p.id,{fishing_points:v})),
+        editField('Spot Limit', p.spot_limit_override||'auto', v=>updatePlayer(p.id,{spot_limit_override:v==='auto'?'null':v}))
+      ),
+      h('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}},'UUID: '+p.uuid),
+      h('div',{style:{fontSize:'11px',color:'var(--muted)'}},'Last fished: '+(p.last_fished||'never')+' — Created: '+p.created_at),
+      h('div',{style:{
+        marginTop:'10px',padding:'8px 10px',borderRadius:'6px',
+        background: (p.exclusion_triggers && p.exclusion_triggers > 0) ? 'rgba(220,80,60,0.15)' : 'var(--bg-input)',
+        fontSize:'12px',color: (p.exclusion_triggers && p.exclusion_triggers > 0) ? '#ff8a7a' : 'var(--muted)'
+      }},
+        'Triggered time-based exclusions: ' + (p.exclusion_triggers || 0),
+        (state.exclusionDetail && state.exclusionDetail.player_id === p.id && (state.exclusionDetail.by_uuid||[]).length > 0
+          ? h('div',{style:{marginTop:'6px',fontSize:'11px'}},
+              ...state.exclusionDetail.by_uuid.map(b =>
+                h('div',{style:{padding:'4px 0',borderTop:'1px solid var(--border)'}},
+                  (b.triggered_name || b.triggered_username || b.triggered_uuid.substring(0,8)+'…') +
+                  ' — ' + b.trigger_count + ' time' + (b.trigger_count == 1 ? '' : 's') +
+                  ' (last: ' + b.last_triggered + ')'
+                )
+              )
+            )
+          : (p.exclusion_triggers && p.exclusion_triggers > 0
+              ? h('button',{class:'btn btn-sm btn-secondary',style:{marginTop:'4px'},onClick:()=>loadExclusionDetail(p.id)},'Show details')
+              : null
+            )
+        )
+      )
+    )),
+
+    // Bait inventory
+    h('div',{class:'detail-panel'},
+      h('h4',null,'Bait Inventory'),
+      d.bait.length?h('table',null,
+        h('thead',null,h('tr',null,h('th',null,'Bait'),h('th',null,'Qty'),h('th',null,'Grant'))),
+        h('tbody',null,...d.bait.map(b=>h('tr',null,
+          h('td',null,b.name),h('td',null,String(b.quantity)),
+          h('td',null,h('button',{class:'btn btn-sm btn-secondary',onClick:()=>{const q=prompt('Qty to grant:','10');if(q)grantBait(p.id,b.id,parseInt(q));}},'+ Grant'))
+        )))
+      ):h('div',{style:{color:'var(--muted)',fontSize:'12px'}},'No bait'),
+      h('button',{class:'btn btn-sm btn-secondary',style:{marginTop:'8px'},onClick:()=>{
+        const bid=prompt('Bait type ID:');const q=prompt('Quantity:','20');
+        if(bid&&q)grantBait(p.id,parseInt(bid),parseInt(q));
+      }},'Grant New Bait by ID')
+    ),
+
+    // Lines
+    h('div',{class:'detail-panel'},
+      h('h4',null,'Owned Lines'),
+      d.lines.length?h('table',null,
+        h('thead',null,h('tr',null,h('th',null,'Line'),h('th',null,'Strength'),h('th',null,'Visibility'),h('th',null,'Status'))),
+        h('tbody',null,...d.lines.map(l=>h('tr',null,
+          h('td',null,l.name),h('td',null,l.weight_lb+'lb'),h('td',null,String(l.visibility)),
+          h('td',null,l.equipped==1?h('span',{class:'badge-active'},'EQUIPPED'):'—')
+        )))
+      ):h('div',{style:{color:'var(--muted)',fontSize:'12px'}},'No lines'),
+      h('button',{class:'btn btn-sm btn-secondary',style:{marginTop:'8px'},onClick:()=>{
+        const lid=prompt('Line type ID to grant:');if(lid)grantLine(p.id,parseInt(lid));
+      }},'Grant Line by ID')
+    ),
+
+    // Spots
+    d.spots.length?h('div',{class:'detail-panel'},
+      h('h4',null,'Owned Spots ('+d.spots.length+')'),
+      h('table',null,
+        h('thead',null,h('tr',null,h('th',null,'Name'),h('th',null,'Water'),h('th',null,'Region'),h('th',null,'Active'))),
+        h('tbody',null,...d.spots.map(s=>h('tr',null,
+          h('td',null,s.name),h('td',null,s.water_type),h('td',null,s.region_name||'—'),
+          h('td',null,s.is_active==1?h('span',{class:'badge-active'},'Yes'):h('span',{class:'badge-inactive'},'No'))
+        )))
+      )
+    ):null,
+
+    // Recent catches
+    d.catches.length?h('div',{class:'detail-panel'},
+      h('h4',null,'Recent Catches'),
+      h('table',null,
+        h('thead',null,h('tr',null,h('th',null,'Fish'),h('th',null,'Weight'),h('th',null,'Rarity'),h('th',null,'When'))),
+        h('tbody',null,...d.catches.map(c=>h('tr',null,
+          h('td',null,c.species_name),h('td',null,c.weight+' lbs'),h('td',null,c.rarity_name),
+          h('td',{style:{color:'var(--muted)',fontSize:'11px'}},c.caught_at)
+        )))
+      )
+    ):null
+  );
+}
+
+function editField(label, val, onSave) {
+  return h('div',{class:'form-group'},
+    h('label',null,label),
+    h('div',{class:'inline-edit'},
+      h('input',{type:'text',value:String(val),id:'ef-'+label}),
+      h('button',{class:'btn btn-primary btn-sm',onClick:()=>{const v=$('ef-'+label).value;onSave(v);}},'Set')
+    )
+  );
+}
+
+// ── RENDER: Spots ──
+function renderSpots() {
+  const isArchived = state.spotView === 'archived';
+  return h('div',null,
+    h('div',{style:{display:'flex',gap:'8px',marginBottom:'12px'}},
+      h('button',{
+        class:'btn btn-sm '+(state.spotView==='active'?'btn-primary':'btn-secondary'),
+        onClick:()=>{ state.spotView='active'; loadSpots(); }
+      },'Active'),
+      h('button',{
+        class:'btn btn-sm '+(state.spotView==='archived'?'btn-primary':'btn-secondary'),
+        onClick:()=>{ state.spotView='archived'; loadSpots(); }
+      },'Archived')
+    ),
+    h('div',{class:'search-bar'},
+      h('input',{placeholder:'Search spots...',value:state.spotSearch,onInput:e=>{state.spotSearch=e.target.value;},onKeydown:e=>{if(e.key==='Enter')loadSpots();}}),
+      h('button',{class:'btn btn-primary',onClick:loadSpots},'Search')
+    ),
+    h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...(isArchived?['ID','Name','Water','Region','Owner','Archived At','Actions']:['ID','Name','Water','Region','Owner','Status','Actions']).map(x=>h('th',null,x)))),
+      h('tbody',null,...state.spots.map(s=>h('tr',null,
+        h('td',null,String(s.id)),
+        h('td',{style:{fontWeight:600}},s.name),
+        h('td',null,s.water_type),
+        h('td',{style:{fontSize:'12px',color:'var(--muted)'}},s.region_name||'—'),
+        h('td',{style:{fontSize:'12px'}},s.is_system==1?h('span',{class:'badge-system'},'SYSTEM'):(s.owner_name||'—')),
+        isArchived
+          ? h('td',{style:{fontSize:'11px',color:'var(--muted)'}},s.archived_at||'—')
+          : h('td',null,s.is_active==1?h('span',{class:'badge-active'},'Active'):h('span',{class:'badge-inactive'},'Inactive')),
+        h('td',null,
+          isArchived
+            ? h('div',{style:{display:'flex',gap:'4px'}},
+                h('button',{class:'btn btn-sm btn-success',onClick:()=>unarchiveSpot(s.id)},'Restore')
+              )
+            : h('div',{style:{display:'flex',gap:'4px'}},
+                h('button',{class:'btn btn-sm btn-secondary',onClick:()=>{
+                  const n=prompt('Rename spot:',s.name);if(n)updateSpot(s.id,{name:n});
+                }},'Rename'),
+                h('button',{class:'btn btn-sm btn-secondary',onClick:()=>updateSpot(s.id,{is_active:s.is_active==1?'0':'1'})},s.is_active==1?'Deactivate':'Activate'),
+                h('button',{class:'btn btn-sm btn-secondary',onClick:()=>updateSpot(s.id,{is_system:s.is_system==1?'0':'1'})},s.is_system==1?'Un-system':'System'),
+                h('button',{class:'btn btn-sm btn-danger',onClick:()=>deleteSpot(s.id)},'Delete')
+              )
+        )
+      )))
+    )))
+  );
+}
+
+// ── RENDER: Fish Balance ──
+function renderFish() {
+  if (state.fishDetail) return renderFishDetail();
+  return h('div',null,
+    h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...['ID','Name','Rarity','Weight Range','Tolerance','Power','Stamina','Active',''].map(x=>h('th',null,x)))),
+      h('tbody',null,...state.fish.map(f=>h('tr',null,
+        h('td',null,String(f.id)),
+        h('td',{style:{fontWeight:600}},f.name),
+        h('td',null,f.rarity_name),
+        h('td',null,f.min_weight+'–'+f.max_weight+' lbs'),
+        h('td',{style:{fontWeight:700,color:'var(--accent)'}},String(f.line_tolerance)),
+        h('td',null,String(f.fight_power)),
+        h('td',null,String(f.fight_stamina)),
+        h('td',null,f.is_active==1?'✓':'✗'),
+        h('td',null,h('button',{class:'btn btn-secondary btn-sm',onClick:()=>{state.fishDetail=f;loadAffinity(f.id);}},'Edit'))
+      )))
+    )))
+  );
+}
+
+function renderFishDetail() {
+  const f = state.fishDetail;
+  return h('div',null,
+    h('button',{class:'back-btn',onClick:()=>{state.fishDetail=null;loadFish();}},'← Back to fish'),
+    h('div',{class:'card'},h('div',{class:'card-header'},h('h3',null,f.name+' ('+f.rarity_name+')')),h('div',{class:'card-body'},
+      h('div',{class:'form-row'},
+        editField('Line Tolerance',f.line_tolerance,v=>updateFish(f.id,{line_tolerance:v})),
+        editField('Min Weight',f.min_weight,v=>updateFish(f.id,{min_weight:v})),
+        editField('Max Weight',f.max_weight,v=>updateFish(f.id,{max_weight:v})),
+        editField('Fight Power',f.fight_power,v=>updateFish(f.id,{fight_power:v})),
+        editField('Fight Stamina',f.fight_stamina,v=>updateFish(f.id,{fight_stamina:v})),
+        editField('Base Points',f.base_points,v=>updateFish(f.id,{base_points:v})),
+        editField('Base XP',f.base_xp,v=>updateFish(f.id,{base_xp:v}))
+      )
+    )),
+
+    // Bait Affinity
+    h('div',{class:'card',style:{marginTop:'16px'}},h('div',{class:'card-header'},h('h3',null,'Bait Affinity')),h('div',{class:'card-body'},
+      state.affinities.length?h('table',null,
+        h('thead',null,h('tr',null,h('th',null,'Bait'),h('th',null,'Affinity'),h('th',null,''))),
+        h('tbody',null,...state.affinities.map(a=>h('tr',null,
+          h('td',null,a.bait_name),
+          h('td',null,h('input',{type:'number',step:'0.1',value:String(a.affinity),style:{width:'80px'},id:'aff-'+a.bait_id})),
+          h('td',null,h('button',{class:'btn btn-primary btn-sm',onClick:()=>{const v=$('aff-'+a.bait_id).value;setAffinity(f.id,a.bait_id,parseFloat(v));}},'Save'))
+        )))
+      ):h('div',{style:{color:'var(--muted)',fontSize:'12px'}},'No affinities set'),
+      h('div',{style:{marginTop:'10px',display:'flex',gap:'6px',alignItems:'center'}},
+        h('input',{type:'number',placeholder:'Bait ID',style:{width:'80px'},id:'new-aff-bid'}),
+        h('input',{type:'number',step:'0.1',placeholder:'Affinity',style:{width:'80px'},id:'new-aff-val',value:'1.0'}),
+        h('button',{class:'btn btn-secondary btn-sm',onClick:()=>{
+          const bid=$('new-aff-bid').value;const v=$('new-aff-val').value;
+          if(bid&&v)setAffinity(f.id,parseInt(bid),parseFloat(v));
+        }},'Add Affinity')
+      )
+    ))
+  );
+}
+
+// ── RENDER: Lines ──
+function renderLines() {
+  return h('div',null,
+    h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...['ID','Name','Weight','Visibility','Level','Cost',''].map(x=>h('th',null,x)))),
+      h('tbody',null,...state.lines.map(l=>h('tr',null,
+        h('td',null,String(l.id)),
+        h('td',{style:{fontWeight:600}},l.name),
+        h('td',null,
+          h('input',{type:'number',step:'0.5',value:String(l.weight_lb),style:{width:'70px'},id:'lw-'+l.id})
+        ),
+        h('td',null,
+          h('input',{type:'number',step:'0.5',value:String(l.visibility),style:{width:'70px'},id:'lv-'+l.id})
+        ),
+        h('td',null,String(l.min_level)),
+        h('td',null,String(l.cost_points)),
+        h('td',null,h('button',{class:'btn btn-primary btn-sm',onClick:()=>{
+          updateLine(l.id,{weight_lb:$('lw-'+l.id).value,visibility:$('lv-'+l.id).value});
+        }},'Save'))
+      )))
+    )))
+  );
+}
+
+// ── RENDER: Bait ──
+async function toggleBaitShop(baitId, enabled) {
+  const r = await api('admin_update_bait', { bait_id:String(baitId), shop_enabled:enabled?'1':'0' });
+  if (r.success) { toast(enabled ? 'Shop enabled' : 'Shop disabled'); loadBaitTypes(); }
+  else toast(r.error, true);
+}
+
+function renderBait() {
+  return h('div',null,
+    h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...['ID','Name','Catch Rate','Rarity Mod','Shop Price','Web Shop',''].map(x=>h('th',null,x)))),
+      h('tbody',null,...state.baitTypes.map(b=>h('tr',null,
+        h('td',null,String(b.id)),
+        h('td',{style:{fontWeight:600}},b.name),
+        h('td',null,h('input',{type:'number',step:'0.1',value:String(b.catch_rate_mod||1),style:{width:'70px'},id:'bc-'+b.id})),
+        h('td',null,h('input',{type:'number',step:'0.1',value:String(b.rarity_mod||1),style:{width:'70px'},id:'br-'+b.id})),
+        h('td',null,h('input',{type:'number',step:'1',value:String(b.shop_price||0),style:{width:'70px'},id:'bp-'+b.id})),
+        h('td',null,
+          h('label',{style:{display:'flex',alignItems:'center',gap:'6px',cursor:'pointer'}},
+            h('input',{type:'checkbox',checked:!!parseInt(b.shop_enabled||0),
+              onChange:e=>toggleBaitShop(b.id, e.target.checked)}),
+            h('span',{style:{fontSize:'12px',color:parseInt(b.shop_enabled||0)?'var(--success)':'var(--text-muted)'}},
+              parseInt(b.shop_enabled||0)?'On':'Off')
+          )
+        ),
+        h('td',null,h('button',{class:'btn btn-primary btn-sm',onClick:()=>{
+          updateBait(b.id,{catch_rate_mod:$('bc-'+b.id).value, rarity_mod:$('br-'+b.id).value, shop_price:$('bp-'+b.id).value});
+        }},'Save'))
+      )))
+    )))
+  );
+}
+
+// ── RENDER: Announcements ──
+function renderAnnouncements() {
+  return h('div',null,
+    h('button',{class:'btn btn-primary',style:{marginBottom:'16px'},onClick:createAnnouncement},'+ New Announcement'),
+    state.announcements.length?h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+      ...state.announcements.map(a=>h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
+          h('div',null,
+            h('div',{style:{fontSize:'15px',fontWeight:700}},a.title),
+            h('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}},a.body),
+            h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'6px'}},'by '+(a.author||'System')+' — '+a.created_at+' — '+a.priority)
+          ),
+          h('div',{style:{display:'flex',gap:'6px',flexShrink:0}},
+            h('button',{class:'btn btn-sm '+(a.is_active==1?'btn-secondary':'btn-success'),onClick:()=>toggleAnnouncement(a.id,a.is_active!=1)},a.is_active==1?'Deactivate':'Activate'),
+            h('button',{class:'btn btn-sm btn-danger',onClick:()=>deleteAnnouncement(a.id)},'Delete')
+          )
+        )
+      )))
+    ):h('div',{class:'empty'},'No announcements')
+  );
+}
+
+// ── MAIN RENDER ──
+// ── RENDER: Questions ──
+function renderQuestions() {
+  return h('div',null,
+    h('div',{class:'tab-bar',style:{display:'flex',gap:'4px',marginBottom:'16px'}},
+      ...['all','new','answered','dismissed'].map(s=>h('button',{
+        class:'tab'+(state.questionFilter===s?' active':''),
+        onClick:()=>{state.questionFilter=s;loadQuestions();}
+      },s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)))
+    ),
+    state.questions.length?h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+      ...state.questions.map(q=>h('div',{class:'card',style:{borderLeft:q.status==='new'?'3px solid var(--accent)':''}},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+          h('div',null,
+            h('div',{style:{fontSize:'13px',fontWeight:700}},q.question),
+            h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'4px'}},(q.display_name||q.player_name||'Anonymous')+' — '+q.created_at)
+          ),
+          h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 8px',borderRadius:'4px',
+            background:q.status==='new'?'var(--accent-soft)':q.status==='answered'?'var(--success-soft)':'var(--bg2)',
+            color:q.status==='new'?'var(--accent)':q.status==='answered'?'var(--success)':'var(--muted)'}},q.status.toUpperCase())
+        ),
+        q.admin_reply?h('div',{style:{marginTop:'8px',padding:'8px',background:'var(--bg2)',borderRadius:'6px',fontSize:'12px',color:'var(--text2)'}},
+          h('strong',null,'Reply: '),q.admin_reply
+        ):null,
+        h('div',{style:{display:'flex',gap:'6px',marginTop:'10px'}},
+          h('button',{class:'btn btn-primary btn-sm',onClick:()=>{
+            const r=prompt('Reply to this question:',q.admin_reply||'');
+            if(r)replyQuestion(q.id,r);
+          }},'Reply'),
+          h('button',{class:'btn btn-secondary btn-sm',onClick:()=>{
+            const qText=q.question;const a=prompt('Create FAQ from this?\nAnswer:');
+            if(a){createFAQ(qText,a);replyQuestion(q.id,'Added to FAQ');}
+          }},'→ FAQ'),
+          q.status!=='dismissed'?h('button',{class:'btn btn-danger btn-sm',onClick:()=>dismissQuestion(q.id)},'Dismiss'):null
+        )
+      )))
+    ):h('div',{class:'empty'},'No questions')
+  );
+}
+
+// ── RENDER: FAQ Manager ──
+function renderFAQManager() {
+  return h('div',null,
+    h('button',{class:'btn btn-primary',style:{marginBottom:'16px'},onClick:()=>{
+      const q=prompt('FAQ Question:');if(!q)return;
+      const a=prompt('Answer:');if(!a)return;
+      createFAQ(q,a);
+    }},'+ New FAQ Entry'),
+    state.adminFaqs.length?h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+      ...state.adminFaqs.map(f=>h('div',{class:'card',style:{opacity:f.is_active==1?'1':'0.5'}},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
+          h('div',{style:{flex:1}},
+            h('div',{style:{fontSize:'14px',fontWeight:700}},f.question),
+            h('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}},f.answer),
+            h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'4px'}},'Category: '+(f.category||'general')+' | Order: '+f.sort_order)
+          )
+        ),
+        h('div',{style:{display:'flex',gap:'6px',marginTop:'8px'}},
+          h('button',{class:'btn btn-secondary btn-sm',onClick:()=>{
+            const q=prompt('Edit question:',f.question);if(!q)return;
+            const a=prompt('Edit answer:',f.answer);if(!a)return;
+            updateFAQ(f.id,{question:q,answer:a});
+          }},'Edit'),
+          h('button',{class:'btn btn-secondary btn-sm',onClick:()=>{
+            const o=prompt('Sort order:',String(f.sort_order));
+            if(o!==null)updateFAQ(f.id,{sort_order:o});
+          }},'Order'),
+          h('button',{class:'btn btn-sm '+(f.is_active==1?'btn-secondary':'btn-success'),onClick:()=>updateFAQ(f.id,{is_active:f.is_active==1?'0':'1'})},f.is_active==1?'Deactivate':'Activate'),
+          h('button',{class:'btn btn-danger btn-sm',onClick:()=>{if(confirm('Delete this FAQ?'))deleteFAQ(f.id);}},'Delete')
+        )
+      )))
+    ):h('div',{class:'empty'},'No FAQ entries. Create one above.')
+  );
+}
+
+// ── RENDER: Gather Points ──
+function renderGatherPoints() {
+  return h('div',null,
+    h('div',{class:'search-bar'},
+      h('input',{placeholder:'Search gather points...',value:state.gatherSearch,onInput:e=>{state.gatherSearch=e.target.value;},onKeydown:e=>{if(e.key==='Enter')loadGatherPoints();}}),
+      h('button',{class:'btn btn-primary',onClick:loadGatherPoints},'Search')
+    ),
+    h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...['ID','Name','Bait','Stock','Region','Owner','Status','Actions'].map(x=>h('th',null,x)))),
+      h('tbody',null,...state.gatherPoints.map(g=>h('tr',null,
+        h('td',null,String(g.id)),
+        h('td',{style:{fontWeight:600}},g.name),
+        h('td',null,g.bait_name),
+        h('td',null,
+          h('span',{style:{fontWeight:700,color:g.current_stock<=0?'var(--danger)':g.current_stock>=g.max_stock?'var(--success)':'var(--accent)'}},
+            g.current_stock+'/'+g.max_stock)
+        ),
+        h('td',{style:{fontSize:'12px',color:'var(--muted)'}},g.region_name||'—'),
+        h('td',{style:{fontSize:'12px'}},g.is_system==1?h('span',{class:'badge-system'},'SYSTEM'):(g.owner_name||'—')),
+        h('td',null,g.is_active==1?h('span',{class:'badge-active'},'Active'):h('span',{class:'badge-inactive'},'Inactive')),
+        h('td',null,
+          h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap'}},
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>{const n=prompt('Rename:',g.name);if(n)updateGatherPoint(g.id,{name:n});}},'Rename'),
+            h('button',{class:'btn btn-sm btn-success',onClick:()=>refillGatherPoint(g.id)},'Refill'),
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>updateGatherPoint(g.id,{is_active:g.is_active==1?'0':'1'})},g.is_active==1?'Deactivate':'Activate'),
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>updateGatherPoint(g.id,{is_system:g.is_system==1?'0':'1'})},g.is_system==1?'Un-system':'System'),
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>{const s=prompt('Max stock:',String(g.max_stock));if(s)updateGatherPoint(g.id,{max_stock:s});}},'Max Stock'),
+            h('button',{class:'btn btn-sm btn-danger',onClick:()=>deleteGatherPoint(g.id)},'Delete')
+          )
+        )
+      )))
+    )))
+  );
+}
+
+// ── RENDER: Grids ──
+function renderGrids() {
+  const statusColor = s => s==='approved'?'var(--success)':s==='denied'?'var(--danger)':'var(--accent)';
+  const statusBadge = s => h('span',{style:{color:statusColor(s),fontWeight:700,textTransform:'uppercase',fontSize:'12px'}},s);
+  return h('div',null,
+    h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...['ID','Grid Name','Nickname','Hop Gateway','Status','Actions'].map(x=>h('th',null,x)))),
+      h('tbody',null,...state.grids.map(g=>h('tr',null,
+        h('td',null,String(g.id)),
+        h('td',{style:{fontWeight:600}},g.grid_name),
+        h('td',null,g.nickname||'—'),
+        h('td',{style:{fontSize:'11px',color:'var(--muted)'}},g.hop_gateway||'—'),
+        h('td',null,statusBadge(g.status)),
+        h('td',null,
+          h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap'}},
+            g.status!=='approved'?h('button',{class:'btn btn-sm btn-success',onClick:()=>approveGrid(g.id)},'Approve'):null,
+            g.status!=='denied'?h('button',{class:'btn btn-sm btn-danger',onClick:()=>denyGrid(g.id)},'Deny'):null,
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>nicknameGrid(g.id)},'Nickname'),
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>setHopGateway(g.id, g.hop_gateway||'')},'Hop URL'),
+            h('button',{class:'btn btn-sm btn-danger',onClick:()=>deleteGrid(g.id)},'Delete')
+          )
+        )
+      )))
+    )))
+  );
+}
+
+const tabRenderers = { stats:renderStats, players:renderPlayers, spots:renderSpots, fish:renderFish, lines:renderLines, bait:renderBait, gather:renderGatherPoints, grids:renderGrids, announcements:renderAnnouncements, questions:renderQuestions, faq:renderFAQManager };
+const tabLabels = { stats:'Dashboard', players:'Players', spots:'Spots', fish:'Fish Balance', lines:'Line Types', bait:'Bait Types', gather:'Gather Points', grids:'Grids', questions:'Questions', faq:'FAQ', announcements:'Announcements' };
+
+function render() {
+  const app = $('app');
+  app.innerHTML = '';
+
+  app.appendChild(h('div',{class:'header'},
+    h('div',null,h('h1',null,'🎣 Admin Panel'),h('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'2px'}},h('a',{href:'../'},'← Back to Portal'))),
+    h('span',{class:'badge'},'ADMIN')
+  ));
+
+  app.appendChild(h('div',{class:'tabs'},
+    ...Object.entries(tabLabels).map(([k,l])=>h('button',{class:'tab'+(state.tab===k?' active':''),onClick:()=>setTab(k)},l))
+  ));
+
+  const renderer = tabRenderers[state.tab] || renderStats;
+  app.appendChild(renderer());
+
+  if (state.toast) {
+    app.appendChild(h('div',{class:'toast',style:{background:state.toast.err?'var(--danger)':'var(--success)'}},state.toast.msg));
+  }
+}
+
+// Init — check admin access
+(async function() {
+  const r = await api('admin_stats');
+  if (r.success) {
+    state.loggedIn = true;
+    state.stats = r;
+    render();
+  } else {
+    $('app').innerHTML = '<div style="text-align:center;padding:80px"><h2 style="color:var(--danger)">Access Denied</h2><p style="color:var(--muted);margin-top:10px">You must be logged in as an admin. <a href="../">Go to portal</a> and log in first.</p></div>';
+  }
+})();
+</script>
+</body>
+</html>
