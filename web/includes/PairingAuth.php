@@ -551,14 +551,25 @@ class PairingAuth {
             json_error("Need level {$waterMinLevel} for {$waterType}. You are level {$playerLevel}.", 403);
         }
 
-        // Check for existing spot at this position
+        // Check for existing active (non-archived) spot at this position
         $stmt = $pdo->prepare('
-            SELECT id FROM fishing_spots
+            SELECT id, archived, player_id FROM fishing_spots
             WHERE region_name = :r AND ABS(pos_x - :x) < 3 AND ABS(pos_y - :y) < 3 AND ABS(pos_z - :z) < 3
+            ORDER BY archived ASC
             LIMIT 1
         ');
         $stmt->execute([':r' => $region, ':x' => $posX, ':y' => $posY, ':z' => $posZ]);
         $existing = $stmt->fetch();
+
+        if ($existing && (int)$existing['archived']) {
+            // Found an archived spot at this position
+            if ((int)$existing['player_id'] === $playerId) {
+                // Owner's own archived spot — tell the prim to prompt for restore/fresh-setup
+                json_error('This spot was deleted. Touch the prim to restore it or set up fresh.', 410);
+            }
+            // Someone else's archived spot — ignore it, fall through to limit check + INSERT
+            $existing = null;
+        }
 
         if ($existing) {
             $stmt = $pdo->prepare('
@@ -890,11 +901,37 @@ class PairingAuth {
      * Toggle spot active status.
      */
     public static function toggleSpot(int $playerId, int $spotId, bool $active): array {
-        $stmt = db()->prepare('
+        $pdo = db();
+
+        if ($active) {
+            $row = $pdo->prepare('SELECT is_active, archived FROM fishing_spots WHERE id = :id AND player_id = :pid AND is_system = 0');
+            $row->execute([':id' => $spotId, ':pid' => $playerId]);
+            $spot = $row->fetch();
+            if (!$spot) json_error('Spot not found or not owned by you', 404);
+            if ((int)$spot['archived']) json_error('Cannot activate a deleted spot. Restore it first.', 403);
+
+            if (!(int)$spot['is_active']) {
+                $pRow = $pdo->prepare('SELECT level, spot_limit_override FROM players WHERE id = :pid');
+                $pRow->execute([':pid' => $playerId]);
+                $p = $pRow->fetch();
+                if ($p) {
+                    $cStmt = $pdo->prepare('SELECT COUNT(*) FROM fishing_spots WHERE player_id = :pid AND is_system = 0 AND archived = 0 AND is_active = 1');
+                    $cStmt->execute([':pid' => $playerId]);
+                    $count = (int)$cStmt->fetchColumn();
+                    $limit = self::computeSpotLimit((int)$p['level'], $p['spot_limit_override'] !== null ? (int)$p['spot_limit_override'] : null);
+                    if ($count >= $limit) {
+                        json_error("Active spot limit reached ({$count}/{$limit}). Deactivate another spot first.", 403);
+                    }
+                }
+            }
+        }
+
+        $stmt = $pdo->prepare('
             UPDATE fishing_spots SET is_active = :a
             WHERE id = :id AND player_id = :pid AND is_system = 0
+              AND (archived = 0 OR :a2 = 0)
         ');
-        $stmt->execute([':a' => $active ? 1 : 0, ':id' => $spotId, ':pid' => $playerId]);
+        $stmt->execute([':a' => $active ? 1 : 0, ':a2' => $active ? 1 : 0, ':id' => $spotId, ':pid' => $playerId]);
         if ($stmt->rowCount() === 0) {
             json_error('Spot not found or not owned by you', 404);
         }

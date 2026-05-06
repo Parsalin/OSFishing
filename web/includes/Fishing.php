@@ -21,7 +21,7 @@ class Fishing {
         $playerId = (int)$player['id'];
 
         // ── Validate fishing spot ──
-        $stmt = $pdo->prepare('SELECT * FROM fishing_spots WHERE id = :id AND is_active = 1');
+        $stmt = $pdo->prepare('SELECT * FROM fishing_spots WHERE id = :id AND is_active = 1 AND archived = 0');
         $stmt->execute([':id' => $spotId]);
         $spot = $stmt->fetch();
 
@@ -106,7 +106,7 @@ class Fishing {
     public static function rollMinute(int $playerId, int $spotId, int $minute): array {
         $pdo = db();
 
-        $stmt = $pdo->prepare('SELECT * FROM fishing_spots WHERE id = :id AND is_active = 1');
+        $stmt = $pdo->prepare('SELECT * FROM fishing_spots WHERE id = :id AND is_active = 1 AND archived = 0');
         $stmt->execute([':id' => $spotId]);
         $spot = $stmt->fetch();
         if (!$spot) {

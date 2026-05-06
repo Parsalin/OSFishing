@@ -890,6 +890,16 @@ default {
             string preview = body;
             if (llStringLength(preview) > 200) preview = llGetSubString(preview, 0, 199);
             llOwnerSay("Spot API error (HTTP " + (string)status + ") on action [" + gHttpAction + "]: " + preview);
+            // 410 = spot was deleted/archived; clear local state so the prim prompts for fresh setup
+            if (gHttpAction == "register" && (status == 410 || status == 404)) {
+                clearSpotData();
+                gSetupDone = FALSE;
+                gRegistered = FALSE;
+                gSpotId = 0;
+                gIsActive = FALSE;
+                llSensorRemove();
+                setTextLabel();
+            }
             return;
         }
 
