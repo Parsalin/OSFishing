@@ -2165,7 +2165,7 @@ default {
                 if (apiIdx != -1) {
                     portalUrl = llGetSubString(portalUrl, 0, apiIdx - 1);
                 }
-                string regUrl = portalUrl + "/?register=1&uuid=" +
+                string regUrl = portalUrl + "/register.php?uuid=" +
                                 llEscapeURL((string)gOwner) +
                                 "&name=" + llEscapeURL(gOwnerName);
 
