@@ -829,7 +829,7 @@ class PairingAuth {
      */
     public static function spotStatus(int $spotId): array {
         $stmt = db()->prepare('
-            SELECT id, name, is_active, player_id
+            SELECT id, name, water_type, is_active, is_public, is_system, player_id
             FROM fishing_spots WHERE id = :id
         ');
         $stmt->execute([':id' => $spotId]);
@@ -838,9 +838,12 @@ class PairingAuth {
             return ['exists' => false, 'is_active' => false];
         }
         return [
-            'exists'    => true,
-            'is_active' => (bool)$row['is_active'],
-            'name'      => $row['name'],
+            'exists'     => true,
+            'is_active'  => (bool)$row['is_active'],
+            'is_public'  => (bool)$row['is_public'],
+            'is_system'  => (bool)$row['is_system'],
+            'name'       => $row['name'],
+            'water_type' => $row['water_type'],
         ];
     }
 

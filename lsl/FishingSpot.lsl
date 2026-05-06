@@ -398,65 +398,19 @@ showJunkPrompt() {
     llTextBox(gSetupPlayer, info, gTextCh);
 }
 
-// ── LinksetData Keys ──
-string LD_SPOT_ID     = "fs_spot_id";
-string LD_SPOT_NAME   = "fs_spot_name";
-string LD_WATER_TYPE  = "fs_water_type";
-string LD_IS_ACTIVE   = "fs_is_active";
-string LD_IS_PUBLIC   = "fs_is_public";
-string LD_IS_SYSTEM   = "fs_is_system";
-string LD_SETUP_DONE  = "fs_setup_done";
-string LD_OWNER_UUID  = "fs_owner_uuid";
+// ── Notecard persistence ──
+// Stores only spot_id|owner_uuid — written once on registration, never on updates.
+// All other state (name, water type, flags) is re-fetched from the server on recovery.
+string NC_NAME    = "spot_cfg";
+key    gNcReadKey = NULL_KEY;
 
-// ── Save spot config to LinksetData ──
 saveSpotData() {
-    llLinksetDataWrite(LD_SPOT_ID, (string)gSpotId);
-    llLinksetDataWrite(LD_SPOT_NAME, gSpotName);
-    llLinksetDataWrite(LD_WATER_TYPE, gWaterType);
-    llLinksetDataWrite(LD_IS_ACTIVE, (string)gIsActive);
-    llLinksetDataWrite(LD_IS_PUBLIC, (string)gIsPublic);
-    llLinksetDataWrite(LD_IS_SYSTEM, (string)gIsSystem);
-    llLinksetDataWrite(LD_SETUP_DONE, "1");
-    llLinksetDataWrite(LD_OWNER_UUID, (string)llGetOwner());
+    osCreateNotecard(NC_NAME, (string)gSpotId + "|" + (string)llGetOwner());
 }
 
-// ── Load spot config from LinksetData ──
-// Returns TRUE if valid saved data exists for this owner
-integer loadSpotData() {
-    string savedOwner = llLinksetDataRead(LD_OWNER_UUID);
-    if (savedOwner == "" || savedOwner != (string)llGetOwner()) {
-        clearSpotData();
-        return FALSE;
-    }
-
-    string sid = llLinksetDataRead(LD_SPOT_ID);
-    if (sid == "" || (integer)sid <= 0) return FALSE;
-
-    string done = llLinksetDataRead(LD_SETUP_DONE);
-    if (done != "1") return FALSE;
-
-    gSpotId    = (integer)sid;
-    gSpotName  = llLinksetDataRead(LD_SPOT_NAME);
-    gWaterType = llLinksetDataRead(LD_WATER_TYPE);
-    gIsActive  = (integer)llLinksetDataRead(LD_IS_ACTIVE);
-    gIsPublic  = (integer)llLinksetDataRead(LD_IS_PUBLIC);
-    gIsSystem  = (integer)llLinksetDataRead(LD_IS_SYSTEM);
-
-    if (gSpotName == "") return FALSE;
-
-    return TRUE;
-}
-
-// ── Clear all saved data ──
 clearSpotData() {
-    llLinksetDataDelete(LD_SPOT_ID);
-    llLinksetDataDelete(LD_SPOT_NAME);
-    llLinksetDataDelete(LD_WATER_TYPE);
-    llLinksetDataDelete(LD_IS_ACTIVE);
-    llLinksetDataDelete(LD_IS_PUBLIC);
-    llLinksetDataDelete(LD_IS_SYSTEM);
-    llLinksetDataDelete(LD_SETUP_DONE);
-    llLinksetDataDelete(LD_OWNER_UUID);
+    if (llGetInventoryType(NC_NAME) == INVENTORY_NOTECARD)
+        llRemoveInventory(NC_NAME);
 }
 
 default {
@@ -469,26 +423,10 @@ default {
         // Request callback URL for server pushes
         requestCallbackUrl();
 
-        // Try to restore from LinksetData
-        if (loadSpotData()) {
-            gSetupDone = TRUE;
-            gRegistered = TRUE;
-            setTextLabel();
-
-            // Re-register with server to sync and confirm still valid
-            registerWithServer(gIsActive);
-
-            // Force a heartbeat on first timer tick (set last to 0)
-            gLastHeartbeat = 0;
-
-            if (gIsActive) {
-                llSensorRepeat("", NULL_KEY, AGENT, gRange, PI, gScanRate);
-                llSetTimerEvent(gNormalTimer);  // 60s — checks region empty, runs buff expiration
-            } else {
-                // Even inactive spots should heartbeat occasionally so the server
-                // knows they're still alive (just turned off).
-                llSetTimerEvent(gIdleTimer);
-            }
+        // Try to restore from notecard (async)
+        if (llGetInventoryType(NC_NAME) == INVENTORY_NOTECARD) {
+            gNcReadKey = llGetNotecardLine(NC_NAME, 0);
+            setTextSafe("🎣 Fishing Spot\n(Loading...)", <1.0, 0.8, 0.3>, 1.0);
             return;
         }
 
@@ -958,7 +896,10 @@ default {
         if (gHttpAction == "restore") {
             gSpotId = (integer)llJsonGetValue(body, ["spot_id"]);
             string nm = llJsonGetValue(body, ["name"]);
-            // Re-fetch full spot data and resume normal operation
+            gSetupDone = TRUE;
+            gRegistered = TRUE;
+            gLastHeartbeat = 0;
+            // Re-fetch full spot state and resume normal operation
             gHttpAction = "status";
             gHttpReq = llHTTPRequest(gApiUrl, [
                 HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded",
@@ -1014,7 +955,6 @@ default {
             }
         }
         else if (gHttpAction == "update") {
-            saveSpotData();
             setTextLabel();
             llOwnerSay("✅ Spot updated.");
             if (gIsActive && !gRegistered) {
@@ -1067,9 +1007,48 @@ default {
             showManageMenu(gSetupPlayer);
         }
         else if (gHttpAction == "status") {
+            string exists = llJsonGetValue(body, ["exists"]);
+            if (exists == "false" || exists == JSON_FALSE) {
+                clearSpotData();
+                gSetupDone = FALSE;
+                gRegistered = FALSE;
+                gSpotId = 0;
+                gIsActive = FALSE;
+                llSensorRemove();
+                setTextLabel();
+                llOwnerSay("⚠️ Spot no longer found on server. Touch to set up fresh.");
+                return;
+            }
+
             string active = llJsonGetValue(body, ["is_active"]);
             gIsActive = (active == "1" || active == "true" || active == JSON_TRUE);
+
+            string nm = llJsonGetValue(body, ["name"]);
+            if (nm != JSON_INVALID && nm != "") gSpotName = nm;
+
+            string wt = llJsonGetValue(body, ["water_type"]);
+            if (wt != JSON_INVALID && wt != "") gWaterType = wt;
+
+            string pub = llJsonGetValue(body, ["is_public"]);
+            if (pub != JSON_INVALID) gIsPublic = (pub == "1" || pub == "true" || pub == JSON_TRUE);
+
+            string sys = llJsonGetValue(body, ["is_system"]);
+            if (sys != JSON_INVALID) gIsSystem = (sys == "1" || sys == "true" || sys == JSON_TRUE);
+
+            // Save notecard if not already saved (e.g. after archive restore)
+            if (llGetInventoryType(NC_NAME) != INVENTORY_NOTECARD)
+                saveSpotData();
+
             setTextLabel();
+
+            if (gCallbackUrl != "") registerCallbackWithServer();
+
+            if (gIsActive) {
+                llSensorRepeat("", NULL_KEY, AGENT, gRange, PI, gScanRate);
+                llSetTimerEvent(gNormalTimer);
+            } else {
+                llSetTimerEvent(gIdleTimer);
+            }
         }
         else if (gHttpAction == "buff_status") {
             string isBuff = llJsonGetValue(body, ["is_buffed"]);
@@ -1316,18 +1295,53 @@ default {
         }
     }
 
-    on_rez(integer p) {
-        // Check if owner changed — if so, clear everything
-        string savedOwner = llLinksetDataRead(LD_OWNER_UUID);
-        if (savedOwner != "" && savedOwner != (string)llGetOwner()) {
+    dataserver(key qid, string data) {
+        if (qid != gNcReadKey) return;
+        gNcReadKey = NULL_KEY;
+
+        if (data == EOF || data == "") {
             clearSpotData();
+            gSetupDone = FALSE;
+            gRegistered = FALSE;
+            gIsActive = FALSE;
+            setTextLabel();
+            return;
         }
+
+        list parts = llParseString2List(data, ["|"], []);
+        integer spotId = (integer)llList2String(parts, 0);
+        string ownerUuid = llList2String(parts, 1);
+
+        if (spotId <= 0 || ownerUuid != (string)llGetOwner()) {
+            // Bad data or prim transferred to a new owner
+            clearSpotData();
+            gSetupDone = FALSE;
+            gRegistered = FALSE;
+            gIsActive = FALSE;
+            setTextLabel();
+            return;
+        }
+
+        gSpotId = spotId;
+        gSetupDone = TRUE;
+        gRegistered = TRUE;
+        gLastHeartbeat = 0;
+
+        // Query server for current state (name, water type, active, public, system)
+        gHttpAction = "status";
+        gHttpReq = llHTTPRequest(gApiUrl, [
+            HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded",
+            HTTP_BODY_MAXLENGTH, 4096
+        ], "action=spot_status&spot_id=" + (string)gSpotId);
+    }
+
+    on_rez(integer p) {
         llResetScript();
     }
 
     changed(integer change) {
         if (change & CHANGED_OWNER) {
-            clearSpotData();
+            clearSpotData();  // remove notecard before reset
             llResetScript();
             return;
         }
