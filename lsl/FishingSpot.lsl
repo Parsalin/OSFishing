@@ -711,6 +711,30 @@ default {
                 @inact_done;
             }
 
+            if (gPlayerIsAdmin) {
+                string sysJson = llJsonGetValue(body, ["system_spots"]);
+                if (sysJson != JSON_INVALID && sysJson != "[]" && sysJson != "") {
+                    integer k = 0;
+                    while (llGetListLength(gArchivedSpotIds) < 10) {
+                        string entry = llJsonGetValue(sysJson, [k]);
+                        if (entry == JSON_INVALID) jump sys_done;
+                        string sid     = llJsonGetValue(entry, ["id"]);
+                        string sname   = llJsonGetValue(entry, ["name"]);
+                        string catches = llJsonGetValue(entry, ["catch_count"]);
+                        if (catches == JSON_INVALID) catches = "0";
+                        string isArch  = llJsonGetValue(entry, ["archived"]);
+                        gArchivedSpotIds      += [sid];
+                        gRecoverableSpotTypes += ["system"];
+                        string label = sname;
+                        if (llStringLength(label) > 8) label = llGetSubString(label, 0, 7);
+                        string tag = (isArch == "1") ? "[S-arc]" : "[S-off]";
+                        gArchivedSpotLabels += [label + " " + tag + " (" + catches + ")"];
+                        k++;
+                    }
+                    @sys_done;
+                }
+            }
+
             if (llGetListLength(gArchivedSpotIds) > 0) {
                 showArchiveRecoveryMenu(gSetupPlayer);
                 return;

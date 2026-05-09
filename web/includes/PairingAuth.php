@@ -427,38 +427,77 @@ class PairingAuth {
      * Spot self-registration with ownership and limits.
      */
     /**
-     * List archived spots a player can restore in the current region.
-     * Used when placing a fresh spot prim — offers recovery if old spots exist.
+     * List recoverable spots (archived or inactive) a player can load in the current region.
+     * Also returns spot_count/spot_limit/is_admin so the LSL wizard can gate "New Spot"
+     * without a second round-trip.
      */
     public static function getArchivedSpots(string $uuid, string $region, string $gridName = ''): array {
-        $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+        $pdo  = db();
+        $stmt = $pdo->prepare('SELECT id, level, is_admin, spot_limit_override FROM players WHERE uuid = :u');
         $stmt->execute([':u' => $uuid]);
         $player = $stmt->fetch();
-        if (!$player) return ['archived' => []];
+        if (!$player) return ['archived' => [], 'inactive' => [], 'spot_count' => 0, 'spot_limit' => 3, 'is_admin' => 0];
 
-        $sql = '
-            SELECT fs.id, fs.name, fs.region_name, fs.grid_name, fs.is_public, fs.archived_at,
-                   wt.name AS water_type,
+        $pid = $player['id'];
+        $baseSelect = '
+            SELECT fs.id, fs.name,
                    (SELECT COUNT(*) FROM catch_log cl WHERE cl.spot_id = fs.id) AS catch_count
             FROM fishing_spots fs
-            JOIN water_types wt ON wt.id = fs.water_type_id
-            WHERE fs.archived = 1
-              AND fs.player_id = :pid
-              AND fs.region_name = :rn
+            WHERE fs.player_id = :pid AND fs.region_name = :rn
         ';
-        $params = [
-            ':pid' => $player['id'],
-            ':rn'  => $region,
-        ];
+        $params     = [':pid' => $pid, ':rn' => $region];
+        $gridClause = '';
         if ($gridName !== '') {
-            $sql .= ' AND fs.grid_name = :gn';
+            $gridClause    = ' AND fs.grid_name = :gn';
             $params[':gn'] = $gridName;
         }
-        $sql .= ' ORDER BY fs.archived_at DESC';
 
-        $stmt = db()->prepare($sql);
-        $stmt->execute($params);
-        return ['archived' => $stmt->fetchAll()];
+        $stmtA = $pdo->prepare($baseSelect . ' AND fs.archived = 1' . $gridClause . ' ORDER BY fs.archived_at DESC');
+        $stmtA->execute($params);
+        $archived = $stmtA->fetchAll();
+
+        $stmtI = $pdo->prepare($baseSelect . ' AND fs.archived = 0 AND fs.is_active = 0' . $gridClause . ' ORDER BY fs.id DESC');
+        $stmtI->execute($params);
+        $inactive = $stmtI->fetchAll();
+
+        $stmtC = $pdo->prepare('
+            SELECT COUNT(*) FROM fishing_spots
+            WHERE player_id = :pid AND is_system = 0 AND archived = 0 AND is_active = 1
+        ');
+        $stmtC->execute([':pid' => $pid]);
+        $spotCount = (int)$stmtC->fetchColumn();
+        $limit     = self::computeSpotLimit(
+            (int)$player['level'],
+            $player['spot_limit_override'] !== null ? (int)$player['spot_limit_override'] : null
+        );
+
+        $systemSpots = [];
+        if ((int)$player['is_admin']) {
+            $sysParams = [':rn' => $region];
+            $sysWhere  = 'fs.is_system = 1 AND fs.region_name = :rn AND (fs.archived = 1 OR fs.is_active = 0)';
+            if ($gridName !== '') {
+                $sysWhere      .= ' AND fs.grid_name = :gn';
+                $sysParams[':gn'] = $gridName;
+            }
+            $stmtS = $pdo->prepare('
+                SELECT fs.id, fs.name, fs.archived,
+                       (SELECT COUNT(*) FROM catch_log cl WHERE cl.spot_id = fs.id) AS catch_count
+                FROM fishing_spots fs
+                WHERE ' . $sysWhere . '
+                ORDER BY fs.archived DESC, fs.id DESC
+            ');
+            $stmtS->execute($sysParams);
+            $systemSpots = $stmtS->fetchAll();
+        }
+
+        return [
+            'archived'      => $archived,
+            'inactive'      => $inactive,
+            'system_spots'  => $systemSpots,
+            'spot_count'    => $spotCount,
+            'spot_limit'    => $limit,
+            'is_admin'      => (int)$player['is_admin'],
+        ];
     }
 
     /**
@@ -469,19 +508,21 @@ class PairingAuth {
                                         float $posX, float $posY, float $posZ,
                                         string $regionName, string $gridName = ''): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id FROM players WHERE uuid = :u');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
         $stmt->execute([':u' => $uuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
 
-        // Verify ownership and that the spot is archived
+        // Admins can restore system spots; others must own the spot
         $stmt = $pdo->prepare('
             SELECT * FROM fishing_spots
-            WHERE id = :id AND player_id = :pid AND archived = 1
+            WHERE id = :id AND (archived = 1 OR is_active = 0)
         ');
-        $stmt->execute([':id' => $spotId, ':pid' => $player['id']]);
+        $stmt->execute([':id' => $spotId]);
         $spot = $stmt->fetch();
-        if (!$spot) json_error('Archived spot not found or not yours', 404);
+        if (!$spot) json_error('Spot not found or not recoverable', 404);
+        if ($spot['is_system'] && !(int)$player['is_admin']) json_error('Not authorized', 403);
+        if (!$spot['is_system'] && (int)$spot['player_id'] !== (int)$player['id']) json_error('Spot not found or not yours', 404);
 
         // Restore — un-archive but leave inactive. The user can re-activate
         // explicitly (which goes through the normal limit check).
@@ -500,9 +541,10 @@ class PairingAuth {
         ]);
 
         return [
-            'message'  => 'Spot restored (inactive). Activate it from the spot menu when ready.',
+            'message'  => 'Spot restored.',
             'spot_id'  => $spotId,
             'name'     => $spot['name'],
+            'status'   => $spot['archived'] ? 'archived' : 'inactive',
         ];
     }
 
