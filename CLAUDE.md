@@ -26,6 +26,20 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 - Every API call signs `uuid:timestamp:nonce:action:token` with the per-pairing token
 - Tokens issued via 6-digit pairing codes claimed on the website
 
+## Primary grid / test environment
+
+- **Grid name**: Darkhearts Playground (nick: DHPG)
+- **Login / Gatekeeper URI**: `http://playground.darkheartsos.com:8002/`
+- **Simulator**: OpenSim-NGC Tranquillity 0.9.3.9333 (X64/Unix/DotNet)
+- **Simulator hostname**: `regions03-2.wa.darkheartsos.net`
+- **Physics engine**: BulletSim
+- **Primary test region**: Hidden Seashells (estate ID 136), region corner `<247296, 247808, 0>`
+- **Water height in test region**: 20 m
+- **Region max prims**: 30 000 | **Agent limit**: 40
+- **Script memory**: 1 MB per script
+- **OSSL**: core enabled; `osGetRegionStats`, `osGetAvatarList` confirmed available; `osTeleportAgent` / NPC / media / terrain not probed
+- **Matthew's avatar UUID**: `9a9304c2-620d-496a-ba50-2bf45cf8dbd9`
+
 ## In-world objects
 
 ### LSL scripts
@@ -36,7 +50,7 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 - **BaitGatherPoint** — interactable in-world object that produces bait per gather attempt.
 - **LeaderboardDisplay** — shows top 10 by category, rotates every few seconds.
 - **TournamentBoard** — tracks tournament submissions (currently broken — schema mismatch).
-- **ButcherTable** — sit-to-use, butcher fish for parts and craft special baits.
+- **PrepTable** — sit-to-use, prep fish for parts and craft special baits.
 - **BaitVendor** — buyable bait (system-supplied) with cooldowns, price tags.
 - **ShopRegister** — placed by players to register a "shop" location at their parcel.
 - **PasswordReset** — UUID-verified in-world kiosk for password reset.

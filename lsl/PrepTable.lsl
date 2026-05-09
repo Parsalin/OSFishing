@@ -1,10 +1,10 @@
 // ============================================================
-// BUTCHERING TABLE - Sit to chop fish into bait
+// PREP TABLE - Sit to prep fish into bait
 // ============================================================
-// Flow: Sit → Rarity menu → Fish list (filtered) → Butcher
+// Flow: Sit → Rarity menu → Fish list (filtered) → Prep
 //       Back from fish list → Rarity menu
 //       Close from rarity menu → Stand up
-//       After butcher → auto-refresh same rarity list
+//       After prep → auto-refresh same rarity list
 // ============================================================
 
 string  gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
@@ -49,7 +49,7 @@ showStartMenu() {
     if (gDialogHandle) llListenRemove(gDialogHandle);
     gDialogCh = -1 - (integer)llFrand(999999.0);
     gDialogHandle = llListen(gDialogCh, "", gSitter, "");
-    llDialog(gSitter, "🔪 Butchering Table\n\nWhat would you like to do?", ["Butcher Fish", "Craft Item", "Close"], gDialogCh);
+    llDialog(gSitter, "Prep Table\n\nWhat would you like to do?", ["Prep Fish", "Craft Item", "Close"], gDialogCh);
 }
 
 fetchCraftRecipes() {
@@ -147,8 +147,8 @@ showRarityMenu() {
     gDialogHandle = llListen(gDialogCh, "", gSitter, "");
 
     llDialog(gSitter,
-        "🔪 Butchering Table\n" +
-        (string)total + " fish held\n\nSelect rarity to butcher:",
+        "Prep Table\n" +
+        (string)total + " fish held\n\nSelect rarity to prep:",
         buttons, gDialogCh);
 }
 
@@ -197,7 +197,7 @@ showFishMenu() {
     else if (title == "legendary") title = "Legendary";
 
     llDialog(gSitter,
-        "🔪 " + title + " Fish (" + (string)count + ")\n" +
+        title + " Fish (" + (string)count + ")\n" +
         "Page " + (string)(gPage + 1) + "/" + (string)(maxPage + 1),
         buttons, gDialogCh);
 }
@@ -219,13 +219,13 @@ clearSitter() {
     gFishLabels = [];
     gPage = 0;
     gMenuMode = "";
-    llSetText("🔪 Butchering Table\nSit to chop fish", <0.85, 0.55, 0.3>, 1.0);
+    llSetText("Prep Table\nSit to prep fish", <0.85, 0.55, 0.3>, 1.0);
 }
 
 default {
     state_entry() {
         llSitTarget(<0.0, 0.0, 0.6>, ZERO_ROTATION);
-        llSetText("🔪 Butchering Table\nSit to chop fish", <0.85, 0.55, 0.3>, 1.0);
+        llSetText("Prep Table\nSit to prep fish", <0.85, 0.55, 0.3>, 1.0);
     }
 
     changed(integer change) {
@@ -236,7 +236,7 @@ default {
 
         if (sitter != NULL_KEY && gSitter == NULL_KEY) {
             gSitter = sitter;
-            llSetText("🔪 Butchering Table\n(In use)", <0.85, 0.55, 0.3>, 0.7);
+            llSetText("Prep Table\n(In use)", <0.85, 0.55, 0.3>, 0.7);
             llRequestPermissions(gSitter, PERMISSION_TRIGGER_ANIMATION);
             hudMsg(gSitter, "What would you like to do?");
             showStartMenu();
@@ -256,7 +256,9 @@ default {
         if (gSitter == NULL_KEY) return;
 
         if (status != 200) {
-            hudMsg(gSitter, "Server error (" + (string)status + ")");
+            string err = llJsonGetValue(body, ["error"]);
+            if (err == JSON_INVALID || err == "") err = "HTTP " + (string)status;
+            hudMsg(gSitter, err);
             return;
         }
 
@@ -276,7 +278,7 @@ default {
 
             string fishArr = llJsonGetValue(body, ["fish"]);
             if (fishArr == JSON_INVALID || fishArr == "[]" || fishArr == "null") {
-                hudMsg(gSitter, "No fish to butcher. Go catch some!");
+                hudMsg(gSitter, "No fish to prep. Go catch some!");
                 return;
             }
 
@@ -315,11 +317,11 @@ default {
 
             integer total = llGetListLength(gAllFishIds);
             if (total == 0) {
-                hudMsg(gSitter, "No fish to butcher.");
+                hudMsg(gSitter, "No fish to prep.");
                 return;
             }
 
-            hudMsg(gSitter, (string)total + " fish ready to butcher.");
+            hudMsg(gSitter, (string)total + " fish ready to prep.");
 
             // If we had a rarity filter active, go back to that rarity's fish list
             if (gRarityFilter != "") {
@@ -333,7 +335,7 @@ default {
         // ── Butcher result ──
         else if (gHttpAction == "butcher") {
             string msg = llJsonGetValue(body, ["message"]);
-            if (msg == JSON_INVALID) msg = "Fish butchered!";
+            if (msg == JSON_INVALID) msg = "Fish prepped!";
 
             string special = llJsonGetValue(body, ["special_bait"]);
 
@@ -355,7 +357,7 @@ default {
 
             if (special != JSON_INVALID && special != JSON_NULL && special != "" && special != "null") {
                 llSleep(1.5);
-                hudMsg(gSitter, "✨ RARE FIND: " + special + "!");
+                hudMsg(gSitter, "RARE FIND: " + special + "!");
             }
 
             // Refresh — stay on same rarity
@@ -381,7 +383,7 @@ default {
             gDialogHandle = llListen(gDialogCh, "", gSitter, "");
 
             llDialog(gSitter,
-                "🔧 Crafting\n\n" +
+                "Crafting\n\n" +
                 "Chum Bucket — 2 rare fish → +25% bite chance\n" +
                 "Lure Oil — 1 legendary fish → +15% rarity boost",
                 ["Chum Bucket", "Lure Oil", "Back"], gDialogCh);
@@ -417,7 +419,7 @@ default {
         // ── Start menu ──
         if (gMenuMode == "start") {
             if (gDialogHandle) { llListenRemove(gDialogHandle); gDialogHandle = 0; }
-            if (msg == "Butcher Fish") {
+            if (msg == "Prep Fish") {
                 hudMsg(gSitter, "Loading fish inventory...");
                 fetchFishList();
             } else if (msg == "Craft Item") {
@@ -449,7 +451,7 @@ default {
             if (msg == "Close") {
                 llListenRemove(gDialogHandle);
                 gDialogHandle = 0;
-                hudMsg(gSitter, "Done butchering.");
+                hudMsg(gSitter, "Done.");
                 llUnSit(gSitter);
                 return;
             }
@@ -488,7 +490,7 @@ default {
                     string fishId = llList2String(gFishIds, i);
                     llListenRemove(gDialogHandle);
                     gDialogHandle = 0;
-                    hudMsg(gSitter, "Butchering...");
+                    hudMsg(gSitter, "Prepping...");
                     requestButcher(fishId);
                     return;
                 }
@@ -509,7 +511,7 @@ default {
         } else if (gSitter != NULL_KEY) {
             hudMsg(who, "Table is in use.");
         } else {
-            hudMsg(who, "Sit down to butcher fish.");
+            hudMsg(who, "Sit down to prep fish.");
         }
     }
 
