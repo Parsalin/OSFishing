@@ -1,5 +1,7 @@
 # Database / environment config
 config.php
+.mcp.json
+.claude/settings.local.json
 
 # OS
 Thumbs.db

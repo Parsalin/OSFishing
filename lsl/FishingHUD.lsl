@@ -1379,7 +1379,7 @@ default {
                 TRUE,   // accept these controls
                 FALSE   // do NOT pass through to avatar - they stand still
             );
-            hudInfo("Hold PAGE UP to charge, release to cast...");
+            hudInfo("Hold PAGE UP / W / E to charge, release to cast...");
             gState = STATE_CHARGING;
             gCastPower = 0.0;
             showPowerBar(0.0);
@@ -1418,17 +1418,20 @@ default {
     }
 
     // ── Keyboard / Mouse Controls ──
-    // CONTROL_UP   = Page Up / E = charge cast, reset/cancel
-    // CONTROL_DOWN = Page Down / C = set hook, reel during fight
+    // Charge / line-out : Page Up, E, or W (CONTROL_UP | CONTROL_FWD)
+    // Reel / hook       : Page Down, C, or S (CONTROL_DOWN | CONTROL_BACK)
     control(key id, integer held, integer change) {
-        // ── CHARGING: hold Page Up to charge, release to cast ──
+        integer chargeMask = CONTROL_UP | CONTROL_FWD;
+        integer reelMask   = CONTROL_DOWN | CONTROL_BACK;
+
+        // ── CHARGING: hold charge key to charge, release to cast ──
         if (gState == STATE_CHARGING) {
-            if ((change & CONTROL_UP) && (held & CONTROL_UP)) {
+            if ((change & chargeMask) && (held & chargeMask)) {
                 gCharging = TRUE;
                 safePlayAnim("fishing_charge");
                 safeLoopSound("cast_charge_loop", 0.5);
             }
-            if ((change & CONTROL_UP) && !(held & CONTROL_UP)) {
+            if ((change & chargeMask) && !(held & chargeMask)) {
                 if (gCharging && gCastPower > 0.05) {
                     gCharging = FALSE;
                     safeStopSound();
@@ -1457,9 +1460,9 @@ default {
             return;
         }
 
-        // ── WAITING: Page Down to start reeling in ──
+        // ── WAITING: reel key to start reeling in ──
         if (gState == STATE_CAST) {
-            if ((change & CONTROL_DOWN) && (held & CONTROL_DOWN)) {
+            if ((change & reelMask) && (held & reelMask)) {
                 // Calculate current distance from player to bobber
                 vector myPos = llGetPos();
                 vector toAnchor = gAnchorPos - myPos;
@@ -1472,10 +1475,9 @@ default {
             }
         }
 
-        // ── REELING IN: hold Page Down to keep reeling, release to stop ──
+        // ── REELING IN: hold reel key to keep reeling, release to stop ──
         if (gState == STATE_REELING) {
-            if (!(held & CONTROL_DOWN)) {
-                // Released Page Down
+            if (!(held & reelMask)) {
                 safeStopSound();
                 if (gReelInDist <= 5.0) {
                     // Close enough — fully reeled in
@@ -1495,9 +1497,9 @@ default {
             }
         }
 
-        // ── BITE: Page Down to set the hook ──
+        // ── BITE: reel key to set the hook ──
         if (gState == STATE_BITE) {
-            if ((change & CONTROL_DOWN) && (held & CONTROL_DOWN)) {
+            if ((change & reelMask) && (held & reelMask)) {
                 if (gBiteActive) {
                     gState = STATE_HOOKSET;
                     safePlaySound("hook_set", 1.0);
@@ -1529,15 +1531,15 @@ default {
             return;
         }
 
-        // ── FIGHT: Page Down to reel, Page Up to let line out, Left/Right to steer ──
+        // ── FIGHT: reel key to reel, charge key to let line out, Left/Right to steer ──
         if (gState == STATE_FIGHT) {
             integer wasReeling = gPlayerReeling;
             integer wasLineOut = gPlayerLineOut;
 
-            if (held & CONTROL_DOWN) gPlayerReeling = TRUE;
+            if (held & reelMask) gPlayerReeling = TRUE;
             else gPlayerReeling = FALSE;
 
-            if (held & CONTROL_UP) gPlayerLineOut = TRUE;
+            if (held & chargeMask) gPlayerLineOut = TRUE;
             else gPlayerLineOut = FALSE;
 
             // Reeling and line out are mutually exclusive - reeling wins if both pressed

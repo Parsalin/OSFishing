@@ -338,14 +338,17 @@ const icons = {
 const $ = id => document.getElementById(id);
 const h = (tag, attrs, ...children) => {
   const el = document.createElement(tag);
+  let pendingValue;
   if (attrs) Object.entries(attrs).forEach(([k,v]) => {
     if (k === 'class') el.className = v;
     else if (k === 'html') el.innerHTML = v;
     else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k === 'value') pendingValue = v;
     else el.setAttribute(k, v);
   });
   children.flat(Infinity).forEach(c => { if (c != null) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+  if (pendingValue !== undefined) el.value = pendingValue;
   return el;
 };
 function rarityBadge(r) { return h('span', { class: `rarity-badge rarity-${r}` }, r); }
