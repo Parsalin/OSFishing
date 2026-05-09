@@ -529,11 +529,10 @@ class PairingAuth {
         $pdo->prepare('
             UPDATE fishing_spots
             SET archived = 0, archived_at = NULL, is_active = 0,
-                prim_uuid = :pu, pos_x = :x, pos_y = :y, pos_z = :z,
+                pos_x = :x, pos_y = :y, pos_z = :z,
                 region_name = :rn, grid_name = :gn
             WHERE id = :id
         ')->execute([
-            ':pu' => $primUuid,
             ':x'  => $posX, ':y' => $posY, ':z' => $posZ,
             ':rn' => $regionName,
             ':gn' => $gridName ?: $spot['grid_name'],
@@ -871,8 +870,11 @@ class PairingAuth {
      */
     public static function spotStatus(int $spotId): array {
         $stmt = db()->prepare('
-            SELECT id, name, water_type, is_active, is_public, is_system, player_id
-            FROM fishing_spots WHERE id = :id
+            SELECT fs.id, fs.name, wt.name AS water_type,
+                   fs.is_active, fs.is_public, fs.is_system, fs.player_id
+            FROM fishing_spots fs
+            JOIN water_types wt ON wt.id = fs.water_type_id
+            WHERE fs.id = :id
         ');
         $stmt->execute([':id' => $spotId]);
         $row = $stmt->fetch();
