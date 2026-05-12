@@ -839,25 +839,6 @@ try {
             $newBal = Player::addPoints((int)$target['id'], $amount);
             json_success(['message' => "Granted {$amount} points", 'new_balance' => $newBal]);
 
-        case 'admin_grant_bait':
-            $player = AuthEmbed::requireWeb();
-            Auth::requireAdmin($player);
-            $targetUuid = require_param('target_uuid');
-            $baitId     = (int)require_param('bait_id');
-            $quantity   = (int)require_param('quantity');
-            $target     = Auth::getPlayerByUUID($targetUuid);
-            if (!$target) json_error('Player not found');
-            $stmt = db()->prepare('
-                INSERT INTO player_bait (player_id, bait_id, quantity)
-                VALUES (:pid, :bid, :qty)
-                ON DUPLICATE KEY UPDATE quantity = LEAST(quantity + :qty2, :max)
-            ');
-            $stmt->execute([
-                ':pid' => $target['id'], ':bid' => $baitId,
-                ':qty' => $quantity, ':qty2' => $quantity, ':max' => MAX_BAIT_STACK,
-            ]);
-            json_success(['message' => "Granted {$quantity} bait"]);
-
         case 'admin_players':
             $player = AuthEmbed::requireWeb();
             Auth::requireAdmin($player);
