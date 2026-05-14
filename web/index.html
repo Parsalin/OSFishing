@@ -307,7 +307,7 @@ const state = {
   // UI
   fishFilter: 'all', fishSort: 'caught_at', questTab: 'active', shopTab: 'bait', leaderboardTab: 'biggest',
   pairedDevices: [], pairingCode: '',
-  mySpots: [], spotStats: { used: 0, limit: 3 },
+  mySpots: [], spotStats: { used: 0, limit: 3 }, spotLeaderboard: [],
   myLines: [], rodGallery: [], buffInventory: [], trophyFish: [], pairAttempts: [],
   faqs: [], questionSent: false,
 };
@@ -325,6 +325,7 @@ const icons = {
   journal: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
   log: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/></svg>',
   settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.18V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  spot: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
   sun: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
   moon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
   menu: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>',
@@ -461,7 +462,8 @@ async function buyBuff(buffItemId) {
 async function loadLeaderboards() {
   const tab = state.leaderboardTab;
   if (tab === 'biggest') { const r = await api('leaderboard_biggest'); if (r.success) state.leaderboards.biggest = r.leaderboard || []; }
-  else { const r = await api('leaderboard_catches', { period:'alltime' }); if (r.success) state.leaderboards.catches = r.leaderboard || []; }
+  else if (tab === 'catches') { const r = await api('leaderboard_catches', { period:'alltime' }); if (r.success) state.leaderboards.catches = r.leaderboard || []; }
+  else if (tab === 'spots') { const r = await api('web_spot_leaderboard'); if (r.success) state.spotLeaderboard = r.spots || []; }
   render();
 }
 async function loadJournal() {
@@ -605,7 +607,12 @@ async function deleteSpot(spotId) {
   if (!confirm('Delete this spot? The in-world object will re-register as a new spot if reset.')) return;
   const r = await api('web_spot_delete', { spot_id: String(spotId) });
   if (r.success) { showToast('Spot deleted'); loadMySpots(); }
-  else showToast(r.error, true);
+}
+async function levelUpSpot(spotId) {
+  if (!confirm('Level up this fishing spot? This will raise the minimum player level required to fish here.')) return;
+  const r = await api('web_spot_level_up', { spot_id: String(spotId) });
+  if (r.success) { showToast(r.message || 'Spot leveled up!'); loadMySpots(); }
+  else showToast(r.error || 'Failed to level up spot', true);
 }
 async function loadSettings() {
   const r = await api('web_titles');
@@ -630,7 +637,7 @@ async function restartTutorial() {
 }
 
 function loadPageData(page) {
-  const loaders = { dashboard:loadDashboard, fish:loadFishInventory, tackle:loadTackle, quests:loadQuests, shop:loadShop, leaderboards:loadLeaderboards, map:loadMapGrids, trophy:loadTrophy, journal:loadJournal, log:loadCatchLog, settings:loadSettings, rods:loadRodGallery, help:loadHelp };
+  const loaders = { dashboard:loadDashboard, fish:loadFishInventory, tackle:loadTackle, quests:loadQuests, myspots:loadMySpots, shop:loadShop, leaderboards:loadLeaderboards, map:loadMapGrids, trophy:loadTrophy, journal:loadJournal, log:loadCatchLog, settings:loadSettings, rods:loadRodGallery, help:loadHelp };
   if (loaders[page]) loaders[page]();
 }
 
@@ -806,6 +813,7 @@ function renderSidebar(mobile) {
     {key:'dashboard',label:'Dashboard',icon:icons.dashboard},{key:'fish',label:'Fish Inventory',icon:icons.fish},
     {key:'tackle',label:'Tackle',icon:icons.bait},{key:'rods',label:'Rods',icon:icons.fish},
     {key:'quests',label:'Quests',icon:icons.quest},
+    {key:'myspots',label:'My Spots',icon:icons.spot},
     {key:'trophy',label:'Trophy',icon:'🏆'},
     {key:'shop',label:'Shop',icon:icons.shop},{key:'leaderboards',label:'Leaderboards',icon:icons.trophy},
     {key:'map',label:'Grid Map',icon:'🗺️'},
@@ -1256,7 +1264,7 @@ function renderShop() {
 // ═══════════════════════════════════════════════
 function renderLeaderboards() {
   const tab = state.leaderboardTab;
-  const tabBar = h('div',{class:'tab-bar'},...[['biggest','Biggest Fish'],['catches','Most Catches']].map(([k,l])=>h('button',{class:'tab-btn'+(tab===k?' active':''),onClick:()=>{state.leaderboardTab=k;render();loadLeaderboards();}},l)));
+  const tabBar = h('div',{class:'tab-bar'},...[['biggest','Biggest Fish'],['catches','Most Catches'],['spots','Spot Rankings']].map(([k,l])=>h('button',{class:'tab-btn'+(tab===k?' active':''),onClick:()=>{state.leaderboardTab=k;render();loadLeaderboards();}},l)));
   let table;
   if (tab === 'biggest') {
     const data = state.leaderboards.biggest || [];
@@ -1267,13 +1275,26 @@ function renderLeaderboards() {
         h('td',{style:{fontWeight:600,color:state.player&&e.display_name===state.player.display_name?'var(--accent)':''}},e.display_name),
         h('td',null,e.fish_name||e.species_name||'—'),h('td',{style:{fontWeight:700}},e.weight+' lbs'),h('td',null,rarityBadge(e.rarity_name||'common'))
       )))) : null;
-  } else {
+  } else if (tab === 'catches') {
     const data = state.leaderboards.catches || [];
     table = data.length ? h('table',null,
       h('thead',null,h('tr',null,...['#','Player','Total Catches','Level'].map(hd=>h('th',null,hd)))),
       h('tbody',null,...data.map((e,i)=>h('tr',null,
         h('td',{style:{fontWeight:800,fontSize:'16px'}},String(medals(i))),h('td',{style:{fontWeight:600}},e.display_name),
         h('td',null,h('span',{style:{fontWeight:700,color:'var(--accent)'}},String(e.total_catches))),h('td',null,'Lvl '+e.level)
+      )))) : null;
+  } else {
+    const data = state.spotLeaderboard || [];
+    table = data.length ? h('table',null,
+      h('thead',null,h('tr',null,...['#','Spot','Type','Level','Owner','Catches','Region'].map(hd=>h('th',null,hd)))),
+      h('tbody',null,...data.map((e,i)=>h('tr',null,
+        h('td',{style:{fontWeight:800,fontSize:'16px'}},String(medals(i))),
+        h('td',{style:{fontWeight:600}},e.name),
+        h('td',null,e.water_type),
+        h('td',null,h('span',{style:{fontWeight:700,color:'var(--accent)'}},'Lvl '+e.spot_level)),
+        h('td',null,e.owner_name||'—'),
+        h('td',null,String(e.total_catches||0)),
+        h('td',{style:{fontSize:'11px',color:'var(--text-muted)'}},e.region_name||'—')
       )))) : null;
   }
   return h('div',{class:'fade-in'},h('div',{class:'section-header'},h('h2',{class:'section-title'},'Leaderboards')),tabBar,
@@ -1316,6 +1337,62 @@ function renderCatchLog() {
         h('td',{style:{color:'var(--text-muted)',fontSize:'12px'}},f.caught_at||'—')
       )))
     )))
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: MY FISHING SPOTS
+// ═══════════════════════════════════════════════
+function renderMySpots() {
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},
+      h('h2',{class:'section-title'},'My Fishing Spots'),
+      h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}},`${state.spotStats.used} of ${state.spotStats.limit} spots used`)
+    ),
+    (state.mySpots||[]).length === 0
+      ? h('div',{class:'card'},h('div',{class:'card-body'},
+          h('div',{style:{fontSize:'13px',color:'var(--text-muted)'}},'You haven\'t placed any spots yet. Rez a fishing spot object in-world to register it.')
+        ))
+      : h('div',{style:{display:'flex',flexDirection:'column',gap:'12px'}},
+          ...(state.mySpots||[]).map(s => {
+            const xp = s.spot_xp || 0;
+            const xpNext = s.spot_xp_to_next || 100;
+            const xpPct = Math.min(100, Math.round(xp / xpNext * 100));
+            const lvlReady = s.spot_level_ready == 1 || s.spot_level_ready === true;
+            return h('div',{class:'card',style:{opacity:s.is_active==1?'1':'0.65',border:lvlReady?'1px solid var(--accent)':'1px solid var(--border-light)'}},
+              h('div',{class:'card-body'},
+                h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'10px'}},
+                  h('div',null,
+                    h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px'}},
+                      h('div',{style:{fontSize:'15px',fontWeight:700}},s.name),
+                      h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',background:'var(--accent-soft)',color:'var(--accent)'}},`Lvl ${s.spot_level||1}`)
+                    ),
+                    h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},`${s.water_type} — ${s.region_name || 'unknown region'}`),
+                    h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}},`<${Math.round(s.pos_x)}, ${Math.round(s.pos_y)}, ${Math.round(s.pos_z)}>`)
+                  ),
+                  h('span',{style:{fontSize:'11px',fontWeight:700,padding:'3px 9px',borderRadius:'5px',background:s.is_active==1?'var(--success-soft)':'var(--danger-soft)',color:s.is_active==1?'var(--success)':'var(--danger)'}},s.is_active==1?'ACTIVE':'INACTIVE')
+                ),
+                !s.is_system
+                  ? h('div',{style:{marginBottom:'10px'}},
+                      h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'11px',color:'var(--text-muted)',marginBottom:'4px'}},
+                        h('span',lvlReady ? {style:{color:'var(--accent)',fontWeight:700}} : null, lvlReady ? 'LEVEL UP READY' : `XP: ${xp} / ${xpNext}`),
+                        h('span',`${xpPct}%`)
+                      ),
+                      h('div',{style:{height:'5px',borderRadius:'3px',background:'var(--bg-input)'}},
+                        h('div',{style:{height:'100%',width:`${xpPct}%`,borderRadius:'3px',background:lvlReady?'var(--accent)':'var(--success)',transition:'width .3s'}})
+                      )
+                    )
+                  : null,
+                h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}},
+                  h('button',{class:'btn btn-secondary btn-sm',onClick:()=>renameSpot(s.id,s.name)},'Rename'),
+                  h('button',{class:'btn btn-secondary btn-sm',onClick:()=>toggleSpot(s.id,s.is_active!=1)},s.is_active==1?'Deactivate':'Activate'),
+                  lvlReady && !s.is_system ? h('button',{class:'btn btn-primary btn-sm',onClick:()=>levelUpSpot(s.id)},'Level Up!') : null,
+                  h('button',{class:'btn btn-danger btn-sm',onClick:()=>deleteSpot(s.id)},'Delete')
+                )
+              )
+            );
+          })
+        )
   );
 }
 
@@ -1401,33 +1478,6 @@ function renderSettings() {
         h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginBottom:'12px'}},
           'Restart the in-world tutorial walkthrough. After clicking, touch your HUD to begin again.'),
         h('button',{class:'btn btn-secondary',onClick:restartTutorial},'Restart Tutorial')
-      )),
-      h('div',{class:'card'},h('div',{class:'card-body'},
-        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}},
-          h('div',{style:{fontSize:'14px',fontWeight:700}},'My Fishing Spots'),
-          h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},`${state.spotStats.used} of ${state.spotStats.limit} used`)
-        ),
-        (state.mySpots||[]).length === 0
-          ? h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'You haven\'t placed any spots yet. Rez a fishing spot object in-world to register it.')
-          : h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
-              ...(state.mySpots||[]).map(s =>
-                h('div',{style:{padding:'12px',background:'var(--bg-input)',borderRadius:'8px',opacity:s.is_active==1?'1':'0.6'}},
-                  h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
-                    h('div',null,
-                      h('div',{style:{fontSize:'13px',fontWeight:700}},s.name),
-                      h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},`${s.water_type} — ${s.region_name || 'unknown region'}`),
-                      h('div',{style:{fontSize:'10px',color:'var(--text-muted)'}},`<${Math.round(s.pos_x)}, ${Math.round(s.pos_y)}, ${Math.round(s.pos_z)}>`)
-                    ),
-                    h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 8px',borderRadius:'4px',background:s.is_active==1?'var(--success-soft)':'var(--danger-soft)',color:s.is_active==1?'var(--success)':'var(--danger)'}},s.is_active==1?'ACTIVE':'INACTIVE')
-                  ),
-                  h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}},
-                    h('button',{class:'btn btn-secondary btn-sm',onClick:()=>renameSpot(s.id,s.name)},'Rename'),
-                    h('button',{class:'btn btn-secondary btn-sm',onClick:()=>toggleSpot(s.id,s.is_active!=1)},s.is_active==1?'Deactivate':'Activate'),
-                    h('button',{class:'btn btn-danger btn-sm',onClick:()=>deleteSpot(s.id)},'Delete')
-                  )
-                )
-              )
-            )
       )),
       h('div',{class:'card'},h('div',{class:'card-body'},
         h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Session'),
@@ -1980,11 +2030,13 @@ function renderGridMap() {
               const buffs=parseInt(s.active_buffs)||0;
               const isActive = (s.is_active==='1' || s.is_active===1);
               const hopUrl = buildHopUrl(r.region_name, s);
+              const lvl = s.spot_level ? ' Lvl'+s.spot_level : '';
               const spotLabel = h('span',null,
                 (isActive?'🟢':'🔴')+' ',
                 hopUrl
                   ? h('a',{href:hopUrl,target:'_blank',rel:'noopener',style:{color:'var(--accent)',textDecoration:'underline',fontWeight:600}},s.name)
                   : h('span',{style:{fontWeight:600}},s.name),
+                h('span',{style:{color:'var(--accent)',fontWeight:600}},lvl),
                 ' ',
                 h('span',{style:{color:'var(--text-muted)'}},s.water_type),
                 junk>0?' 🎁':'',
@@ -2076,7 +2128,7 @@ function renderTrophy() {
 // ═══════════════════════════════════════════════
 // MAIN RENDER
 // ═══════════════════════════════════════════════
-const pageRenderers = { dashboard:renderDashboard, fish:renderFishInventory, tackle:renderTackle, rods:renderRodGallery, quests:renderQuests, shop:renderShop, leaderboards:renderLeaderboards, map:renderGridMap, trophy:renderTrophy, journal:renderJournal, log:renderCatchLog, help:renderHelp, settings:renderSettings };
+const pageRenderers = { dashboard:renderDashboard, fish:renderFishInventory, tackle:renderTackle, rods:renderRodGallery, quests:renderQuests, myspots:renderMySpots, shop:renderShop, leaderboards:renderLeaderboards, map:renderGridMap, trophy:renderTrophy, journal:renderJournal, log:renderCatchLog, help:renderHelp, settings:renderSettings };
 
 function render() {
   setTheme(state.theme);

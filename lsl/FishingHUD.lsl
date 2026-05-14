@@ -301,11 +301,12 @@ integer gCharging    = FALSE;
 float   gReelInDist  = 0.0;   // Current bobber distance during reel-in
 
 // ── Fishing Spot ──
-integer gCurrentSpotId   = 0;
-string  gCurrentSpotName = "";
+integer gCurrentSpotId    = 0;
+string  gCurrentSpotName  = "";
 string  gCurrentWaterType = "pond";  // pond/river/lake/ocean
-vector  gSpotPos         = ZERO_VECTOR;
-float   gSpotRadius      = 0.0;          // 0 = no radius received, skip bad cast check
+integer gCurrentSpotLevel = 1;
+vector  gSpotPos          = ZERO_VECTOR;
+float   gSpotRadius       = 0.0;          // 0 = no radius received, skip bad cast check
 
 // ── Wait-for-Bite State (new scheduled-roll system) ──
 // Scheduled bite opportunities. Each schedule entry fires NIBBLE or BITE.
@@ -2532,6 +2533,12 @@ default {
             // Notify tournament boards of new catch
             llRegionSay(CH_TOURNAMENT, "CATCH|" + (string)gCurrentSpotId);
 
+            // Spot level-up ready notification
+            string slvlReady = llJsonGetValue(body, ["spot_level_ready"]);
+            if (slvlReady == "1" || slvlReady == "true" || slvlReady == JSON_TRUE) {
+                llOwnerSay("[Spot] " + gCurrentSpotName + " is ready to level up! Touch the spot to confirm.");
+            }
+
             // Request junk item delivery from spot if one was rolled
             string junkItem = llJsonGetValue(body, ["junk_item"]);
             if (junkItem != JSON_INVALID && junkItem != JSON_NULL && junkItem != "" && junkItem != "null") {
@@ -2608,7 +2615,7 @@ default {
             list parts = llParseString2List(msg, ["|"], []);
             if (llList2String(parts, 0) == "SPOT") {
                 integer wasNoSpot = (gCurrentSpotId == 0);
-                gCurrentSpotId  = (integer)llList2String(parts, 1);
+                gCurrentSpotId   = (integer)llList2String(parts, 1);
                 gCurrentSpotName = llList2String(parts, 2);
                 gSpotPos = <(float)llList2String(parts, 3),
                             (float)llList2String(parts, 4),
@@ -2618,7 +2625,12 @@ default {
                 string rad = llList2String(parts, 7);
                 if (rad != "") gSpotRadius = (float)rad;
                 if (gSpotRadius < 5.0) gSpotRadius = 5.0;
+                string slvl = llList2String(parts, 8);
+                if (slvl != "") gCurrentSpotLevel = (integer)slvl;
                 updateMainDisplay();
+                if (wasNoSpot) {
+                    hudInfo("Spot: " + gCurrentSpotName + " (" + gCurrentWaterType + " Lvl " + (string)gCurrentSpotLevel + ")");
+                }
                 // Tutorial: advance from "find a spot" step when first detected
                 if (wasNoSpot && gTutorialActive && gTutorialStep == 5) {
                     advanceTutorial();
@@ -2628,10 +2640,11 @@ default {
                 integer unspotId = (integer)llList2String(parts, 1);
                 // Only clear if we're linked to this specific spot and not actively fishing
                 if (unspotId == gCurrentSpotId && gState == STATE_IDLE) {
-                    gCurrentSpotId = 0;
-                    gCurrentSpotName = "";
-                    gSpotPos = ZERO_VECTOR;
-                    gSpotRadius = 0.0;
+                    gCurrentSpotId    = 0;
+                    gCurrentSpotName  = "";
+                    gCurrentSpotLevel = 1;
+                    gSpotPos          = ZERO_VECTOR;
+                    gSpotRadius       = 0.0;
                     updateMainDisplay();
                 }
             }

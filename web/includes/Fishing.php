@@ -29,13 +29,9 @@ class Fishing {
             json_error('Invalid fishing spot');
         }
 
-        // Check level requirement
-        $stmt = $pdo->prepare('SELECT min_level FROM water_types WHERE id = :id');
-        $stmt->execute([':id' => $spot['water_type_id']]);
-        $waterMinLevel = (int)$stmt->fetchColumn();
-
-        if ((int)$player['level'] < $waterMinLevel || (int)$player['level'] < (int)$spot['min_level']) {
-            json_error('Your level is too low for this fishing spot');
+        // Check spot level requirement (spot_level is the sole player-access gate)
+        if ((int)$player['level'] < (int)$spot['spot_level']) {
+            json_error('Your level is too low for this fishing spot (requires level ' . (int)$spot['spot_level'] . ')');
         }
 
         // ── Validate equipped bait ──
@@ -785,6 +781,11 @@ class Fishing {
         $fishSpeciesId = $tokenData['fish_id'];
         $weight        = $tokenData['weight'];
 
+        // Fetch spot row needed for spot XP logic
+        $stmt = $pdo->prepare('SELECT is_system, spot_level, spot_level_ready FROM fishing_spots WHERE id = :sid');
+        $stmt->execute([':sid' => $spotId]);
+        $spotMeta = $stmt->fetch();
+
         // ── Cast distance weight bonus: up to +10% for max distance casts ──
         if ($castDistance > 0) {
             // Normalize cast distance: 10m = min, ~50m = max
@@ -951,6 +952,9 @@ class Fishing {
         // ── Check tournament entries ──
         self::updateTournaments($playerId, $fishSpeciesId, $weight, $spotId);
 
+        // ── Award spot XP ──
+        $spotXpResult = self::awardSpotXp($pdo, $spotId, $playerId, (int)$fish['rarity_id'], $spotMeta);
+
         // ── Auto-track quest progress ──
         $questUpdates = [];
         try {
@@ -1019,19 +1023,21 @@ class Fishing {
         }
 
         return [
-            'fish_name'     => $fish['name'],
-            'weight'        => round($weight, 2),
-            'rarity'        => $fish['rarity_name'],
-            'rarity_color'  => $fish['color_hex'],
-            'points_value'  => $totalPoints,
-            'xp_awarded'    => $totalXP,
-            'level_up'      => $levelUp,
-            'double_catch'  => $doubleCatch,
-            'bait_saved'    => isset($buffs['bait_saver']) && !empty($saveBait) && $saveBait,
-            'junk_item'     => $junkItem,
-            'quest_updates' => $questUpdates,
-            'quest_msg'     => trim($questMsg),
-            'message'       => $catchMsg,
+            'fish_name'         => $fish['name'],
+            'weight'            => round($weight, 2),
+            'rarity'            => $fish['rarity_name'],
+            'rarity_color'      => $fish['color_hex'],
+            'points_value'      => $totalPoints,
+            'xp_awarded'        => $totalXP,
+            'level_up'          => $levelUp,
+            'double_catch'      => $doubleCatch,
+            'bait_saved'        => isset($buffs['bait_saver']) && !empty($saveBait) && $saveBait,
+            'junk_item'         => $junkItem,
+            'quest_updates'     => $questUpdates,
+            'quest_msg'         => trim($questMsg),
+            'spot_xp_awarded'   => $spotXpResult['xp_awarded'],
+            'spot_level_ready'  => $spotXpResult['level_ready'],
+            'message'           => $catchMsg,
         ];
     }
 
@@ -1175,6 +1181,134 @@ class Fishing {
         ');
         $stmt->execute([':pid' => $playerId, ':bid' => $baitId]);
         return (int)($stmt->fetchColumn() ?: 0);
+    }
+
+    // ── Spot XP constants ─────────────────────────────────────────────────────
+
+    private const SPOT_XP_DAILY_CAP = 200;  // max XP a spot can earn per day from all fishers
+    private const SPOT_XP_BY_RARITY = [     // rarity_id => XP awarded to spot
+        1 => 1,   // Common
+        2 => 3,   // Uncommon
+        3 => 8,   // Rare
+        4 => 20,  // Epic
+        5 => 50,  // Legendary
+    ];
+    // XP required to qualify for the NEXT level (indexed by current level, 1-based).
+    // Levels 2, 5, 9 are bottlenecks (+50%) right before a buff-slot unlock.
+    private const SPOT_XP_THRESHOLDS = [
+        1 =>   100,
+        2 =>   375,   // bottleneck: buff slot 3 unlocks at level 3
+        3 =>   400,
+        4 =>   550,
+        5 =>  1050,   // bottleneck: buff slot 4 unlocks at level 6
+        6 =>   800,
+        7 =>   900,
+        8 =>  1000,
+        9 =>  1950,   // bottleneck: buff slot 5 unlocks at level 10
+        10 => 1500,
+        11 => 1750,
+        12 => 2000,
+        13 => 2250,
+        14 => 2500,
+    ];
+    // Levels 15+ each cost 250 more than the previous.
+    public static function xpThresholdForNextLevel(int $level): int {
+        if (isset(self::SPOT_XP_THRESHOLDS[$level])) {
+            return self::SPOT_XP_THRESHOLDS[$level];
+        }
+        // Level 14 = 2500; each subsequent level adds 250
+        return 2500 + ($level - 14) * 250;
+    }
+
+    // loot_modifier = 1.0 + (level-1) * 0.05, capped at 2.50
+    public static function lootModifierForLevel(int $level): float {
+        return min(2.50, round(1.0 + ($level - 1) * 0.05, 2));
+    }
+
+    /**
+     * Award XP to a fishing spot after a successful catch.
+     * Applies per-fisher diminishing returns and a per-spot daily cap.
+     * Skips system spots.
+     * Returns ['xp_awarded' => int, 'level_ready' => bool].
+     */
+    private static function awardSpotXp(
+        \PDO $pdo, int $spotId, int $playerId, int $rarityId, ?array $spotMeta
+    ): array {
+        $noOp = ['xp_awarded' => 0, 'level_ready' => false];
+
+        if (!$spotMeta || (int)$spotMeta['is_system'] === 1) {
+            return $noOp;
+        }
+
+        $baseXp = self::SPOT_XP_BY_RARITY[$rarityId] ?? 1;
+        $today  = date('Y-m-d');
+
+        // Fetch current totals for this fisher today and for the spot today
+        $stmt = $pdo->prepare('
+            SELECT fish_count, xp_given FROM spot_xp_daily
+            WHERE spot_id = :sid AND player_id = :pid AND log_date = :d
+        ');
+        $stmt->execute([':sid' => $spotId, ':pid' => $playerId, ':d' => $today]);
+        $fisherRow = $stmt->fetch();
+        $fisherCount = $fisherRow ? (int)$fisherRow['fish_count'] : 0;
+
+        $stmt = $pdo->prepare('
+            SELECT COALESCE(SUM(xp_given), 0) FROM spot_xp_daily
+            WHERE spot_id = :sid AND log_date = :d
+        ');
+        $stmt->execute([':sid' => $spotId, ':d' => $today]);
+        $spotTodayXp = (int)$stmt->fetchColumn();
+
+        if ($spotTodayXp >= self::SPOT_XP_DAILY_CAP) {
+            return $noOp;  // Daily cap already hit
+        }
+
+        // Diminishing returns by fish count this fisher has contributed today
+        if ($fisherCount >= 40) {
+            return $noOp;  // 41+ fish: 0% contribution
+        }
+        $multiplier = $fisherCount >= 20 ? 0.5 : 1.0;  // 21-40: 50%
+
+        $xpToAward = (int)max(0, floor($baseXp * $multiplier));
+        if ($xpToAward <= 0) {
+            return $noOp;
+        }
+
+        // Clamp to remaining daily cap
+        $xpToAward = min($xpToAward, self::SPOT_XP_DAILY_CAP - $spotTodayXp);
+        if ($xpToAward <= 0) {
+            return $noOp;
+        }
+
+        // Upsert fisher's daily row
+        $pdo->prepare('
+            INSERT INTO spot_xp_daily (spot_id, player_id, log_date, fish_count, xp_given)
+            VALUES (:sid, :pid, :d, 1, :xp)
+            ON DUPLICATE KEY UPDATE
+                fish_count = fish_count + 1,
+                xp_given   = xp_given + :xp2
+        ')->execute([':sid' => $spotId, ':pid' => $playerId, ':d' => $today, ':xp' => $xpToAward, ':xp2' => $xpToAward]);
+
+        // Increment spot XP
+        $pdo->prepare('UPDATE fishing_spots SET spot_xp = spot_xp + :xp WHERE id = :sid')
+            ->execute([':xp' => $xpToAward, ':sid' => $spotId]);
+
+        // Check if spot now qualifies for a level-up
+        $stmt = $pdo->prepare('SELECT spot_xp, spot_level, spot_level_ready FROM fishing_spots WHERE id = :sid');
+        $stmt->execute([':sid' => $spotId]);
+        $updated = $stmt->fetch();
+        $levelReady = (bool)$updated['spot_level_ready'];
+
+        if (!$levelReady) {
+            $threshold = self::xpThresholdForNextLevel((int)$updated['spot_level']);
+            if ((int)$updated['spot_xp'] >= $threshold) {
+                $pdo->prepare('UPDATE fishing_spots SET spot_level_ready = 1 WHERE id = :sid')
+                    ->execute([':sid' => $spotId]);
+                $levelReady = true;
+            }
+        }
+
+        return ['xp_awarded' => $xpToAward, 'level_ready' => $levelReady];
     }
 
     /**

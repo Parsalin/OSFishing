@@ -240,6 +240,15 @@ try {
             $spotId = (int)require_param('spot_id');
             json_success(PairingAuth::spotStatus($spotId));
 
+        case 'spot_level_up':
+            $uuid   = require_param('uuid');
+            $spotId = (int)require_param('spot_id');
+            $stmt   = db()->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+            $stmt->execute([':u' => $uuid]);
+            $actor  = $stmt->fetch();
+            if (!$actor) json_error('Player not found', 401);
+            json_success(PairingAuth::confirmSpotLevelUp((int)$actor['id'], $spotId, (bool)$actor['is_admin']));
+
         // ── Line break report (small XP, magnet loss) ──
         case 'line_break':
             $player = PairingAuth::requireHUD($action);
@@ -288,6 +297,14 @@ try {
             $spots = PairingAuth::mySpots((int)$player['id']);
             $stats = PairingAuth::spotStats((int)$player['id'], (int)$player['level']);
             json_success(['spots' => $spots, 'stats' => $stats]);
+
+        case 'web_spot_level_up':
+            $player = AuthEmbed::requireWeb();
+            $spotId = (int)require_param('spot_id');
+            json_success(PairingAuth::confirmSpotLevelUp((int)$player['id'], $spotId, (bool)$player['is_admin']));
+
+        case 'web_spot_leaderboard':
+            json_success(['spots' => PairingAuth::spotLeaderboard()]);
 
         case 'web_spot_rename':
             $player = AuthEmbed::requireWeb();

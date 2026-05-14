@@ -220,7 +220,7 @@ class Admin
 
     public static function updateSpot(int $spotId, array $data): array {
         $pdo = db();
-        $allowed = ['name','water_type_id','is_active','is_system','player_id','region_name'];
+        $allowed = ['name','water_type_id','is_active','is_system','player_id','region_name','spot_level'];
         $sets = [];
         $params = [':id' => $spotId];
 
@@ -237,6 +237,15 @@ class Admin
         }
 
         if (empty($sets)) json_error('Nothing to update');
+
+        // Auto-update loot_modifier when spot_level is set
+        if (array_key_exists('spot_level', $data)) {
+            $newLevel = max(1, (int)$data['spot_level']);
+            $newMod   = Fishing::lootModifierForLevel($newLevel);
+            $sets[]             = 'loot_modifier = :loot_modifier';
+            $params[':loot_modifier'] = $newMod;
+            $sets[]             = 'spot_level_ready = 0';
+        }
 
         $sql = 'UPDATE fishing_spots SET ' . implode(', ', $sets) . ' WHERE id = :id';
         $stmt = $pdo->prepare($sql);

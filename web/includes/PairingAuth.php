@@ -832,7 +832,7 @@ class PairingAuth {
         $stmt = $pdo->prepare("
             SELECT fs.id, fs.name, fs.region_name, fs.grid_name,
                    fs.region_x, fs.region_y, fs.pos_x, fs.pos_y, fs.pos_z,
-                   fs.is_active, fs.player_id,
+                   fs.is_active, fs.player_id, fs.spot_level,
                    wt.name AS water_type, p.display_name AS owner_name,
                    (SELECT COUNT(*) FROM spot_junk_items sji WHERE sji.spot_id = fs.id) AS junk_count,
                    (SELECT COUNT(*) FROM spot_buffs sb WHERE sb.spot_id = fs.id AND sb.expires_at > NOW()) AS active_buffs
@@ -871,7 +871,8 @@ class PairingAuth {
     public static function spotStatus(int $spotId): array {
         $stmt = db()->prepare('
             SELECT fs.id, fs.name, wt.name AS water_type,
-                   fs.is_active, fs.is_public, fs.is_system, fs.player_id
+                   fs.is_active, fs.is_public, fs.is_system, fs.player_id,
+                   fs.spot_level, fs.spot_xp, fs.spot_level_ready
             FROM fishing_spots fs
             JOIN water_types wt ON wt.id = fs.water_type_id
             WHERE fs.id = :id
@@ -881,13 +882,20 @@ class PairingAuth {
         if (!$row) {
             return ['exists' => false, 'is_active' => false];
         }
+        $level    = (int)$row['spot_level'];
+        $xp       = (int)$row['spot_xp'];
+        $xpToNext = Fishing::xpThresholdForNextLevel($level);
         return [
-            'exists'     => true,
-            'is_active'  => (bool)$row['is_active'],
-            'is_public'  => (bool)$row['is_public'],
-            'is_system'  => (bool)$row['is_system'],
-            'name'       => $row['name'],
-            'water_type' => $row['water_type'],
+            'exists'          => true,
+            'is_active'       => (bool)$row['is_active'],
+            'is_public'       => (bool)$row['is_public'],
+            'is_system'       => (bool)$row['is_system'],
+            'name'            => $row['name'],
+            'water_type'      => $row['water_type'],
+            'spot_level'      => $level,
+            'spot_xp'         => $xp,
+            'spot_xp_to_next' => $xpToNext,
+            'spot_level_ready'=> (bool)$row['spot_level_ready'],
         ];
     }
 
@@ -898,14 +906,19 @@ class PairingAuth {
         $stmt = db()->prepare('
             SELECT fs.id, fs.name, wt.name AS water_type,
                    fs.region_name, fs.pos_x, fs.pos_y, fs.pos_z,
-                   fs.is_active, fs.created_at
+                   fs.is_active, fs.created_at,
+                   fs.spot_level, fs.spot_xp, fs.spot_level_ready
             FROM fishing_spots fs
             JOIN water_types wt ON wt.id = fs.water_type_id
             WHERE fs.player_id = :pid AND fs.is_system = 0 AND fs.archived = 0
             ORDER BY fs.created_at DESC
         ');
         $stmt->execute([':pid' => $playerId]);
-        return $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$row) {
+            $row['spot_xp_to_next'] = Fishing::xpThresholdForNextLevel((int)$row['spot_level']);
+        }
+        return $rows;
     }
 
     /**
@@ -923,6 +936,66 @@ class PairingAuth {
             'used'  => $used,
             'limit' => self::computeSpotLimit($playerLevel, $override),
         ];
+    }
+
+    /**
+     * Owner confirms a pending level-up on their fishing spot.
+     * Can also be called by admin (playerId = 0 with $isAdmin = true).
+     */
+    public static function confirmSpotLevelUp(int $playerId, int $spotId, bool $isAdmin = false): array {
+        $pdo = db();
+        $stmt = $pdo->prepare('
+            SELECT id, player_id, is_system, spot_level, spot_level_ready
+            FROM fishing_spots WHERE id = :id
+        ');
+        $stmt->execute([':id' => $spotId]);
+        $spot = $stmt->fetch();
+        if (!$spot) json_error('Spot not found', 404);
+        if ((int)$spot['is_system']) json_error('System spots cannot be leveled up', 403);
+        if (!$isAdmin && (int)$spot['player_id'] !== $playerId) json_error('Not your spot', 403);
+        if (!(int)$spot['spot_level_ready']) json_error('Spot is not ready to level up', 400);
+
+        $newLevel   = (int)$spot['spot_level'] + 1;
+        $newMod     = Fishing::lootModifierForLevel($newLevel);
+        $xpToNext   = Fishing::xpThresholdForNextLevel($newLevel);
+
+        $pdo->prepare('
+            UPDATE fishing_spots
+            SET spot_level = :lvl, loot_modifier = :mod, spot_level_ready = 0
+            WHERE id = :id
+        ')->execute([':lvl' => $newLevel, ':mod' => $newMod, ':id' => $spotId]);
+
+        return [
+            'success'          => true,
+            'new_level'        => $newLevel,
+            'new_loot_modifier'=> $newMod,
+            'spot_xp_to_next'  => $xpToNext,
+            'message'          => 'Spot leveled up to ' . $newLevel . '!',
+        ];
+    }
+
+    /**
+     * Public spot leaderboard: top 50 non-system public spots by level then XP.
+     */
+    public static function spotLeaderboard(): array {
+        $stmt = db()->prepare('
+            SELECT fs.id, fs.name, wt.name AS water_type,
+                   fs.spot_level, fs.spot_xp,
+                   p.display_name AS owner_name,
+                   fs.region_name, fs.grid_name,
+                   (SELECT COUNT(*) FROM catch_log cl WHERE cl.spot_id = fs.id) AS total_catches
+            FROM fishing_spots fs
+            JOIN water_types wt ON wt.id = fs.water_type_id
+            LEFT JOIN players p ON p.id = fs.player_id
+            WHERE fs.is_system = 0
+              AND fs.is_public  = 1
+              AND fs.archived   = 0
+              AND fs.is_active  = 1
+            ORDER BY fs.spot_level DESC, fs.spot_xp DESC
+            LIMIT 50
+        ');
+        $stmt->execute();
+        return $stmt->fetchAll();
     }
 
     /**

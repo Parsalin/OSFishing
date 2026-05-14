@@ -9,14 +9,16 @@
 string  gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
 
 // ── Canonical spot state ──
-integer gSpotId     = 0;
-string  gSpotName   = "";
-string  gWaterType  = "";
-integer gIsActive   = FALSE;
-integer gIsPublic   = TRUE;
-integer gIsSystem   = FALSE;
-integer gRegistered = FALSE;
-integer gSetupDone  = FALSE;
+integer gSpotId        = 0;
+string  gSpotName      = "";
+string  gWaterType     = "";
+integer gIsActive      = FALSE;
+integer gIsPublic      = TRUE;
+integer gIsSystem      = FALSE;
+integer gRegistered    = FALSE;
+integer gSetupDone     = FALSE;
+integer gSpotLevel     = 1;
+integer gSpotLevelReady = FALSE;
 
 // ── HTTP ──
 key     gHttpReq    = NULL_KEY;
@@ -110,13 +112,17 @@ setTextLabel() {
     if (!gSetupDone) {
         setTextSafe("Fishing Spot\n(Touch to set up)", <1.0, 0.8, 0.3>, 1.0);
     } else if (!gIsActive) {
-        setTextSafe(gSpotName + "\n" + gWaterType + " (Inactive)", <0.5, 0.5, 0.5>, 0.8);
+        string levelTag = " (Lvl " + (string)gSpotLevel + " - Inactive)";
+        setTextSafe(gSpotName + "\n" + gWaterType + levelTag, <0.5, 0.5, 0.5>, 0.8);
     } else {
+        string levelTag = " (Lvl " + (string)gSpotLevel + ")";
+        if (gSpotLevelReady) levelTag = " (Lvl " + (string)gSpotLevel + " - LEVEL UP!)";
         integer junkCount = llGetInventoryNumber(INVENTORY_OBJECT);
         string extra = "";
         if (junkCount > 0)   extra += "[Junk]";
         if (gHasActiveBuffs) extra += " [Buffs]";
-        setTextSafe(gSpotName + "\n" + gWaterType + "\n" + extra, <0.3, 0.9, 0.5>, 1.0);
+        vector col = gSpotLevelReady ? <1.0, 0.9, 0.1> : <0.3, 0.9, 0.5>;
+        setTextSafe(gSpotName + "\n" + gWaterType + levelTag + "\n" + extra, col, 1.0);
     }
 }
 
@@ -164,7 +170,7 @@ notifyPlayer(key av) {
     llRegionSayTo(av, CH_SPOT_TO_HUD,
         "SPOT|" + (string)gSpotId + "|" + gSpotName + "|" +
         (string)pos.x + "|" + (string)pos.y + "|" + (string)pos.z +
-        "|" + gWaterType + "|" + (string)radius);
+        "|" + gWaterType + "|" + (string)radius + "|" + (string)gSpotLevel);
 }
 
 saveSpotData() {
@@ -183,14 +189,16 @@ resetToUnsetup() {
         gCallbackUrl = "";
         llReleaseURL(url);
     }
-    gSpotId          = 0;
-    gSpotName        = "";
-    gWaterType       = "";
-    gIsActive        = FALSE;
-    gSetupDone       = FALSE;
-    gRegistered      = FALSE;
-    gActiveBuffNames = [];
-    gHasActiveBuffs  = FALSE;
+    gSpotId           = 0;
+    gSpotName         = "";
+    gWaterType        = "";
+    gIsActive         = FALSE;
+    gSetupDone        = FALSE;
+    gRegistered       = FALSE;
+    gActiveBuffNames  = [];
+    gHasActiveBuffs   = FALSE;
+    gSpotLevel        = 1;
+    gSpotLevelReady   = FALSE;
     llSensorRemove();
     llSetTimerEvent(0.0);
     setTextLabel();
@@ -355,7 +363,8 @@ showManageMenu(key who) {
     gDialogHandle = llListen(gDialogCh, "", who, "");
     llDialog(who,
         "🎣 " + gSpotName + "\n" +
-        gWaterType + " | " + (gIsActive ? "Active" : "Inactive") +
+        gWaterType + " | Lvl " + (string)gSpotLevel +
+        " | " + (gIsActive ? "Active" : "Inactive") +
         " | " + (gIsPublic ? "Public" : "Private") +
         (gIsSystem ? " | System" : "") +
         "\nID: " + (string)gSpotId,
@@ -370,10 +379,10 @@ showEditMenu(key who) {
     gDialogHandle = llListen(gDialogCh, "", who, "");
     string activeBtn = gIsActive ? "Deactivate" : "Activate";
     string pubBtn    = gIsPublic ? "Make Private" : "Make Public";
-    llDialog(who,
-        "🎣 Edit: " + gSpotName,
-        [activeBtn, "Rename", pubBtn, "List Junk", "Delete", "Back"],
-        gDialogCh);
+    list editBtns = [activeBtn, "Rename", pubBtn, "List Junk"];
+    if (gSpotLevelReady && !gIsSystem) editBtns += ["Level Up!"];
+    editBtns += ["Delete", "Back"];
+    llDialog(who, "🎣 Edit: " + gSpotName, editBtns, gDialogCh);
 }
 
 showJunkPrompt() {
@@ -621,6 +630,12 @@ default {
 
             string sys = llJsonGetValue(body, ["is_system"]);
             if (sys != JSON_INVALID) gIsSystem = (sys == "1" || sys == "true" || sys == JSON_TRUE);
+
+            string slvl = llJsonGetValue(body, ["spot_level"]);
+            if (slvl != JSON_INVALID && slvl != "") gSpotLevel = (integer)slvl;
+
+            string slvlr = llJsonGetValue(body, ["spot_level_ready"]);
+            if (slvlr != JSON_INVALID) gSpotLevelReady = (slvlr == "1" || slvlr == "true" || slvlr == JSON_TRUE);
 
             activateSpotSession();
             return;
@@ -986,6 +1001,17 @@ default {
             pollBuffStatus();
             return;
         }
+
+        // ── Level up confirmed ──
+        if (gHttpAction == "level_up") {
+            integer newLvl = (integer)llJsonGetValue(body, ["new_level"]);
+            if (newLvl > 0) gSpotLevel = newLvl;
+            gSpotLevelReady = FALSE;
+            setTextLabel();
+            llSay(0, "[Spot] " + gSpotName + " has reached level " + (string)gSpotLevel + "!");
+            showManageMenu(gSetupPlayer);
+            return;
+        }
     }
 
     listen(integer ch, string name, key id, string msg) {
@@ -1153,6 +1179,17 @@ default {
                 return;
             }
 
+            if (msg == "Level Up!") {
+                gSetupStep    = "confirm_level_up";
+                gDialogCh     = -1 - (integer)llFrand(999999.0);
+                gDialogHandle = llListen(gDialogCh, "", gSetupPlayer, "");
+                llDialog(gSetupPlayer,
+                    "Level up " + gSpotName + " to level " + (string)(gSpotLevel + 1) + "?\n\n" +
+                    "This will raise the minimum player level required to fish here.",
+                    ["Confirm", "Cancel"], gDialogCh);
+                return;
+            }
+
             if (msg == "Delete") {
                 gSetupStep    = "confirm_delete";
                 gDialogCh     = -1 - (integer)llFrand(999999.0);
@@ -1160,6 +1197,21 @@ default {
                 llDialog(gSetupPlayer, "⚠️ Delete this fishing spot?\nThis cannot be undone!",
                          ["Yes Delete", "Cancel"], gDialogCh);
                 return;
+            }
+            return;
+        }
+
+        // ── Manage: confirm level up ──
+        if (gSetupStep == "confirm_level_up") {
+            cleanupDialog();
+            if (msg == "Confirm") {
+                gHttpAction = "level_up";
+                gHttpReq    = llHTTPRequest(gApiUrl, [
+                    HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
+                ], "action=spot_level_up&uuid=" + llEscapeURL((string)llGetOwner()) +
+                   "&spot_id=" + (string)gSpotId);
+            } else {
+                showEditMenu(gSetupPlayer);
             }
             return;
         }
