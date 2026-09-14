@@ -14,28 +14,28 @@
  *   POST /api/ { action: "web_dashboard" }  (with fishing_session cookie)
  */
 
-require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../includes/Auth.php';
-require_once __DIR__ . '/../includes/Player.php';
-require_once __DIR__ . '/../includes/Fishing.php';
-require_once __DIR__ . '/../includes/Bait.php';
-require_once __DIR__ . '/../includes/Line.php';
-require_once __DIR__ . '/../includes/FishInventory.php';
-require_once __DIR__ . '/../includes/Quest.php';
-require_once __DIR__ . '/../includes/Shop.php';
-require_once __DIR__ . '/../includes/Leaderboard.php';
-require_once __DIR__ . '/../includes/PairingAuth.php';
-require_once __DIR__ . '/../includes/Admin.php';
-require_once __DIR__ . '/../includes/GatherPoint.php';
-require_once __DIR__ . '/../includes/FAQ.php';
-require_once __DIR__ . '/../includes/Tournament.php';
-require_once __DIR__ . '/../includes/Butcher.php';
-require_once __DIR__ . '/../includes/Grid.php';
-require_once __DIR__ . '/../includes/Buff.php';
-require_once __DIR__ . '/../includes/ShopSystem.php';
-require_once __DIR__ . '/../includes/Trophy.php';
-require_once __DIR__ . '/../includes/PrimCallback.php';
-require_once __DIR__ . '/../includes/Tutorial.php';
+require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../includes/Auth.php';
+require_once __DIR__ . '/../../includes/Player.php';
+require_once __DIR__ . '/../../includes/Fishing.php';
+require_once __DIR__ . '/../../includes/Bait.php';
+require_once __DIR__ . '/../../includes/Line.php';
+require_once __DIR__ . '/../../includes/FishInventory.php';
+require_once __DIR__ . '/../../includes/Quest.php';
+require_once __DIR__ . '/../../includes/Shop.php';
+require_once __DIR__ . '/../../includes/Leaderboard.php';
+require_once __DIR__ . '/../../includes/PairingAuth.php';
+require_once __DIR__ . '/../../includes/Admin.php';
+require_once __DIR__ . '/../../includes/GatherPoint.php';
+require_once __DIR__ . '/../../includes/FAQ.php';
+require_once __DIR__ . '/../../includes/Tournament.php';
+require_once __DIR__ . '/../../includes/Butcher.php';
+require_once __DIR__ . '/../../includes/Grid.php';
+require_once __DIR__ . '/../../includes/Buff.php';
+require_once __DIR__ . '/../../includes/ShopSystem.php';
+require_once __DIR__ . '/../../includes/Trophy.php';
+require_once __DIR__ . '/../../includes/PrimCallback.php';
+require_once __DIR__ . '/../../includes/Tutorial.php';
 
 // ── Handle CORS for web portal ──
 header('Access-Control-Allow-Origin: *');

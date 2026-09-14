@@ -70,7 +70,7 @@ label{display:block;font-size:12px;font-weight:600;color:#706860;margin-bottom:6
   <button class="btn" id="submit" onclick="doRegister()">Create Account</button>
   <div id="msg" class="msg"></div>
 
-  <div class="bottom-link">Already have an account? <a href="/fishing/">Log in</a></div>
+  <div class="bottom-link">Already have an account? <a href="/">Log in</a></div>
 </div>
 
 <script>
@@ -96,13 +96,13 @@ async function doRegister() {
 
   try {
     const body = new URLSearchParams({ action: 'web_register', uuid, username, password, display_name: displayName });
-    const res = await fetch('/fishing/api/', { method: 'POST', body, credentials: 'include' });
+    const res = await fetch('/api/', { method: 'POST', body, credentials: 'include' });
     const data = await res.json();
 
     if (data.success) {
       msg.className = 'msg success';
       msg.textContent = 'Account created! Redirecting to login...';
-      setTimeout(() => { window.location.href = '/fishing/'; }, 1500);
+      setTimeout(() => { window.location.href = '/'; }, 1500);
     } else {
       msg.className = 'msg error';
       msg.textContent = data.error || 'Registration failed.';

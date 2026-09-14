@@ -1,0 +1,8 @@
+# Keep LF on files the Linux server executes or parses.
+# Without this, Windows checkouts commit CRLF and bash fails with
+# "bad interpreter: /bin/bash^M" on the server.
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.php  text eol=lf
+*.conf text eol=lf
+*.lsl  text eol=lf

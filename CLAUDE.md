@@ -163,24 +163,37 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 ```
 OSFishing/
 ├── config.example.php   — template; real config.php lives on the server, never committed
+├── deploy/              — deploy script, nginx config, server handoff doc
+│   ├── deploy.sh        — run on the server; pulls a branch and rsyncs it live
+│   └── nginx/           — vhost + routing snippet (install as root)
 ├── lsl/                 — all in-world LSL scripts (*.lsl)
-└── web/                 — server-side PHP/HTML/SQL, mirrors /var/www/html/fishing/ on the server
-    ├── api/index.php    — single-entry API router
+└── web/
+    ├── config.php       — DB credentials + HUD_SECRET (gitignored, server-only)
     ├── includes/        — PHP class files
-    ├── migrations/      — SQL migration files (*_migration.sql)
-    ├── index.html       — web portal SPA
-    ├── admin/           — admin panel
-    ├── pair.php         — auto-pair landing page
-    ├── register.php     — player registration
-    └── setup.php        — setup flow
+    ├── migrations/      — schema.sql (consolidated) + historical *_migration.sql
+    └── public/          — THE DOCROOT — only this directory is web-served
+        ├── index.html   — web portal SPA
+        ├── api/index.php— single-entry API router
+        ├── admin/       — admin panel
+        ├── pair.php     — auto-pair landing page
+        ├── register.php — player registration
+        └── setup.php    — setup flow
 ```
+
+**Only `web/public/` is served.** `config.php`, `includes/` and `migrations/`
+sit one level above the docroot, so they cannot be requested over HTTP no
+matter how nginx is configured. Anything added outside `public/` is private by
+construction; anything added inside it is public. There is no `.htaccess` —
+nginx ignores those; routing lives in `deploy/nginx/`.
 
 ## Conventions
 
 - LSL scripts: `lsl/*.lsl`
 - PHP classes: `web/includes/*.php`
-- API router: `web/api/index.php`
-- SQL migrations: `web/migrations/*_migration.sql`
+- API router: `web/public/api/index.php`
+- Web-servable files: `web/public/` only
+- Database: build from `web/migrations/schema.sql`; the individual
+  `*_migration.sql` files are history and do not all replay cleanly
 - config.php is gitignored — edit `config.example.php` to document new constants
 
 ## Git workflow
@@ -194,7 +207,13 @@ After making changes, always:
 
 - Camera revisit (move + set; or move-then-release; or chat command toggle)
 - Big Mouth Billy Bass (animatronic wall fish)
-- Tournament.php schema mismatch fix
+- Tournament.php schema mismatch fix — `includes/Tournament.php` queries
+  `name, metric, spot_id, region_name, grid_name, start_time, end_time,
+  status, created_by`; the `tournaments` table built by
+  `tournament_migration.sql` has `title, scoring_type, target_species_id,
+  target_water_id, starts_at, ends_at, min_level, is_active`. Two different
+  designs that were never reconciled. Decide which is canonical, then fix the
+  other side. Every other table/column the PHP queries was verified present.
 - World events (admin-toggle double XP, rare spawns)
 - More quests (seasonal, chains, achievements)
 - Hover popup on map dots with hop links inline

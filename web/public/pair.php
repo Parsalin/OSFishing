@@ -1,8 +1,8 @@
 <?php
 /**
- * /fishing/pair - Auto-pair landing page
+* /pair - Auto-pair landing page
  *
- * Handles links from the HUD: /fishing/pair?uuid=X&code=Y
+ * Handles links from the HUD: /pair?uuid=X&code=Y
  *
  * Flow:
  *  - If not logged in: redirect to login, preserve params via session
@@ -11,9 +11,9 @@
  */
 
 session_start();
-require_once __DIR__ . '/api/bootstrap.php';
-require_once __DIR__ . '/api/Auth.php';
-require_once __DIR__ . '/api/PairingAuth.php';
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../includes/Auth.php';
+require_once __DIR__ . '/../includes/PairingAuth.php';
 
 $uuid = $_GET['uuid'] ?? '';
 $code = $_GET['code'] ?? '';
@@ -21,7 +21,7 @@ $code = $_GET['code'] ?? '';
 if (!$uuid || !$code) {
     http_response_code(400);
     echo '<h1>Invalid pairing link</h1><p>This link is missing required parameters.</p>';
-    echo '<p><a href="/fishing/">Go to portal</a></p>';
+    echo '<p><a href="/">Go to portal</a></p>';
     exit;
 }
 
@@ -36,7 +36,7 @@ if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 if (!isset($_SESSION['fishing_player_id'])) {
     // Not logged in — preserve the params and redirect to login
     $_SESSION['pair_after_login'] = ['uuid' => $uuid, 'code' => $code];
-    header('Location: /fishing/?pair_pending=1');
+    header('Location: /?pair_pending=1');
     exit;
 }
 
@@ -58,7 +58,7 @@ try {
         a{color:#5af;}</style></head><body>
         <h1>Wrong account</h1>
         <p>This pairing link is for a different avatar than the account you're logged in as.</p>
-        <p>Please <a href="/fishing/?logout=1">log out</a> and log in with the correct account, or use the manual pairing code from your HUD.</p>
+        <p>Please <a href="/?logout=1">log out</a> and log in with the correct account, or use the manual pairing code from your HUD.</p>
         </body></html>
         <?php
         exit;
@@ -69,7 +69,7 @@ try {
 
     // Success — redirect to portal
     $_SESSION['pair_success_message'] = $result['message'] ?? 'HUD paired successfully!';
-    header('Location: /fishing/?paired=1');
+    header('Location: /?paired=1');
     exit;
 
 } catch (\Throwable $e) {
@@ -81,7 +81,7 @@ try {
     a{color:#5af;}</style></head><body>
     <h1>Pairing failed</h1>
     <p><?= htmlspecialchars($e->getMessage()) ?></p>
-    <p>Try entering the pairing code manually from <a href="/fishing/">the portal</a> Settings page.</p>
+    <p>Try entering the pairing code manually from <a href="/">the portal</a> Settings page.</p>
     </body></html>
     <?php
 }

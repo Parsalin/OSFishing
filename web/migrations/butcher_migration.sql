@@ -19,7 +19,7 @@ INSERT IGNORE INTO bait_types (name, description, shop_price) VALUES
 SET @chunks_id = (SELECT id FROM bait_types WHERE name = 'Fish Chunks');
 
 -- Fish Chunks affinities - good for predators, decent for everything
-INSERT INTO fish_bait_affinity (fish_species_id, bait_id, affinity_weight) 
+INSERT INTO fish_bait_affinity (fish_id, bait_id, affinity) 
 SELECT fs.id, @chunks_id, 
   CASE 
     WHEN fs.name IN ('Largemouth Bass', 'Catfish', 'Northern Pike', 'Muskie', 'Walleye', 'Striped Bass', 'Barracuda', 'Tuna', 'Swordfish', 'Shark') THEN 3.0
@@ -27,7 +27,7 @@ SELECT fs.id, @chunks_id,
     ELSE 1.0
   END
 FROM fish_species fs
-ON DUPLICATE KEY UPDATE affinity_weight = VALUES(affinity_weight);
+ON DUPLICATE KEY UPDATE affinity = VALUES(affinity);
 
 -- Special bait affinities - extremely high for legendary fish of matching water type
 SET @shimmer_id = (SELECT id FROM bait_types WHERE name = 'Shimmering Minnow');
@@ -36,45 +36,33 @@ SET @grub_id = (SELECT id FROM bait_types WHERE name = 'Deep Lake Grub');
 SET @eye_id = (SELECT id FROM bait_types WHERE name = 'Abyssal Eye');
 
 -- Shimmering Minnow: huge bonus for pond legendary, decent for other pond fish
-INSERT INTO fish_bait_affinity (fish_species_id, bait_id, affinity_weight)
+INSERT INTO fish_bait_affinity (fish_id, bait_id, affinity)
 SELECT fs.id, @shimmer_id,
   CASE WHEN fs.rarity_id >= 5 THEN 10.0 WHEN fs.rarity_id >= 4 THEN 5.0 ELSE 2.0 END
 FROM fish_species fs
-WHERE fs.id IN (SELECT DISTINCT fsh.id FROM fish_species fsh 
-  JOIN fish_spot_availability fsa ON fsa.fish_species_id = fsh.id
-  JOIN fishing_spots fsp ON fsp.id = fsa.spot_id
-  WHERE fsp.water_type_id = 1)
-ON DUPLICATE KEY UPDATE affinity_weight = VALUES(affinity_weight);
+WHERE fs.id IN (SELECT fwt.fish_id FROM fish_water_types fwt WHERE fwt.water_type_id = 1)
+ON DUPLICATE KEY UPDATE affinity = VALUES(affinity);
 
 -- River Pearl: huge bonus for river legendary
-INSERT INTO fish_bait_affinity (fish_species_id, bait_id, affinity_weight)
+INSERT INTO fish_bait_affinity (fish_id, bait_id, affinity)
 SELECT fs.id, @pearl_id,
   CASE WHEN fs.rarity_id >= 5 THEN 10.0 WHEN fs.rarity_id >= 4 THEN 5.0 ELSE 2.0 END
 FROM fish_species fs
-WHERE fs.id IN (SELECT DISTINCT fsh.id FROM fish_species fsh
-  JOIN fish_spot_availability fsa ON fsa.fish_species_id = fsh.id
-  JOIN fishing_spots fsp ON fsp.id = fsa.spot_id
-  WHERE fsp.water_type_id = 2)
-ON DUPLICATE KEY UPDATE affinity_weight = VALUES(affinity_weight);
+WHERE fs.id IN (SELECT fwt.fish_id FROM fish_water_types fwt WHERE fwt.water_type_id = 2)
+ON DUPLICATE KEY UPDATE affinity = VALUES(affinity);
 
 -- Deep Lake Grub: huge bonus for lake legendary
-INSERT INTO fish_bait_affinity (fish_species_id, bait_id, affinity_weight)
+INSERT INTO fish_bait_affinity (fish_id, bait_id, affinity)
 SELECT fs.id, @grub_id,
   CASE WHEN fs.rarity_id >= 5 THEN 10.0 WHEN fs.rarity_id >= 4 THEN 5.0 ELSE 2.0 END
 FROM fish_species fs
-WHERE fs.id IN (SELECT DISTINCT fsh.id FROM fish_species fsh
-  JOIN fish_spot_availability fsa ON fsa.fish_species_id = fsh.id
-  JOIN fishing_spots fsp ON fsp.id = fsa.spot_id
-  WHERE fsp.water_type_id = 3)
-ON DUPLICATE KEY UPDATE affinity_weight = VALUES(affinity_weight);
+WHERE fs.id IN (SELECT fwt.fish_id FROM fish_water_types fwt WHERE fwt.water_type_id = 3)
+ON DUPLICATE KEY UPDATE affinity = VALUES(affinity);
 
 -- Abyssal Eye: huge bonus for ocean legendary
-INSERT INTO fish_bait_affinity (fish_species_id, bait_id, affinity_weight)
+INSERT INTO fish_bait_affinity (fish_id, bait_id, affinity)
 SELECT fs.id, @eye_id,
   CASE WHEN fs.rarity_id >= 5 THEN 10.0 WHEN fs.rarity_id >= 4 THEN 5.0 ELSE 2.0 END
 FROM fish_species fs
-WHERE fs.id IN (SELECT DISTINCT fsh.id FROM fish_species fsh
-  JOIN fish_spot_availability fsa ON fsa.fish_species_id = fsh.id
-  JOIN fishing_spots fsp ON fsp.id = fsa.spot_id
-  WHERE fsp.water_type_id = 4)
-ON DUPLICATE KEY UPDATE affinity_weight = VALUES(affinity_weight);
+WHERE fs.id IN (SELECT fwt.fish_id FROM fish_water_types fwt WHERE fwt.water_type_id = 4)
+ON DUPLICATE KEY UPDATE affinity = VALUES(affinity);
