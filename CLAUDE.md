@@ -2,7 +2,8 @@
 
 A multiplayer fishing game for OpenSim grids. Server-authoritative gameplay with LSL clients, web portal for inventory/quests/leaderboards, and full multi-grid support.
 
-Live at: https://sp.wa.darkheartsos.net/fishing/
+Live at: https://osfishing.flamesfall.net/ (served at the domain root, no subpath)
+Previous host, now dead: https://sp.wa.darkheartsos.net/fishing/
 Primary grid: Darkhearts Playground (admin: Matthew Stevenson, player_id 1)
 Secondary approved grid: #1337 Fresh - MetaVerse
 
@@ -38,7 +39,16 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 - **Region max prims**: 30 000 | **Agent limit**: 40
 - **Script memory**: 1 MB per script
 - **OSSL**: core enabled; `osGetRegionStats`, `osGetAvatarList` confirmed available; `osTeleportAgent` / NPC / media / terrain not probed
-- **Matthew's avatar UUID**: `9a9304c2-620d-496a-ba50-2bf45cf8dbd9`
+- **Matthew's avatar UUID (Darkhearts Playground)**: `9a9304c2-620d-496a-ba50-2bf45cf8dbd9`
+- **Matthew's avatar UUID (grid used to register on flamesfall, 2026-09-14)**:
+  `6c87720f-3285-45db-b02c-f4bec40ae5b2` — this is the one on the `players` row,
+  so it is the UUID the HUD must authenticate with.
+
+> **Avatar UUIDs are per-grid.** `players.uuid` is a single column, so an account
+> can only pair from the grid whose UUID it holds. The same person on a second
+> grid is a different UUID and currently cannot pair to the same account. Worth
+> resolving before multi-grid play (an alt-UUID table, or pairing keyed on
+> something other than UUID) — see the note in TODO.
 
 ## In-world objects
 
@@ -236,6 +246,14 @@ After making changes, always:
   target_water_id, starts_at, ends_at, min_level, is_active`. Two different
   designs that were never reconciled. Decide which is canonical, then fix the
   other side. Every other table/column the PHP queries was verified present.
+- One account is locked to one avatar UUID — `players.uuid` is UNIQUE and every
+  lookup is `WHERE uuid = :uuid`, so a player with a *different avatar* on
+  another grid cannot pair to their existing account. The existing multi-grid
+  work (per-grid `hud_tokens`, exclusion lockout) covers the same avatar
+  hypergridding, which keeps its UUID — not a second avatar. Fix would be an
+  alt-UUID table (`player_uuids`: player_id, uuid, grid) with the lookups
+  joined through it. Matthew hit this on 2026-09-14 registering from a
+  non-Darkhearts grid.
 - World events (admin-toggle double XP, rare spawns)
 - More quests (seasonal, chains, achievements)
 - Hover popup on map dots with hop links inline
