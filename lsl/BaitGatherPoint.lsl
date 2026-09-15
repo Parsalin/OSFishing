@@ -181,7 +181,7 @@ default {
         }
 
         string success = jsonGet(body, "success");
-        if (success != "true" && success != "1") {
+        if (success != "true" && success != "1" && success != JSON_TRUE) {
             string err = jsonGet(body, "error");
             llOwnerSay("Gather point error: " + err);
             return;
@@ -193,7 +193,7 @@ default {
             gRegistered = TRUE;
 
             string created = jsonGet(body, "created");
-            if (created == "true" || created == "1") {
+            if (created == "true" || created == "1" || created == JSON_TRUE) {
                 llOwnerSay("Gather point registered: " + gPointName + " (ID " + (string)gPointId + ")");
             } else {
                 llOwnerSay("Gather point updated: " + gPointName + " (ID " + (string)gPointId + ")");
@@ -204,7 +204,7 @@ default {
         }
         else if (gHttpAction == "status") {
             string depleted = jsonGet(body, "depleted");
-            gDepleted = (depleted == "true" || depleted == "1");
+            gDepleted = (depleted == "true" || depleted == "1" || depleted == JSON_TRUE);
             gStockPct = (integer)jsonGet(body, "stock_pct");
             gBaitName = jsonGet(body, "bait_name");
             updateText();
@@ -345,7 +345,7 @@ default {
                 integer stockPct = (integer)llList2String(parts, 5);
 
                 gStockPct = stockPct;
-                gDepleted = (depleted == "true" || depleted == "1");
+                gDepleted = (depleted == "true" || depleted == "1" || depleted == JSON_TRUE);
                 updateText();
 
                 if (gDepleted && gSitter != NULL_KEY) {

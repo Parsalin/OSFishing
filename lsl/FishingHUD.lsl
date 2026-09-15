@@ -63,6 +63,21 @@ integer TUT_LINK_POINTER   = 0;      // TutorialPointer prim
 
 // ── LinksetData wrappers (graceful fallback if not supported) ──
 // Returns 1 on success, 0 on failure
+// ── Grid detection ────────────────────────────────────────
+// Never call osGetGridName() / osGetGridLoginURI(). On a grid that denies the
+// function the call does not return empty — it raises an OSSL Permission Error
+// that HALTS the script ("Script must be Reset to re-enable"). In state_entry
+// that bricks the object on rez with no timer and no retry path, and LSL has
+// no try/catch, so there is no safe guarded form of the call.
+// Hostname is always readable; the server normalizes it to a grid.
+string detectGrid() {
+    string h = llGetSimulatorHostname();
+    if (h == "") h = llGetEnv("simulator_hostname");
+    if (h == "") return "unknown";
+    if (llSubStringIndex(h, ":") == -1) h += ":8002";
+    return h;
+}
+
 integer safeLDWrite(string ldKey, string val) {
     if (!gLinksetDataAvailable) return 0;
     integer result = llLinksetDataWrite(ldKey, val);
@@ -528,7 +543,7 @@ startupCheck() {
     gHttpReq = apiCallPublic("check_account", "uuid=" + llEscapeURL((string)gOwner));
 }
 requestPairing() {
-    gHttpReq = apiCallPublic("pair_request", "uuid=" + llEscapeURL((string)gOwner) + "&grid_name=" + llEscapeURL(osGetGridName()));
+    gHttpReq = apiCallPublic("pair_request", "uuid=" + llEscapeURL((string)gOwner) + "&grid_name=" + llEscapeURL(detectGrid()));
 }
 pollPairingStatus() {
     if (gPairingCode == "") return;
@@ -2148,7 +2163,7 @@ default {
         }
 
         string success = jsonGet(body, "success");
-        if (success != "true" && success != "1") {
+        if (success != "true" && success != "1" && success != JSON_TRUE) {
             string err = jsonGet(body, "error");
             llOwnerSay("Error: " + err);
             if (gState == STATE_CAST) resetToReady();
@@ -2157,7 +2172,7 @@ default {
 
         if (gHttpAction == "check_account") {
             string exists = jsonGet(body, "exists");
-            if (exists == "true" || exists == "1") {
+            if (exists == "true" || exists == "1" || exists == JSON_TRUE) {
                 showStatus("Account found. Requesting pair code...");
                 requestPairing();
             } else {
@@ -2201,7 +2216,7 @@ default {
 
         if (gHttpAction == "pair_status") {
             string claimed = jsonGet(body, "claimed");
-            if (claimed == "true" || claimed == "1") {
+            if (claimed == "true" || claimed == "1" || claimed == JSON_TRUE) {
                 gToken = jsonGet(body, "token");
                 gTokenId = jsonGetInt(body, "token_id");
                 gPairing = FALSE;
@@ -2339,7 +2354,7 @@ default {
             }
 
             string dw = jsonGet(body, "dead_water");
-            gDeadWater = (dw == "true" || dw == "1");
+            gDeadWater = (dw == "true" || dw == "1" || dw == JSON_TRUE);
 
             if (gHttpAction == "cast") {
                 // First call: set up line data, rez bobber, play splash
@@ -2451,7 +2466,7 @@ default {
                 string infoMsg = "Found " + (string)gathered + " " + baitName + "\nTotal in inventory: " + (string)totalQty;
                 if (questMsg != "") infoMsg += "\n" + questMsg;
                 hudInfo(infoMsg);
-            } else if (depleted == "true" || depleted == "1") {
+            } else if (depleted == "true" || depleted == "1" || depleted == JSON_TRUE) {
                 hudInfo("This spot is depleted. Come back later.");
             }
 

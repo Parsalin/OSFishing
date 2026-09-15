@@ -218,9 +218,12 @@ default {
         llSetText("", ZERO_VECTOR, 0.0);
         llListen(CH_TOURNAMENT, "", NULL_KEY, "");
         gEntries = [];
-        drawBoard();
-        fetchData();
+        // Render last: drawBoard() calls osSetDynamicTextureDataBlendFace, and
+        // an OSSL denial halts the script, so the listen, fetch and timer must
+        // already be established before we risk it.
         llSetTimerEvent(300.0);  // 5 min refresh
+        fetchData();
+        drawBoard();
     }
 
     listen(integer ch, string name, key id, string msg) {

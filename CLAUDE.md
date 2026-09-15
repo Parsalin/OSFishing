@@ -186,6 +186,28 @@ matter how nginx is configured. Anything added outside `public/` is private by
 construction; anything added inside it is public. There is no `.htaccess` —
 nginx ignores those; routing lives in `deploy/nginx/`.
 
+## LSL / grid gotchas
+
+Full set in `docs/GRID_COMMS_LESSONS.md` (from the sibling Fertility project).
+The ones that bite hardest:
+
+- **A denied OSSL call HALTS the script** — it does not return empty. In
+  `state_entry` that bricks the prim on rez with no retry path, and LSL has no
+  try/catch. Never call `osGetGridName()`/`osGetGridLoginURI()`; use the
+  `detectGrid()` hostname helper. Where an OSSL call is unavoidable
+  (`osSetDynamicTextureData*`), put every `llListen`/`llSetTimerEvent`/fetch
+  **before** it in `state_entry`.
+- **`llJsonGetValue` returns `JSON_TRUE`, not `"true"`**, for a JSON boolean —
+  and fails silently on large/deep JSON. Prefer the HTTP status code for
+  success; test presence with `!= JSON_INVALID`.
+- **`gApiUrl` is effectively permanent** — HUDs in players' hands cannot be
+  updated remotely. Never compile an in-world object against a temporary URL.
+- **`llRegionSayTo(avatarKey, ...)` does not reach scripts**, only the viewer's
+  chat. Use an object key, or have the object announce itself with `llSay`.
+- **`llGetNumberOfAgents` does not exist** in OpenSim; use `llGetAgentList`.
+- Ports: stay on 443. Arbitrary high ports are often blocked by sim outbound
+  firewalls on grids you don't control, and the failure is silent.
+
 ## Conventions
 
 - LSL scripts: `lsl/*.lsl`

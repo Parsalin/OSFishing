@@ -26,6 +26,21 @@ string LD_SHOP_NAME  = "shop_name";
 string LD_SHOP_OWNER = "shop_owner";
 string LD_SHOP_DONE  = "shop_done";
 
+// ── Grid detection ────────────────────────────────────────
+// Never call osGetGridName() / osGetGridLoginURI(). On a grid that denies the
+// function the call does not return empty — it raises an OSSL Permission Error
+// that HALTS the script ("Script must be Reset to re-enable"). In state_entry
+// that bricks the object on rez with no timer and no retry path, and LSL has
+// no try/catch, so there is no safe guarded form of the call.
+// Hostname is always readable; the server normalizes it to a grid.
+string detectGrid() {
+    string h = llGetSimulatorHostname();
+    if (h == "") h = llGetEnv("simulator_hostname");
+    if (h == "") return "unknown";
+    if (llSubStringIndex(h, ":") == -1) h += ":8002";
+    return h;
+}
+
 saveShopData() {
     llLinksetDataWrite(LD_SHOP_ID, (string)gShopId);
     llLinksetDataWrite(LD_SHOP_NAME, gShopName);
@@ -56,7 +71,7 @@ registerShop() {
     string body = "action=shop_register" +
         "&name=" + llEscapeURL(gShopName) +
         "&region=" + llEscapeURL(llGetRegionName()) +
-        "&grid_name=" + llEscapeURL(osGetGridName()) +
+        "&grid_name=" + llEscapeURL(detectGrid()) +
         "&pos_x=" + (string)pos.x + "&pos_y=" + (string)pos.y + "&pos_z=" + (string)pos.z +
         "&owner_key=" + llEscapeURL((string)llGetOwner()) +
         "&is_system=" + (string)gIsSystem +

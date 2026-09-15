@@ -41,6 +41,21 @@ string LD_OWNER   = "bv_owner";
 string LD_DONE    = "bv_done";
 string LD_SHOPNAME = "bv_shopname";
 
+// ── Grid detection ────────────────────────────────────────
+// Never call osGetGridName() / osGetGridLoginURI(). On a grid that denies the
+// function the call does not return empty — it raises an OSSL Permission Error
+// that HALTS the script ("Script must be Reset to re-enable"). In state_entry
+// that bricks the object on rez with no timer and no retry path, and LSL has
+// no try/catch, so there is no safe guarded form of the call.
+// Hostname is always readable; the server normalizes it to a grid.
+string detectGrid() {
+    string h = llGetSimulatorHostname();
+    if (h == "") h = llGetEnv("simulator_hostname");
+    if (h == "") return "unknown";
+    if (llSubStringIndex(h, ":") == -1) h += ":8002";
+    return h;
+}
+
 saveData() {
     llLinksetDataWrite(LD_SHOP_ID, (string)gShopId);
     llLinksetDataWrite(LD_BAIT_ID, (string)gBaitId);
@@ -207,8 +222,11 @@ default {
     state_entry() {
         if (loadData()) {
             gSetupDone = TRUE;
-            renderDisplay();
+            // fetchStatus() first: renderDisplay() calls osSetDynamicTextureData
+            // and an OSSL denial halts the script, which would otherwise stop
+            // the vendor ever contacting the server.
             fetchStatus();
+            renderDisplay();
         } else {
             gSetupDone = FALSE;
             renderDisplay();
@@ -229,7 +247,7 @@ default {
             gHttpReq = llHTTPRequest(gApiUrl, [
                 HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
             ], "action=shops_in_region&region=" + llEscapeURL(llGetRegionName()) +
-               "&grid_name=" + llEscapeURL(osGetGridName()));
+               "&grid_name=" + llEscapeURL(detectGrid()));
             return;
         }
 

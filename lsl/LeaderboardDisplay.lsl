@@ -8,6 +8,21 @@
 
 string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 
+// ── Grid detection ────────────────────────────────────────
+// Never call osGetGridName() / osGetGridLoginURI(). On a grid that denies the
+// function the call does not return empty — it raises an OSSL Permission Error
+// that HALTS the script ("Script must be Reset to re-enable"). In state_entry
+// that bricks the object on rez with no timer and no retry path, and LSL has
+// no try/catch, so there is no safe guarded form of the call.
+// Hostname is always readable; the server normalizes it to a grid.
+string detectGrid() {
+    string h = llGetSimulatorHostname();
+    if (h == "") h = llGetEnv("simulator_hostname");
+    if (h == "") return "unknown";
+    if (llSubStringIndex(h, ":") == -1) h += ":8002";
+    return h;
+}
+
 string fmtWeight(float w) {
     // Round to 2 decimal places
     integer cents = (integer)(w * 100.0 + 0.5);
@@ -183,15 +198,20 @@ showMainMenu(key av) {
 default {
     state_entry() {
         gRegion = llGetRegionName();
-        gGridName = osGetGridName();
+        gGridName = detectGrid();
         gEntries = [];
-        drawLeaderboard();
+        // Establish the listen, ping and timer BEFORE the first render.
+        // drawLeaderboard() calls osSetDynamicTextureDataBlendFace, and on a
+        // grid that denies it the OSSL Permission Error halts the script — so
+        // anything set up after it would never run. Ordered this way, a denial
+        // costs the texture but leaves the prim listening and fetching.
         llSetText("", ZERO_VECTOR, 0.0);
         llListen(CH_SPOT_TO_HUD, "", NULL_KEY, "");  // Listen for nearby spots
         // Ping for spots by sending on spot channel
         llRegionSay(CH_SPOT_TO_HUD, "LEADERBOARD_PING");
-        fetchLeaderboard();
         llSetTimerEvent(300.0);
+        fetchLeaderboard();
+        drawLeaderboard();
     }
 
     touch_start(integer n) { showMainMenu(llDetectedKey(0)); }

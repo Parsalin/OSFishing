@@ -8,7 +8,16 @@
 
 default {
     state_entry() {
-        // Clear face 4 to black on startup
+        // Do NOT call osSetDynamicTextureData here. If the grid denies the
+        // function the OSSL Permission Error halts the script, which would
+        // also kill the link_message handler below and leave the plaque
+        // permanently unable to draw. Defer the cosmetic clear to a timer so
+        // a denial costs us the blank face, not the whole script.
+        llSetTimerEvent(0.5);
+    }
+
+    timer() {
+        llSetTimerEvent(0.0);
         string d = "PenColour ff1a1e1a;MoveTo 0,0;FillRectangle 512,512;";
         osSetDynamicTextureData("", "vector", d, "width:512,height:512,distrib:0,alpha:255", 4);
     }

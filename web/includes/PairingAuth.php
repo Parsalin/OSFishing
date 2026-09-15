@@ -274,6 +274,18 @@ class PairingAuth {
             json_error('UUID mismatch', 401);
         }
 
+        // Cross-check the owner-key header against the claimed uuid.
+        // The simulator sets X-Secondlife-Owner-Key and a script cannot forge
+        // it, so this is a free identity assertion on top of the token: a
+        // token leaked from one player's HUD cannot be replayed from another
+        // avatar's attachment. Absent header = a non-sim client (curl tests,
+        // the web portal), which still has to pass the signature check below.
+        $ownerKey = $_SERVER['HTTP_X_SECONDLIFE_OWNER_KEY'] ?? '';
+        if ($ownerKey !== '' && strcasecmp($ownerKey, $uuid) !== 0) {
+            error_log("owner_mismatch: header={$ownerKey} uuid={$uuid} action={$action}");
+            json_error('owner_mismatch', 401);
+        }
+
         // Verify nonce is greater than last seen (replay protection)
         if ($nonce <= (int)$row['last_nonce']) {
             json_error('Invalid nonce (replay detected)', 401);
