@@ -6,7 +6,7 @@
 // No email needed — the grid authenticates you.
 // ============================================================
 
-string gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 key     gHttpReq    = NULL_KEY;
 string  gHttpAction = "";

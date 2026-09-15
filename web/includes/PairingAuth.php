@@ -82,9 +82,31 @@ class PairingAuth {
         return [
             'pairing_code' => $code,
             'expires_in'   => 300,
-            'pair_url'     => 'https://sp.wa.darkheartsos.net/fishing/pair?uuid=' . urlencode($uuid) . '&code=' . urlencode($code),
+            'pair_url'     => self::baseUrl() . '/pair?uuid=' . urlencode($uuid) . '&code=' . urlencode($code),
             'message'      => 'Enter this code on the web portal under Settings > Pair HUD',
         ];
+    }
+
+    /**
+     * Public base URL of this install, e.g. "https://osfishing.flamesfall.net".
+     *
+     * Prefers the SITE_URL constant when config.php defines it. Falls back to
+     * the request's own scheme+host so a fresh install works before anyone
+     * sets it. Set SITE_URL in production: this value is handed to the HUD as
+     * a clickable pair link, and Host is client-supplied, so an attacker who
+     * could reach the API could otherwise induce a link to their own domain.
+     */
+    private static function baseUrl(): string {
+        if (defined('SITE_URL') && SITE_URL !== '') {
+            return rtrim(SITE_URL, '/');
+        }
+        $https  = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+               || (($_SERVER['SERVER_PORT'] ?? null) == 443);
+        $scheme = $https ? 'https' : 'http';
+        $host   = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
+        // Strip anything that cannot legally appear in a host[:port].
+        $host   = preg_replace('/[^A-Za-z0-9.\-:\[\]]/', '', $host);
+        return $scheme . '://' . $host;
     }
 
     /**

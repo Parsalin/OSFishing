@@ -5,7 +5,7 @@
 // Uses LinksetData for persistence.
 // ============================================================
 
-string gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 integer gShopId     = 0;
 string  gShopName   = "";

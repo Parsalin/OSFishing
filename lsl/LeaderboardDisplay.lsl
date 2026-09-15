@@ -6,7 +6,7 @@
 // Auto-refreshes every 5 minutes. Top 10.
 // ============================================================
 
-string  gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 string fmtWeight(float w) {
     // Round to 2 decimal places

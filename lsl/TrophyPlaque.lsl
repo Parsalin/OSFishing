@@ -14,7 +14,7 @@
 //                          and max <1.32147, 0.19250, 0.47089>
 // ============================================================
 
-string gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 // ── Display state ──
 string  gFishName    = "";

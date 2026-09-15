@@ -17,7 +17,7 @@
 // The object self-registers with the server on rez.
 // ============================================================
 
-string  gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 integer gPointId    = 0;
 string  gPointName  = "";

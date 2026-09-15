@@ -7,7 +7,7 @@
 //       After prep → auto-refresh same rarity list
 // ============================================================
 
-string  gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 key     gSitter       = NULL_KEY;
 key     gHttpReq      = NULL_KEY;

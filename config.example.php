@@ -16,6 +16,13 @@ define('DB_CHARSET', 'utf8mb4');
 // Option B: pull from a file outside the web root (more secure)
 // require_once '/var/www/configs/fishing/db.php';
 
+// ── Site ──────────────────────────────────────────────────
+// Public base URL of this install, no trailing slash.
+// Used to build the one-click HUD pair link. If left empty the request's
+// own Host header is used, which works but is client-supplied — set this
+// explicitly in production.
+define('SITE_URL', 'https://osfishing.example.net');
+
 // ── Security ──────────────────────────────────────────────
 // Shared secret burned into every HUD — used for HMAC auth.
 // Generate with: php -r "echo bin2hex(random_bytes(32));"

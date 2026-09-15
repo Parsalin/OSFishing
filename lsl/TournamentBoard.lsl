@@ -11,7 +11,7 @@
 // Updates every 5 min + on every catch broadcast from HUDs.
 // ============================================================
 
-string  gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 integer gTournamentId = 0;
 integer gSpotFilter   = 0;       // 0 = all sim catches trigger refresh

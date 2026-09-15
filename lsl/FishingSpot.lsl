@@ -6,7 +6,7 @@
 //               + poll fallback every BUFF_POLL_INTERVAL seconds
 // ============================================================
 
-string  gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 // ── Canonical spot state ──
 integer gSpotId        = 0;

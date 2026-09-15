@@ -8,7 +8,7 @@
 // Display on face 4 as rendered HTML texture
 // ============================================================
 
-string gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 integer gShopId     = 0;
 integer gBaitId     = 0;

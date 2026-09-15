@@ -35,7 +35,7 @@
 // ============================================================
 
 // ── Configuration (HARDCODED - no notecard) ──
-string  gApiUrl = "https://sp.wa.darkheartsos.net/fishing/api/";
+string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 
 // ── Pairing State (lives only in script memory) ──
 integer gTokenId      = 0;
