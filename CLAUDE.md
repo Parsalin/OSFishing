@@ -5,6 +5,8 @@ A multiplayer fishing game for OpenSim grids. Server-authoritative gameplay with
 Live at: https://osfishing.flamesfall.net/ (served at the domain root, no subpath)
 Previous host, now dead: https://sp.wa.darkheartsos.net/fishing/
 Primary grid: Darkhearts Playground (admin: Matthew Stevenson, player_id 1)
+Player base migrated from the old server 2026-09-14 — 32 players with full
+history/inventory. See `deploy/old-server-capture/MIGRATION.md`.
 Secondary approved grid: #1337 Fresh - MetaVerse
 
 ## Architecture

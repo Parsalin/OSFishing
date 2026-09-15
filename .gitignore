@@ -11,3 +11,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Old-server DB dump — contains player password hashes, never commit
+deploy/old-server-capture/oldfishing*.sql
+*.sql.dump
