@@ -381,7 +381,13 @@ try {
             // Primary pull-based delivery path. For a HUD whose grid denies
             // llRequestURL() this is the ONLY way queued pushes ever arrive,
             // so hand them back inline rather than POSTing.
-            $profile['queued_pushes'] = PushQueue::takeForPlayer((int)$player['id']);
+            //
+            // Capped at 4 per response, well under the batch size: OpenSim's
+            // llJsonGetValue fails SILENTLY on a large body, and this rides on
+            // an already-populated profile. Anything left over comes on the
+            // next hud_status rather than risking the whole response parsing
+            // as empty.
+            $profile['queued_pushes'] = PushQueue::takeForPlayer((int)$player['id'], 4);
             json_success($profile);
 
         // HUD reports that its grid denied llRequestURL(), so it can never
@@ -943,7 +949,11 @@ try {
 
         case 'admin_stats':
             Admin::requireAdmin();
-            json_success(Admin::globalStats());
+            $stats = Admin::globalStats();
+            // Queue depth is the signal that pushes are failing to land —
+            // a growing backlog means HUDs or spots are unreachable.
+            $stats['push_queue'] = PushQueue::stats();
+            json_success($stats);
 
         case 'admin_list_players':
             Admin::requireAdmin();
@@ -1223,6 +1233,7 @@ try {
             // every heartbeat from doing a sweep but keeps the table tidy.
             if (mt_rand(1, 20) === 1) {
                 PrimCallback::cleanupStale();
+                PushQueue::sweep();
             }
             json_success(['ok' => true]);
 

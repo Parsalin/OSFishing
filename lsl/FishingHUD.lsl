@@ -50,6 +50,7 @@ integer gLinksetDataAvailable = TRUE;  // Auto-detected on first use
 // ── Callback URL (server push) ──
 string  gCallbackUrl  = "";        // Our HTTPS (or HTTP) URL for server pushes
 key     gUrlRequest   = NULL_KEY;  // Request key from llRequestSecureURL
+integer gTriedPlainUrl = FALSE;  // Fell back from llRequestSecureURL to llRequestURL
 
 // ── Tutorial State ──
 integer gTutorialActive    = FALSE;  // Is the tutorial currently running?
@@ -203,6 +204,7 @@ requestCallbackUrl() {
         llReleaseURL(gCallbackUrl);
         gCallbackUrl = "";
     }
+    gTriedPlainUrl = FALSE;   // fresh attempt: allow the plain-HTTP fallback again
     gUrlRequest = llRequestSecureURL();
     // If llRequestSecureURL isn't supported, the http_request event
     // will fire with URL_REQUEST_DENIED and we'll try llRequestURL.
@@ -1207,6 +1209,64 @@ resetToReady() {
 // ══════════════════════════════════════════════════════════
 // DEFAULT STATE
 // ══════════════════════════════════════════════════════════
+// ── Handle one pushed payload ──
+// Shared by live POSTs (http_request) and queued pushes returned
+// inline by hud_status, so a HUD on a grid that denies llRequestURL()
+// still processes every message the server had for it.
+handlePush(string body) {
+    // Parse the pushed data
+    string pushType = jsonGet(body, "type");
+
+    if (pushType == "equip_update") {
+        // Server pushed updated equipment info
+        string baitName = jsonGet(body, "bait_name");
+        if (baitName != "") {
+            gEquippedBait = baitName;
+            gEquippedBaitId = jsonGetInt(body, "bait_id");
+            gBaitRemaining = jsonGetInt(body, "bait_remaining");
+        }
+        string lineName = jsonGet(body, "line_name");
+        if (lineName != "") {
+            gEquippedLine = lineName;
+            gLineWeight = jsonGetFloat(body, "line_weight");
+            gLineVisibility = jsonGetFloat(body, "line_visibility");
+        }
+        integer pts = jsonGetInt(body, "fishing_points");
+        if (pts > 0) gPoints = pts;
+        integer xp = jsonGetInt(body, "xp");
+        if (xp > 0) gXP = xp;
+        integer lvl = jsonGetInt(body, "level");
+        if (lvl > 0) gLevel = lvl;
+        integer xtn = jsonGetInt(body, "xp_to_next");
+        if (xtn > 0) gXpToNext = xtn;
+        integer xlt = jsonGetInt(body, "xp_level_total");
+        if (xlt > 0) gXpLevelTotal = xlt;
+
+        updateMainDisplay();
+        saveDisplayCache();
+    }
+    else if (pushType == "announcement") {
+        string msg = jsonGet(body, "message");
+        if (msg != "") hudInfo("📢 " + msg);
+    }
+    else if (pushType == "refresh") {
+        // Full refresh requested — reload profile
+        gHttpReq = apiCall("hud_status", "");
+    }
+    else if (pushType == "tutorial_event") {
+        // Server-driven tutorial signals — kept for future use.
+        // The visible tutorial flow advances on pointer clicks instead,
+        // so the user can confirm when they've completed each step.
+        string evt = jsonGet(body, "event");
+        if (evt == "tutorial_restart") {
+            // Owner restarted tutorial from website
+            gTutorialAsked = TRUE;
+            gTutorialStep = 0;
+            startTutorial(0);
+        }
+    }
+}
+
 default {
     state_entry() {
         gOwner = llGetOwner();
@@ -2071,8 +2131,18 @@ default {
                 registerCallbackUrl();
             }
             else if (method == URL_REQUEST_DENIED) {
-                // Secure URL not supported — try plain HTTP
-                gUrlRequest = llRequestURL();
+                if (!gTriedPlainUrl) {
+                    // Secure URL not supported — try plain HTTP
+                    gTriedPlainUrl = TRUE;
+                    gUrlRequest = llRequestURL();
+                } else {
+                    // Both denied: this grid does not allow HTTP-in, so the
+                    // server can never push to us. Tell it, so it queues
+                    // instead of POSTing into a void — we collect on each
+                    // hud_status instead.
+                    gCallbackUrl = "";
+                    if (gToken != "") apiCall("hud_no_http_in", "");
+                }
             }
             return;
         }
@@ -2082,57 +2152,7 @@ default {
             // Respond 200 immediately so server doesn't retry
             llHTTPResponse(id, 200, "OK");
 
-            // Parse the pushed data
-            string pushType = jsonGet(body, "type");
-
-            if (pushType == "equip_update") {
-                // Server pushed updated equipment info
-                string baitName = jsonGet(body, "bait_name");
-                if (baitName != "") {
-                    gEquippedBait = baitName;
-                    gEquippedBaitId = jsonGetInt(body, "bait_id");
-                    gBaitRemaining = jsonGetInt(body, "bait_remaining");
-                }
-                string lineName = jsonGet(body, "line_name");
-                if (lineName != "") {
-                    gEquippedLine = lineName;
-                    gLineWeight = jsonGetFloat(body, "line_weight");
-                    gLineVisibility = jsonGetFloat(body, "line_visibility");
-                }
-                integer pts = jsonGetInt(body, "fishing_points");
-                if (pts > 0) gPoints = pts;
-                integer xp = jsonGetInt(body, "xp");
-                if (xp > 0) gXP = xp;
-                integer lvl = jsonGetInt(body, "level");
-                if (lvl > 0) gLevel = lvl;
-                integer xtn = jsonGetInt(body, "xp_to_next");
-                if (xtn > 0) gXpToNext = xtn;
-                integer xlt = jsonGetInt(body, "xp_level_total");
-                if (xlt > 0) gXpLevelTotal = xlt;
-
-                updateMainDisplay();
-                saveDisplayCache();
-            }
-            else if (pushType == "announcement") {
-                string msg = jsonGet(body, "message");
-                if (msg != "") hudInfo("📢 " + msg);
-            }
-            else if (pushType == "refresh") {
-                // Full refresh requested — reload profile
-                gHttpReq = apiCall("hud_status", "");
-            }
-            else if (pushType == "tutorial_event") {
-                // Server-driven tutorial signals — kept for future use.
-                // The visible tutorial flow advances on pointer clicks instead,
-                // so the user can confirm when they've completed each step.
-                string evt = jsonGet(body, "event");
-                if (evt == "tutorial_restart") {
-                    // Owner restarted tutorial from website
-                    gTutorialAsked = TRUE;
-                    gTutorialStep = 0;
-                    startTutorial(0);
-                }
-            }
+            handlePush(body);
             return;
         }
 
@@ -2233,6 +2253,21 @@ default {
 
         if (gHttpAction == "hud_status") {
             gRegistered = TRUE;
+
+            // Drain any pushes the server queued while we were unreachable.
+            // On a grid that denies llRequestURL() this is the ONLY way they
+            // ever arrive, since we can never be POSTed to.
+            string qp = jsonGet(body, "queued_pushes");
+            if (qp != "" && qp != JSON_INVALID && qp != "[]") {
+                integer qi = 0;
+                string one = llJsonGetValue(qp, [qi]);
+                while (one != JSON_INVALID && qi < 8) {
+                    handlePush(one);
+                    qi++;
+                    one = llJsonGetValue(qp, [qi]);
+                }
+            }
+
             gLevel  = jsonGetInt(body, "level");
             gXP     = jsonGetInt(body, "xp");
             gPoints = jsonGetInt(body, "fishing_points");
