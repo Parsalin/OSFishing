@@ -1114,16 +1114,42 @@ class PairingAuth {
      * Register a callback URL for server-push updates to the HUD.
      */
     public static function registerCallback(int $tokenId, string $callbackUrl): array {
-        $stmt = db()->prepare('UPDATE hud_tokens SET callback_url = :url WHERE id = :id');
+        require_once __DIR__ . '/PushQueue.php';
+
+        $stmt = db()->prepare('
+            UPDATE hud_tokens SET callback_url = :url, no_http_in = 0 WHERE id = :id
+        ');
         $stmt->execute([':url' => $callbackUrl, ':id' => $tokenId]);
-        return ['message' => 'Callback registered'];
+
+        // A HUD that just registered a URL is reachable right now, and may
+        // have missed pushes while detached. Deliver them immediately.
+        $stmt = db()->prepare('SELECT player_id FROM hud_tokens WHERE id = :id');
+        $stmt->execute([':id' => $tokenId]);
+        $playerId = (int)$stmt->fetchColumn();
+
+        $flushed = $playerId ? PushQueue::flushPlayer($playerId, $callbackUrl) : 0;
+
+        return ['message' => 'Callback registered', 'queued_delivered' => $flushed];
+    }
+
+    /**
+     * Record that this HUD cannot receive pushes at all — the grid denied
+     * llRequestURL(), so delivery for it is pull-based only.
+     */
+    public static function markNoHttpIn(int $tokenId): array {
+        db()->prepare('
+            UPDATE hud_tokens SET no_http_in = 1, callback_url = NULL WHERE id = :id
+        ')->execute([':id' => $tokenId]);
+        return ['message' => 'Recorded: no HTTP-in on this grid'];
     }
 
     /**
      * Push an update to a player's HUD via their registered callback URL.
-     * Silently fails if no URL registered or URL is stale.
+     * Queues the message if the HUD is unreachable — never drops it.
      */
     public static function pushToPlayer(int $playerId, array $data): void {
+        require_once __DIR__ . '/PushQueue.php';
+
         $stmt = db()->prepare('
             SELECT callback_url FROM hud_tokens
             WHERE player_id = :pid AND is_active = 1 AND callback_url IS NOT NULL
@@ -1131,32 +1157,31 @@ class PairingAuth {
         ');
         $stmt->execute([':pid' => $playerId]);
         $url = $stmt->fetchColumn();
-        if (!$url) return;
 
-        $json = json_encode($data);
+        // No callback URL — the HUD is detached, or the grid denies
+        // llRequestURL() so it can never be pushed to. Queue it; it will be
+        // delivered on the HUD's next inbound contact.
+        if (!$url) {
+            PushQueue::queueForPlayer($playerId, $data);
+            return;
+        }
 
-        // Fire-and-forget HTTP POST to the HUD's URL
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $json,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 3,
-            CURLOPT_CONNECTTIMEOUT => 2,
-            CURLOPT_SSL_VERIFYPEER => false,
-        ]);
-        $result = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $res = PushQueue::post($url, $data);
+        if ($res['ok']) return;
 
-        // If the URL is dead (404, connection refused, etc.), clear it
-        if ($httpCode === 0 || $httpCode >= 400) {
-            $stmt = db()->prepare('
+        // Requeue rather than drop. This is the whole point: a transient
+        // failure used to lose the message silently.
+        PushQueue::queueForPlayer($playerId, $data);
+
+        // Only clear the URL when the sim says it is genuinely gone. A
+        // timeout or a 5xx means "not right now", not "never again" — the
+        // old code cleared on any failure, so one blip detached the HUD from
+        // pushes until it re-registered.
+        if ($res['dead']) {
+            db()->prepare('
                 UPDATE hud_tokens SET callback_url = NULL
                 WHERE player_id = :pid AND callback_url = :url
-            ');
-            $stmt->execute([':pid' => $playerId, ':url' => $url]);
+            ')->execute([':pid' => $playerId, ':url' => $url]);
         }
     }
 

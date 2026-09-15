@@ -61,11 +61,18 @@ class Tutorial
         ');
         $stmt->execute([':pid' => $playerId]);
         $url = $stmt->fetchColumn();
-        if (!$url) return;
 
-        PrimCallback::pushUrl($url, array_merge([
+        $payload = array_merge([
             'type'  => 'tutorial_event',
             'event' => $event,
-        ], $extra));
+        ], $extra);
+
+        require_once __DIR__ . '/PushQueue.php';
+
+        // Tutorial events are discrete steps — dropping one strands the player
+        // mid-tutorial with no way to advance, so queue rather than return.
+        if (!$url || !PrimCallback::pushUrl($url, $payload)) {
+            PushQueue::queueForPlayer($playerId, $payload);
+        }
     }
 }

@@ -35,6 +35,7 @@ require_once __DIR__ . '/../../includes/Buff.php';
 require_once __DIR__ . '/../../includes/ShopSystem.php';
 require_once __DIR__ . '/../../includes/Trophy.php';
 require_once __DIR__ . '/../../includes/PrimCallback.php';
+require_once __DIR__ . '/../../includes/PushQueue.php';
 require_once __DIR__ . '/../../includes/Tutorial.php';
 
 // ── Handle CORS for web portal ──
@@ -376,7 +377,18 @@ try {
         // ── Player status (HUD login / refresh) ──
         case 'hud_status':
             $player = PairingAuth::requireHUD($action);
-            json_success(Player::getProfile((int)$player['id']));
+            $profile = Player::getProfile((int)$player['id']);
+            // Primary pull-based delivery path. For a HUD whose grid denies
+            // llRequestURL() this is the ONLY way queued pushes ever arrive,
+            // so hand them back inline rather than POSTing.
+            $profile['queued_pushes'] = PushQueue::takeForPlayer((int)$player['id']);
+            json_success($profile);
+
+        // HUD reports that its grid denied llRequestURL(), so it can never
+        // receive a server-initiated push. Delivery becomes pull-only.
+        case 'hud_no_http_in':
+            PairingAuth::requireHUD($action);
+            json_success(PairingAuth::markNoHttpIn((int)($_POST['token_id'] ?? 0)));
 
         // ── Cast ──
         case 'cast':

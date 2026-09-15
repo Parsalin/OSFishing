@@ -73,15 +73,23 @@ class PrimCallback
      * so the owner doesn't have to manually re-activate it.
      */
     public static function heartbeat(string $primUuid): void {
+        require_once __DIR__ . '/PushQueue.php';
+
         $pdo = db();
         $stmt = $pdo->prepare('
-            SELECT prim_type, ref_id FROM prim_callbacks WHERE prim_uuid = :u
+            SELECT prim_type, ref_id, callback_url FROM prim_callbacks WHERE prim_uuid = :u
         ');
         $stmt->execute([':u' => $primUuid]);
         $row = $stmt->fetch();
 
         $pdo->prepare('UPDATE prim_callbacks SET last_seen = NOW() WHERE prim_uuid = :u')
             ->execute([':u' => $primUuid]);
+
+        // The prim just proved it is alive and reachable, so this is the
+        // moment to hand it anything that was queued while it was not.
+        if ($row && !empty($row['callback_url'])) {
+            PushQueue::flushPrim($row['prim_type'], (int)$row['ref_id'], $row['callback_url']);
+        }
     }
 
     /**
@@ -130,6 +138,8 @@ class PrimCallback
      * Used by buff activation, spot updates, etc.
      */
     public static function pushToType(string $primType, int $refId, array $payload): int {
+        require_once __DIR__ . '/PushQueue.php';
+
         $stmt = db()->prepare('SELECT callback_url FROM prim_callbacks WHERE prim_type = :t AND ref_id = :r');
         $stmt->execute([':t' => $primType, ':r' => $refId]);
         $urls = $stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -137,6 +147,13 @@ class PrimCallback
         $count = 0;
         foreach ($urls as $url) {
             if (self::pushUrl($url, $payload)) $count++;
+        }
+
+        // Nothing got it — either no prim is registered (region offline, prim
+        // returned to inventory) or every POST failed. Queue it so the next
+        // prim_heartbeat delivers it, instead of dropping it as before.
+        if ($count === 0) {
+            PushQueue::queueForPrim($primType, $refId, $payload);
         }
         return $count;
     }
@@ -152,24 +169,18 @@ class PrimCallback
      * Push to a single URL. Returns true on success.
      */
     public static function pushUrl(string $url, array $payload): bool {
-        $json = json_encode($payload);
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
-        curl_exec($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        require_once __DIR__ . '/PushQueue.php';
 
-        // 200/201/204 are good. If URL is dead (404, 500, no response), drop it.
-        if ($code === 0 || $code === 404 || $code === 410) {
+        $res = PushQueue::post($url, $payload, 5);
+
+        // Only forget the URL when the sim says it is genuinely gone.
+        // A code of 0 (connection refused / timeout) used to delete the
+        // callback too, so a region restarting or a momentary network blip
+        // permanently unregistered a live prim until it re-registered itself.
+        if ($res['dead']) {
             db()->prepare('DELETE FROM prim_callbacks WHERE callback_url = :u')->execute([':u' => $url]);
-            return false;
         }
-        return ($code >= 200 && $code < 300);
+        return $res['ok'];
     }
 
 }
