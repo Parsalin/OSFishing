@@ -143,6 +143,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 
 ### LSL scripts
 - **FishingHUD** — main player HUD, worn on HUD Bottom. A minimal bar: bait chip (count above it; tap = Tackle), OSFishing logo (tap = media panel with the website embed), FISH / STOP. Fight strip above the bar (tension meter + fish showing which way it runs). The panel's optional live **fishing view** is served by the HUD itself (`GET <hud url>/fish` shell → `web/public/hud/fishview.js`, which polls `GET <hud url>/s`). Built with `lsl/Extra Tools/FishingHUD_Builder.lsl`; layout, textures and sheet cells in `lsl/Textures/HUD/BUILD.md` (textures from `make_textures.py`).
+  **`HUD_VERSION` auto-increments** (`YYYY.MM.DD.NN`): `.claude/bump_version.ps1`, a PostToolUse hook in `.claude/settings.json`, bumps it after every Edit/Write to `FishingHUD.lsl`. Never edit it by hand. The HUD sends it with every `hud_status`; it's stored in `hud_tokens.hud_version` (NULL = a HUD from before versioning) and shown per HUD under Settings → devices.
 - **FishingRod** — held attachment, plays cast/idle animations. Has `Line_Emitter` child for future particle line.
 - **FishingBobber** — temp-rezzed object, sits in water during cast/landing/fight.
 - **FishingSpot** — placed in regions where fish are. Has a setup wizard (water type, name, public/private), maintains state in LinksetData, registers callback URL with server for buff push notifications.

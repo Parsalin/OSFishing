@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"c:\\Users\\Matthew\\Projects\\OSFishing\\.claude\\bump_version.ps1\"",
+            "statusMessage": "Bumping HUD version..."
+          }
+        ]
+      }
+    ]
+  }
+}

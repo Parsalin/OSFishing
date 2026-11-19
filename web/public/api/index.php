@@ -486,6 +486,12 @@ try {
         // ── Player status (HUD login / refresh) ──
         case 'hud_status':
             $player = PairingAuth::requireHUD($action);
+            // HUD script version (HUD_VERSION, "YYYY.MM.DD.NN"); older HUDs don't send it.
+            $hudVersion = (string)($_POST['hud_version'] ?? '');
+            if (preg_match('/^\d{4}\.\d{2}\.\d{2}\.\d{2}$/', $hudVersion)) {
+                db()->prepare('UPDATE hud_tokens SET hud_version = :v WHERE id = :id')
+                    ->execute([':v' => $hudVersion, ':id' => (int)$_POST['token_id']]);
+            }
             $profile = Player::getProfile((int)$player['id']);
             // Primary pull-based delivery path. For a HUD whose grid denies
             // llRequestURL() this is the ONLY way queued pushes ever arrive,

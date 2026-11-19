@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-19-hud-version', 'date' => '2026-11-19', 'type' => 'new',
+         'text' => 'Your paired HUDs under Settings now show which HUD version each one is running, so you can tell whether you have the latest. (Needs the new HUD.)'],
         ['id' => '2026-11-19-new-hud-bar', 'date' => '2026-11-19', 'type' => 'new',
          'text' => 'A new, smaller HUD: one blue bar with your bait and how much is left, a FISH / STOP button, and the OSFishing logo in the middle. Tap the logo for everything else (fish, quests, shop, ranks and more) in a panel that opens above the bar. The fight now has its own strip on the bar: a meter for line tension and a fish that shows which way it\'s running. Open the panel while fishing to watch the whole cast and fight in a bigger, livelier view. That part is optional; the bar alone is enough to fish. (Needs the new HUD.)'],
         ['id' => '2026-11-19-gather-stock-fix', 'date' => '2026-11-19', 'type' => 'fixed',

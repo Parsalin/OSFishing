@@ -29,6 +29,10 @@
 
 // ── Configuration (HARDCODED - no notecard) ──
 string  gApiUrl = "https://osfishing.flamesfall.net/api/";
+// Script version, "YYYY.MM.DD.NN". Bumped automatically on every edit by
+// .claude/bump_version.ps1 (PostToolUse hook); never edit it by hand.
+// Sent with every hud_status and shown under Settings > devices.
+string  HUD_VERSION = "2026.11.19.02";
 
 // ── Pairing State (lives only in script memory) ──
 integer gTokenId      = 0;
@@ -669,7 +673,7 @@ startupCheck() {
         loadDisplayCache();
         updateMainDisplay();
         showStatus("Restoring session...");
-        gHttpReq = apiCall("hud_status", "");
+        gHttpReq = apiCall("hud_status", "hud_version=" + HUD_VERSION);
         return;
     }
     // No saved token — start fresh: check if account exists
@@ -1557,7 +1561,7 @@ handlePush(string body) {
     }
     else if (pushType == "refresh") {
         // Full refresh requested — reload profile
-        gHttpReq = apiCall("hud_status", "");
+        gHttpReq = apiCall("hud_status", "hud_version=" + HUD_VERSION);
     }
     else if (pushType == "tutorial_event") {
         // Server-driven tutorial signals — kept for future use.
@@ -1608,7 +1612,7 @@ default {
         llListen(0, "", gOwner, "");
 
         // Begin pairing check
-        showStatus("Connecting to server...");
+        showStatus("Connecting to server... (v" + HUD_VERSION + ")");
         startupCheck();
     }
 
@@ -1643,7 +1647,7 @@ default {
 
         // Re-attempt startup if not paired
         if (gToken == "" && !gPairing) {
-            showStatus("Connecting to server...");
+            showStatus("Connecting to server... (v" + HUD_VERSION + ")");
             startupCheck();
             return;
         }
@@ -2583,7 +2587,7 @@ default {
                 restoreTimer();
                 hudInfo("HUD paired successfully!");
                 showStatus("Paired! Loading profile...");
-                gHttpReq = apiCall("hud_status", "");
+                gHttpReq = apiCall("hud_status", "hud_version=" + HUD_VERSION);
             }
             return;
         }

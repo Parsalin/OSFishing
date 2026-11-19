@@ -1405,7 +1405,7 @@ class PairingAuth {
      */
     public static function listDevices(int $playerId): array {
         $stmt = db()->prepare('
-            SELECT id, device_name, grid_name, avatar_uuid, issued_at, last_used, last_ip, is_active
+            SELECT id, device_name, hud_version, grid_name, avatar_uuid, issued_at, last_used, last_ip, is_active
             FROM hud_tokens
             WHERE player_id = :pid AND revoked_at IS NULL
             ORDER BY last_used DESC
