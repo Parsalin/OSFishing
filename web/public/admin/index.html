@@ -92,6 +92,8 @@ const state = {
   adminFaqs: [],
   gatherPoints: [], gatherSearch: '',
   grids: [],
+  alerts: [], unreadAlerts: 0, alertsUnreadOnly: false,
+  logicEntries: [], logicCategories: [], logicFilter: '',
 };
 
 // ── API ──
@@ -264,6 +266,24 @@ async function deleteGrid(gid) {
   const r = await api('admin_grid_delete', { grid_id:String(gid) });
   if (r.success) { toast('Grid deleted'); loadGrids(); } else toast(r.error, true);
 }
+async function loadAlerts() {
+  const r = await api('admin_alerts_list', { unread_only: state.alertsUnreadOnly ? '1' : '0' });
+  if (r.success) { state.alerts = r.alerts||[]; state.unreadAlerts = r.unread||0; }
+  render();
+}
+async function markAlertRead(id) {
+  const r = await api('admin_alert_read', { alert_id: String(id) });
+  if (r.success) { state.unreadAlerts = r.unread; loadAlerts(); } else toast(r.error, true);
+}
+async function markAllAlertsRead() {
+  const r = await api('admin_alert_read', { all: '1' });
+  if (r.success) { state.unreadAlerts = 0; loadAlerts(); } else toast(r.error, true);
+}
+async function loadLogicErrors() {
+  const r = await api('admin_logic_errors', { category: state.logicFilter });
+  if (r.success) { state.logicEntries = r.entries||[]; state.logicCategories = r.categories||[]; }
+  render();
+}
 async function loadAffinity(fishId) {
   const r = await api('admin_bait_affinity', { fish_id: String(fishId) });
   if (r.success) state.affinities = r.affinities||[];
@@ -330,7 +350,7 @@ function setTab(t) {
   state.tab = t;
   state.playerDetail = null;
   state.fishDetail = null;
-  const loaders = { stats:loadStats, players:loadPlayers, spots:loadSpots, fish:loadFish, lines:loadLines, bait:loadBaitTypes, announcements:loadAnnouncements, questions:loadQuestions, faq:loadAdminFaqs, gather:loadGatherPoints, grids:loadGrids };
+  const loaders = { stats:loadStats, players:loadPlayers, spots:loadSpots, fish:loadFish, lines:loadLines, bait:loadBaitTypes, announcements:loadAnnouncements, questions:loadQuestions, faq:loadAdminFaqs, gather:loadGatherPoints, grids:loadGrids, alerts:loadAlerts, logic:loadLogicErrors };
   if (loaders[t]) loaders[t]();
   else render();
 }
@@ -821,8 +841,57 @@ function renderGrids() {
   );
 }
 
-const tabRenderers = { stats:renderStats, players:renderPlayers, spots:renderSpots, fish:renderFish, lines:renderLines, bait:renderBait, gather:renderGatherPoints, grids:renderGrids, announcements:renderAnnouncements, questions:renderQuestions, faq:renderFAQManager };
-const tabLabels = { stats:'Dashboard', players:'Players', spots:'Spots', fish:'Fish Balance', lines:'Line Types', bait:'Bait Types', gather:'Gather Points', grids:'Grids', questions:'Questions', faq:'FAQ', announcements:'Announcements' };
+// ── RENDER: Alerts ──
+function renderAlerts() {
+  return h('div',null,
+    h('div',{style:{display:'flex',gap:'8px',alignItems:'center',marginBottom:'12px',flexWrap:'wrap'}},
+      h('label',{style:{fontSize:'12px',display:'flex',gap:'6px',alignItems:'center'}},
+        h('input',{type:'checkbox',checked:state.alertsUnreadOnly,onChange:e=>{state.alertsUnreadOnly=e.target.checked;loadAlerts();}}),'Unread only'),
+      state.unreadAlerts>0?h('button',{class:'btn btn-sm btn-secondary',onClick:markAllAlertsRead},'Mark all read'):null,
+      h('span',{style:{fontSize:'12px',color:'var(--muted)'}},state.unreadAlerts+' unread')
+    ),
+    state.alerts.length===0?h('div',{class:'empty'},'No alerts.'):
+    h('div',{style:{display:'flex',flexDirection:'column',gap:'8px'}},...state.alerts.map(a=>
+      h('div',{class:'card',style:{padding:'12px 14px',borderLeft:'3px solid '+(a.read_at?'var(--border)':'var(--accent)'),opacity:a.read_at?'0.7':'1'}},
+        h('div',{style:{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start'}},
+          h('div',null,
+            h('div',{style:{fontSize:'11px',color:'var(--muted)',marginBottom:'4px'}},fmtTime(a.created_at)+' — '+a.category),
+            h('div',{style:{fontSize:'13px',whiteSpace:'pre-wrap'}},a.message),
+            a.link?h('a',{href:a.link,style:{fontSize:'12px'},onClick:e=>{const m=String(a.link).match(/[?&]tab=([a-z]+)/);if(m){e.preventDefault();setTab(m[1]);}}},'Open'):null,
+            a.read_at?h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'4px'}},'Read '+fmtTime(a.read_at)+(a.read_by_name?' by '+a.read_by_name:'')):null
+          ),
+          a.read_at?null:h('button',{class:'btn btn-sm btn-secondary',onClick:()=>markAlertRead(a.id)},'Mark read')
+        )
+      )
+    ))
+  );
+}
+
+// ── RENDER: Logic error log ──
+function renderLogicErrors() {
+  return h('div',null,
+    h('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'10px'}},
+      'Silent self-repairs and fail-closed checks: the server found something that should never happen and handled it. Normal gameplay never logs here.'),
+    h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'12px'}},
+      h('button',{class:'btn btn-sm '+(state.logicFilter===''?'btn-primary':'btn-secondary'),onClick:()=>{state.logicFilter='';loadLogicErrors();}},'All'),
+      ...state.logicCategories.map(c=>h('button',{class:'btn btn-sm '+(state.logicFilter===c.category?'btn-primary':'btn-secondary'),onClick:()=>{state.logicFilter=c.category;loadLogicErrors();}},c.category+' ('+c.n+')'))
+    ),
+    state.logicEntries.length===0?h('div',{class:'empty'},'Nothing logged.'):
+    h('div',{class:'card'},h('div',{style:{overflowX:'auto'}},h('table',null,
+      h('thead',null,h('tr',null,...['When','Category','Player','Message','Context'].map(x=>h('th',null,x)))),
+      h('tbody',null,...state.logicEntries.map(e=>h('tr',null,
+        h('td',{style:{fontSize:'11px',color:'var(--muted)',whiteSpace:'nowrap'}},fmtTime(e.logged_at)),
+        h('td',{style:{fontSize:'11px',fontWeight:600}},e.category),
+        h('td',{style:{fontSize:'11px'}},e.player_name||(e.player_id?('#'+e.player_id):'—')),
+        h('td',{style:{fontSize:'12px'}},e.message),
+        h('td',{style:{fontSize:'10px',color:'var(--muted)',fontFamily:'monospace',maxWidth:'320px',wordBreak:'break-all'}},e.context?JSON.stringify(e.context):'')
+      )))
+    )))
+  );
+}
+
+const tabRenderers = { stats:renderStats, players:renderPlayers, spots:renderSpots, fish:renderFish, lines:renderLines, bait:renderBait, gather:renderGatherPoints, grids:renderGrids, announcements:renderAnnouncements, questions:renderQuestions, faq:renderFAQManager, alerts:renderAlerts, logic:renderLogicErrors };
+const tabLabels = { stats:'Dashboard', players:'Players', spots:'Spots', fish:'Fish Balance', lines:'Line Types', bait:'Bait Types', gather:'Gather Points', grids:'Grids', questions:'Questions', faq:'FAQ', announcements:'Announcements', alerts:'Alerts', logic:'Logic Log' };
 
 function render() {
   const app = $('app');
@@ -834,7 +903,8 @@ function render() {
   ));
 
   app.appendChild(h('div',{class:'tabs'},
-    ...Object.entries(tabLabels).map(([k,l])=>h('button',{class:'tab'+(state.tab===k?' active':''),onClick:()=>setTab(k)},l))
+    ...Object.entries(tabLabels).map(([k,l])=>h('button',{class:'tab'+(state.tab===k?' active':''),onClick:()=>setTab(k)},
+      l, k==='alerts'&&state.unreadAlerts>0?h('span',{style:{marginLeft:'6px',background:'var(--danger)',color:'#fff',borderRadius:'99px',padding:'0 7px',fontSize:'11px',fontWeight:700}},String(state.unreadAlerts)):null))
   ));
 
   const renderer = tabRenderers[state.tab] || renderStats;
@@ -851,6 +921,10 @@ function render() {
   if (r.success) {
     state.loggedIn = true;
     state.stats = r;
+    state.unreadAlerts = r.unread_alerts || 0;
+    // Deep links from alerts, e.g. /admin/?tab=objects
+    const wantTab = new URLSearchParams(location.search).get('tab');
+    if (wantTab && tabLabels[wantTab]) { setTab(wantTab); return; }
     render();
   } else {
     $('app').innerHTML = '<div style="text-align:center;padding:80px"><h2 style="color:var(--danger)">Access Denied</h2><p style="color:var(--muted);margin-top:10px">You must be logged in as an admin. <a href="../">Go to portal</a> and log in first.</p></div>';

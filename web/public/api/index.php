@@ -37,6 +37,8 @@ require_once __DIR__ . '/../../includes/Trophy.php';
 require_once __DIR__ . '/../../includes/PrimCallback.php';
 require_once __DIR__ . '/../../includes/PushQueue.php';
 require_once __DIR__ . '/../../includes/Tutorial.php';
+require_once __DIR__ . '/../../includes/AdminAlerts.php';
+require_once __DIR__ . '/../../includes/LogicErrorLog.php';
 
 // ── Handle CORS for web portal ──
 header('Access-Control-Allow-Origin: *');
@@ -953,6 +955,7 @@ try {
             // Queue depth is the signal that pushes are failing to land —
             // a growing backlog means HUDs or spots are unreachable.
             $stats['push_queue'] = PushQueue::stats();
+            $stats['unread_alerts'] = AdminAlerts::unreadCount();
             json_success($stats);
 
         case 'admin_list_players':
@@ -1407,6 +1410,20 @@ try {
             Admin::requireAdmin();
             json_success(Grid::deleteGrid((int)require_param('grid_id')));
 
+
+        // ── Admin alerts inbox + logic error log ──
+        case 'admin_alerts_list':
+            Admin::requireAdmin();
+            json_success(AdminAlerts::listAlerts((bool)(int)optional_param('unread_only', 0)));
+
+        case 'admin_alert_read':
+            $admin = Admin::requireAdmin();
+            if (optional_param('all', '') === '1') json_success(AdminAlerts::markAllRead((int)$admin['id']));
+            json_success(AdminAlerts::markRead((int)require_param('alert_id'), (int)$admin['id']));
+
+        case 'admin_logic_errors':
+            Admin::requireAdmin();
+            json_success(LogicErrorLog::listEntries(optional_param('category', '')));
 
         // ════════════════════════════════════════════════
         default:
