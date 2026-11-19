@@ -86,7 +86,7 @@ class Auth {
 
         // Checked before the password, so a locked-out guess learns nothing.
         $stmt = $pdo->prepare('
-            SELECT SUM(username = :u) AS by_user, SUM(ip_address = :ip) AS by_ip
+            SELECT SUM(username = :u) AS by_user, SUM(ip_address = :ip AND username NOT LIKE "%:%") AS by_ip
             FROM login_attempts
             WHERE attempted_at > UTC_TIMESTAMP() - INTERVAL ' . self::LOGIN_WINDOW_MIN . ' MINUTE
               AND (username = :u2 OR ip_address = :ip2)

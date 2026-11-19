@@ -51,14 +51,13 @@ In-world (LSL) fixes only reach players once the updated objects are handed out.
   14 days. **Still on-server only**: a lost VPS loses the backups too. Needs
   an off-site copy (rclone to B2 or similar, as Fertility's `03-backup.sh`)
   and that needs root or a remote's credentials.
-- [ ] **18. `pair_status` can be brute-forced** (new) [BP 2, 5]
-  It's unauthenticated with no rate limit, and the avatar UUID is public.
-  While a code is live (5 min) a fast client can try codes for a target UUID;
-  if it finds the code after the owner claims it, it can collect the token
-  before the HUD's next 5 s poll. The token is now handed out only once, which
-  closes the "collect it any time later" hole, but not this race. Fix:
-  throttle `pair_status`/`pair_request` per address (as `login_attempts`),
-  and require the owner header to match `uuid`.
+- [x] **18. `pair_status` could be brute-forced** (new) [BP 2, 5]
+  Now: `pair_status` needs the sim's owner header to equal `uuid`, and wrong
+  codes are capped at 10 per avatar / 30 per address in 15 min; `pair_request`
+  at 10 per avatar / 60 per address (each one voids the avatar's older codes,
+  so unlimited requests could stop someone pairing); wrong codes on the portal
+  claim and `pair.php` at 10 per account. `includes/Throttle.php`, rows in
+  `login_attempts` under prefixed keys.
 
 ## 🟠 Medium
 
@@ -97,8 +96,8 @@ In-world (LSL) fixes only reach players once the updated objects are handed out.
 - [x] **12.** `check_account` returns only `exists`.
 - [x] **13.** `bin/sweep.php` daily at 03:41 (managed crontab block in
   `deploy.sh`).
-- [x] **14.** Legacy auth/setup removed. The live nginx vhost still has the
-  `/setup` rewrite until it's reinstalled (it now 404s, harmless).
+- [x] **14.** Legacy auth/setup removed. The live routing snippet still has
+  the `/setup` rewrite until root runs `deploy/nginx/install-snippet.sh`.
 - [x] **15.** `jsonGet` reads escaped strings; pushes send raw UTF-8.
 - [x] **16.** Portal snippets use text nodes.
 - [x] **17.** Tournaments: the code's design is canonical; migration 10

@@ -315,8 +315,12 @@ and the protective rules that *look* present in the repo are not actually in for
 ```nginx
 location = /api  { try_files $uri /api/index.php$is_args$args; }
 location ^~ /api { try_files $uri /api/index.php$is_args$args; }
-location = /setup { try_files $uri /setup.php$is_args$args; }
 ```
+
+(The `/setup` → `setup.php` route that used to be here is gone: setup.php was
+removed 2026-11-19. To update the live routing snippet from the repo, run
+`sudo bash /var/www/osfishing/repo/deploy/nginx/install-snippet.sh`; it
+touches only the snippet, never the certbot-managed vhost.)
 
 ### 3. `deploy.sh` will delete the live `config.php`
 

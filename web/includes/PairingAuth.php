@@ -178,6 +178,8 @@ class PairingAuth {
         $row = $stmt->fetch();
 
         if (!$row) {
+            require_once __DIR__ . '/Throttle.php';
+            Throttle::hit('pair:' . strtolower(trim($uuid)));
             json_error('Pairing code not found', 404);
         }
 
@@ -229,6 +231,8 @@ class PairingAuth {
         $row = $stmt->fetch();
 
         if (!$row) {
+            require_once __DIR__ . '/Throttle.php';
+            Throttle::hit('claim:' . $playerId);
             json_error('Invalid or expired pairing code, or it does not belong to your account.', 400);
         }
 

@@ -16,6 +16,7 @@
 require_once __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/Auth.php';
 require_once __DIR__ . '/../includes/PairingAuth.php';
+require_once __DIR__ . '/../includes/Throttle.php';
 
 function pair_page(string $title, string $bodyHtml, int $status = 200): void {
     http_response_code($status);
@@ -73,8 +74,11 @@ try {
     }
 
     $playerId = (int)$player['id'];
+    // Same cap as web_pair_claim: this page can claim codes too.
+    Throttle::check('claim:' . $playerId, 10, 30, 15, 'Too many wrong codes. Wait 15 minutes and try again.');
     $info = PairingAuth::describeCode($uuid, $code, $playerId);
     if (!$info) {
+        Throttle::hit('claim:' . $playerId);
         pair_page('Pairing link expired', '<h1>This pairing link has expired</h1><p>Pairing codes last 5 minutes. Touch your HUD to get a new one.</p><div class="row"><a class="btn" href="/">Go to the portal</a></div>', 410);
     }
 

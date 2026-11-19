@@ -43,6 +43,7 @@ require_once __DIR__ . '/../../includes/SimOrigin.php';
 require_once __DIR__ . '/../../includes/AdminObjects.php';
 require_once __DIR__ . '/../../includes/Changelog.php';
 require_once __DIR__ . '/../../includes/InWorldAuth.php';
+require_once __DIR__ . '/../../includes/Throttle.php';
 
 // No CORS headers: the portal, admin panel and HUD media panel are all
 // same-origin, and sims don't use CORS. Another site gets no cross-origin
@@ -423,11 +424,23 @@ try {
             $gridName = optional_param('grid_name', '');
             SimOrigin::allow($action, $uuid, (string)$gridName);
             if ($gridName !== '') Grid::requireApproved($gridName);
+            // Each request voids the avatar's older codes, so unlimited
+            // requests would let anyone keep a player from ever pairing.
+            $preqKey = 'preq:' . strtolower(trim($uuid));
+            Throttle::check($preqKey, 10, 60, 15, 'Too many pairing requests. Wait a few minutes, then touch the HUD again.');
+            Throttle::hit($preqKey);
             json_success(PairingAuth::requestCode($uuid, $gridName));
 
         case 'pair_status':
-            $uuid = require_param('uuid');
+            $uuid = strtolower(trim(require_param('uuid')));
             $code = require_param('code');
+            // Only the HUD polls this, from its sim, which stamps the owner
+            // header. Wrong guesses are counted (in checkStatus) and capped,
+            // so a code can't be brute-forced in its 5 minutes.
+            $ownerHeader = strtolower(trim((string)($_SERVER['HTTP_X_SECONDLIFE_OWNER_KEY'] ?? '')));
+            if ($ownerHeader === '') json_error('not_from_a_sim', 401);
+            if ($ownerHeader !== $uuid) json_error('owner_mismatch', 401);
+            Throttle::check('pair:' . $uuid, 10, 30, 15, 'Too many wrong pairing codes. Wait 15 minutes, then touch the HUD again.');
             json_success(PairingAuth::checkStatus($uuid, $code));
 
         case 'web_pair_claim':
@@ -437,6 +450,9 @@ try {
             $code = require_param('code');
             $deviceName = optional_param('device_name', 'HUD');
             $confirm = optional_param('confirm_link', '0') === '1';
+            // Wrong codes are counted in claimCode; guessing a live code
+            // could otherwise link someone else's new avatar to you.
+            Throttle::check('claim:' . (int)$player['id'], 10, 30, 15, 'Too many wrong codes. Wait 15 minutes and try again.');
             json_success(PairingAuth::claimCode((int)$player['id'], $code, $deviceName, $confirm));
 
         case 'web_linked_avatars':
