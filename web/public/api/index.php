@@ -42,6 +42,7 @@ require_once __DIR__ . '/../../includes/LogicErrorLog.php';
 require_once __DIR__ . '/../../includes/SimOrigin.php';
 require_once __DIR__ . '/../../includes/AdminObjects.php';
 require_once __DIR__ . '/../../includes/Changelog.php';
+require_once __DIR__ . '/../../includes/InWorldAuth.php';
 
 // No CORS headers: the portal, admin panel and HUD media panel are all
 // same-origin, and sims don't use CORS. Another site gets no cross-origin
@@ -100,6 +101,48 @@ class AuthEmbed {
         // No embed auth present — use normal session auth
         return Auth::requireWeb();
     }
+}
+
+// ── In-world actions that act as a UUID param with no token ──
+// Header cross-checks, log-only until InWorldAuth::ENFORCE (audit item 1).
+// action => [kind, the param naming who it acts as]
+const INWORLD_UUID_ACTIONS = [
+    // the object's owner acting on their own object (admins may too)
+    'spot_register'      => [InWorldAuth::OWNER, 'owner_key'],
+    'shop_register'      => [InWorldAuth::OWNER, 'owner_key'],
+    'gather_register'    => [InWorldAuth::OWNER, 'owner_key'],
+    'spot_setup_info'    => [InWorldAuth::OWNER, 'uuid'],
+    'spot_archived_list' => [InWorldAuth::OWNER, 'uuid'],
+    'spot_restore'       => [InWorldAuth::OWNER, 'uuid'],
+    'spot_update'        => [InWorldAuth::OWNER, 'uuid'],
+    'spot_add_junk'      => [InWorldAuth::OWNER, 'uuid'],
+    'spot_remove_junk'   => [InWorldAuth::OWNER, 'uuid'],
+    'spot_level_up'      => [InWorldAuth::OWNER, 'uuid'],
+    'spot_delete'        => [InWorldAuth::OWNER, 'uuid'],
+    'shop_deposit'       => [InWorldAuth::OWNER, 'uuid'],
+    'shop_withdraw'      => [InWorldAuth::OWNER, 'uuid'],
+    'shop_set_modifier'  => [InWorldAuth::OWNER, 'uuid'],
+    'admin_shop_restock' => [InWorldAuth::OWNER, 'uuid'],
+    'trophy_for_plaque'  => [InWorldAuth::OWNER, 'uuid'],
+    // whoever touched someone else's object: unverifiable server-side
+    'shop_buy'           => [InWorldAuth::TOUCHER, 'uuid'],
+    'shop_sell'          => [InWorldAuth::TOUCHER, 'uuid'],
+    'shop_transactions'  => [InWorldAuth::TOUCHER, 'uuid'],
+    'buff_inventory'     => [InWorldAuth::TOUCHER, 'uuid'],
+    'buff_activate'      => [InWorldAuth::TOUCHER, 'uuid'],
+    'buff_buy'           => [InWorldAuth::TOUCHER, 'uuid'],
+    'craft_recipes'      => [InWorldAuth::TOUCHER, 'uuid'],
+    'craft_item'         => [InWorldAuth::TOUCHER, 'uuid'],
+    'butcher_list'       => [InWorldAuth::TOUCHER, 'uuid'],
+    'butcher_fish'       => [InWorldAuth::TOUCHER, 'uuid'],
+    // the web_ twins take the uuid branch too when one is sent
+    'web_butcher_list'   => [InWorldAuth::TOUCHER, 'uuid'],
+    'web_butcher_fish'   => [InWorldAuth::TOUCHER, 'uuid'],
+];
+if (isset(INWORLD_UUID_ACTIONS[$action])) {
+    [$iwKind, $iwParam] = INWORLD_UUID_ACTIONS[$action];
+    $iwUuid = (string)($_POST[$iwParam] ?? '');
+    if ($iwUuid !== '') InWorldAuth::check($action, $iwUuid, $iwKind);
 }
 
 try {
