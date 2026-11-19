@@ -67,6 +67,16 @@ fi
 echo "==> Applying migrations"
 php "${WEB_DST}/bin/migrate.php"
 
+# Scheduled jobs live in the repo: this replaces the managed block of the
+# osfishing crontab on every deploy and leaves any other lines alone.
+# Host cron runs on America/New_York; the times below are local.
+echo "==> Installing scheduled jobs"
+install -d -m 700 "${HOME}/logs"
+CRON_BLOCK="# BEGIN osfishing-managed (deploy/deploy.sh — edit there, not here)
+23 3 * * * bash ${REPO_DIR}/deploy/backup.sh >> ${HOME}/logs/backup.log 2>&1
+# END osfishing-managed"
+{ crontab -l 2>/dev/null | sed '/^# BEGIN osfishing-managed/,/^# END osfishing-managed/d'; echo "${CRON_BLOCK}"; } | crontab -
+
 echo "==> Reloading PHP-FPM (clears OPcache)"
 sudo /usr/bin/systemctl reload php8.4-fpm
 

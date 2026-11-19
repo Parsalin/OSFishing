@@ -59,7 +59,7 @@ Host osfishing.flamesfall.net flamesfall-osfishing
 | App config | `web/config.php`, gitignored — copy from `config.example.php` |
 | Deploy script | `/var/www/osfishing/deploy/deploy.sh` (move into the repo, see Setup) |
 | DB credentials | `/home/osfishing/secrets/db.txt` (mode 600, osfishing-only) |
-| Backups dir | `/var/backups/osfishing` (created; **no backup job installed yet**) |
+| Backups dir | `~osfishing/backups` — nightly 03:23 (host time) by `deploy/backup.sh`, 14 days kept, log `~/logs/backup.log`. Cron line installed by `deploy.sh`. `/var/backups/osfishing` is root-owned and unused. **On-server only — no off-site copy yet.** |
 
 > **Layout mismatch — read this before deploying.** The provisioned paths above were
 > modelled on the sibling Fertility app (`Web/public/`, `.env`, Composer). The
