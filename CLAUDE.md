@@ -142,7 +142,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 ## In-world objects
 
 ### LSL scripts
-- **FishingHUD** — main player HUD, attached to screen. Five buttons: tackle, fish inventory, play, quests, shop.
+- **FishingHUD** — main player HUD, worn on HUD Bottom. A minimal bar: bait chip (count above it; tap = Tackle), OSFishing logo (tap = media panel with the website embed), FISH / STOP. Fight strip above the bar (tension meter + fish showing which way it runs). The panel's optional live **fishing view** is served by the HUD itself (`GET <hud url>/fish` shell → `web/public/hud/fishview.js`, which polls `GET <hud url>/s`). Built with `lsl/Extra Tools/FishingHUD_Builder.lsl`; layout, textures and sheet cells in `lsl/Textures/HUD/BUILD.md` (textures from `make_textures.py`).
 - **FishingRod** — held attachment, plays cast/idle animations. Has `Line_Emitter` child for future particle line.
 - **FishingBobber** — temp-rezzed object, sits in water during cast/landing/fight.
 - **FishingSpot** — placed in regions where fish are. Has a setup wizard (water type, name, public/private), maintains state in LinksetData, registers callback URL with server for buff push notifications.
@@ -156,8 +156,8 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 - **TrophyPlaque** + **TrophyText** + **TrophyFish** — in-world trophy display, plaque rezzes a fish mesh at calibrated scale and rotation, with name/weight/rarity on a floating text plaque.
 
 ### Tutorial child prims (in HUD)
-- **TutorialText** — scriptless, named prim. Root sets PRIM_TEXT directly via `llSetLinkPrimitiveParamsFast`.
-- **TutorialPointer** — scriptless, named prim. Root positions/colors it; root detects clicks via `llDetectedLinkNumber` in its existing touch_start.
+- **TutorialText** — scriptless, named prim right of the bar. Root sets PRIM_TEXT directly via `llSetLinkPrimitiveParamsFast`.
+- **TutorialPointer** — scriptless, named prim: a yellow ring the root sizes and moves over the button to press (pages behind the logo point at the logo, Tackle at the bait chip); root detects clicks via `llDetectedLinkNumber` in its existing touch_start.
 
 ### Channels
 - HUD↔Rod: -7710001/-7710002
@@ -342,6 +342,7 @@ OSFishing/
         ├── index.html   — web portal SPA
         ├── api/index.php— single-entry API router
         ├── admin/       — admin panel
+        ├── hud/         — fishview.js (HUD media panel's live fishing view)
         ├── pair.php     — auto-pair / link-avatar landing page
         ├── recover.php  — one-time recovery login link
         └── register.php — sign-up (reached from the HUD's pair link)

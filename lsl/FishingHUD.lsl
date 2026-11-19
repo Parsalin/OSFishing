@@ -1,30 +1,23 @@
 // ============================================================
-// FISHING HUD - Main Controller (v2 - Named Links)
+// FISHING HUD - Main Controller (v3 - minimal bar + media panel)
 // ============================================================
-// Attach to HUD Center or HUD Bottom.
-//
-// LINK NAMING:
-// Name each prim in your HUD with one of these exact names
-// (via Edit > General tab > Name field). Link them in any order.
-// On first run, the script scans for these and caches link numbers.
-// The root prim does not need a name — it's automatically link 1.
+// Wear on HUD Bottom. Build the prims with
+// lsl/Extra Tools/FishingHUD_Builder.lsl; layout and textures are in
+// lsl/Textures/HUD/BUILD.md. The root prim (link 1) is the bar.
 //
 // REQUIRED LINK NAMES:
-//   "HUD_Root"          — (no longer required - root is auto-detected)
-//   "HUD_StartButton"   — Start Fishing button
-//   "HUD_BaitButton"    — Bait menu button
-//   "HUD_FishButton"    — Fish inventory button
-//   "HUD_QuestButton"   — Quest menu button
-//   "HUD_ShopButton"    — Shop menu button
-//   "HUD_PowerBar"      — Power bar fill (stretches during cast charge)
-//   "HUD_TensionBar"    — Tension bar fill (stretches during fight)
-//   "HUD_FishIcon"      — Fish direction indicator (moves L/R during fight)
-//   "HUD_StatusText"    — Status text display prim (hover text)
+//   "HUD_Logo"    — OSFishing logo: opens / closes the panel
+//   "HUD_Bait"    — bait chip: count floats above it; tap = Tackle page
+//   "HUD_Cast"    — FISH / STOP button
+//   "HUD_Text"    — invisible anchor for status + message hover text
 //
-// OPTIONAL LINK NAMES (used if present):
-//   "HUD_PointsDisplay" — Points counter display
-//   "HUD_LevelDisplay"  — Level display
-//   "HUD_BaitIcon"      — Current bait icon
+// OPTIONAL (the fight still works on hover text alone without them):
+//   "HUD_Track", "HUD_Meter", "HUD_Fish" — fight strip above the bar
+//      (meter = cast power, then line tension; fish = what the fish is doing)
+//   "PanelBack", "PanelMedia", "PanelClose", "PanelOpen", "PanelSwap"
+//      — the media panel. PanelSwap switches between the live fishing view
+//        (served by this script from its own URL) and the website menu.
+//   "TutorialText", "TutorialPointer" — the tutorial
 //
 // CHANNELS:
 //   -7710001 : HUD -> Rod
@@ -225,55 +218,67 @@ integer CH_SPOT_TO_HUD   = -7710005;
 integer CH_GATHER_HUD   = -7710006;  // Gather point <-> HUD
 integer CH_TOURNAMENT   = -7710007;  // Tournament board catch notifications
 
-// ── Link Number Cache (populated on scan) ──
-integer LINK_ROOT           = -1;
-integer LINK_START_BTN      = -1;
-integer LINK_BAIT_BTN       = -1;
-integer LINK_FISH_BTN       = -1;
-integer LINK_QUEST_BTN      = -1;
-integer LINK_SHOP_BTN       = -1;
-integer LINK_POWER_BAR      = -1;
-integer LINK_TENSION_BAR    = -1;
-integer LINK_XP_BAR         = -1;   // Optional XP progress bar
+// ── Link Number Cache (populated on scan; -1 = not present) ──
+integer LINK_ROOT        = -1;   // the bar
+integer LINK_LOGO        = -1;
+integer LINK_BAIT        = -1;
+integer LINK_CAST        = -1;
+integer LINK_TEXT        = -1;
+integer LINK_TRACK       = -1;
+integer LINK_METER       = -1;
+integer LINK_FISH        = -1;
+integer LINK_PANEL_BACK  = -1;
+integer LINK_PANEL_MEDIA = -1;
+integer LINK_PANEL_CLOSE = -1;
+integer LINK_PANEL_OPEN  = -1;
+integer LINK_PANEL_SWAP  = -1;
 
-// ── Bar sizing config ──
-// Bars stretch along Y axis only. Set these to match your HUD prim layout.
-// X and Z remain constant (set them in-world on the prim).
-float POWER_BAR_MIN_Y   = 0.001;   // Y size at 0% power (smallest visible)
-float POWER_BAR_MAX_Y   = 0.50;    // Y size at 100% power — adjust to your HUD
-float TENSION_BAR_MIN_Y = 0.001;   // Y size at 0% tension
-float TENSION_BAR_MAX_Y = 0.50;    // Y size at 100% tension — adjust to your HUD
-float XP_BAR_MIN_Y      = 0.001;   // Y size at 0% XP progress
-float XP_BAR_MAX_Y      = 0.50;    // Y size at 100% XP progress
-integer LINK_FISH_ICON      = -1;
-integer LINK_STATUS_TEXT    = -1;
-integer LINK_POINTS_DISPLAY = -1;
-integer LINK_LEVEL_DISPLAY  = -1;
-integer LINK_BAIT_ICON      = -1;
-integer LINK_MEDIA_PANEL    = -1;   // Media browser panel (optional)
-integer LINK_INFO          = -1;   // Info text prim (fading messages)
+// ── Textures (in the root prim; see lsl/Textures/HUD/BUILD.md) ──
+string  TEX_LOGO      = "hud_logo_sheet";   // 2 cells: normal, panel open
+string  TEX_BUTTONS   = "hud_buttons";      // 2 x 4 cells
+string  TEX_ICONS     = "hud_icons";        // 8 x 4 cells
+string  TEX_MEDIA_LOADING     = "hud_media_loading";
+string  TEX_MEDIA_UNAVAILABLE = "hud_media_unavailable";
 
-// ── Media Panel Config ──
-// The panel slides out to show web portal pages. Adjust positions to your HUD.
-vector  MEDIA_HIDDEN_POS  = <0.0, 0.0, -0.5>;     // Tucked behind/under HUD
-vector  MEDIA_SHOWN_POS   = <0.0, 0.5, 0.45>;      // Attach-point relative
-integer gMediaOpen        = FALSE;
-string  gMediaPage        = "";
-float   gInfoFadeTime     = 0.0;
-integer gInfoVisible      = FALSE;
+// hud_buttons cells
+integer BTN_FISH       = 0;
+integer BTN_STOP       = 1;
+integer BTN_FISH_DIM   = 2;   // no spot nearby / no bait
+integer BTN_BAIT       = 3;
+integer BTN_BAIT_LOW   = 4;
+integer BTN_BAIT_EMPTY = 5;
+integer BTN_MENU       = 6;   // PanelSwap while the fishing view is showing
+integer BTN_FISHING    = 7;   // PanelSwap while the website is showing
+// hud_icons cells
+integer ICON_FISH_CALM  = 0;
+integer ICON_FISH_LEFT  = 1;
+integer ICON_FISH_RIGHT = 2;
+integer ICON_FISH_JUMP  = 3;
+integer ICON_FISH_TIRED = 4;
+integer ICON_JUNK       = 5;
+integer BAIT_LOW_AT     = 5;  // amber chip at or below this many
 
-// ── Required link names (script will error if these aren't found) ──
-list REQUIRED_LINKS = [
-    "HUD_StartButton",
-    "HUD_BaitButton",
-    "HUD_FishButton",
-    "HUD_QuestButton",
-    "HUD_ShopButton",
-    "HUD_PowerBar",
-    "HUD_TensionBar",
-    "HUD_FishIcon",
-    "HUD_StatusText"
-];
+// ── Layout ──
+vector  HIDDEN_SIZE     = <0.01, 0.01, 0.01>;
+float   HOME_GAP        = 0.0444;   // bar's bottom edge ~32px above the screen edge
+integer MEDIA_FACE      = 4;        // PanelMedia face that shows the page
+integer MEDIA_W_PX      = 640;
+integer MEDIA_H_PX      = 724;
+
+// ── Panel state ──
+integer gPanelOpen      = FALSE;
+integer gPanelFishView  = FALSE;    // TRUE = live fishing view, FALSE = website
+string  gPanelPage      = "dashboard";
+// ── Text state (one hover text: message on top, status under it) ──
+string  gStatusText     = "";
+vector  gStatusColor    = <1.0, 1.0, 1.0>;
+string  gInfoMsg        = "";
+integer gInfoSeq        = 0;
+float   gInfoFadeTime   = 0.0;
+integer gInfoVisible    = FALSE;
+integer gNibbleSeq      = 0;        // bumps on each nibble, for the fishing view
+integer gStripShown     = -1;       // fight strip visible? (-1 = unknown)
+string  gLastRarity     = "";       // rarity name of the last catch
 
 integer gLinksScanned = FALSE;
 
@@ -429,58 +434,38 @@ integer gDialogHandle = 0;
 // Scan all prims in the link set and match names to variables.
 // Called on state_entry and on CHANGED_LINK events.
 scanLinks() {
-    // Reset all link cache
-    LINK_ROOT = LINK_START_BTN = LINK_BAIT_BTN = LINK_FISH_BTN = -1;
-    LINK_QUEST_BTN = LINK_SHOP_BTN = LINK_POWER_BAR = LINK_TENSION_BAR = -1;
-    LINK_FISH_ICON = LINK_STATUS_TEXT = LINK_POINTS_DISPLAY = -1;
-    LINK_LEVEL_DISPLAY = LINK_BAIT_ICON = -1;
+    if (gPanelOpen) closePanel();   // with the old link numbers, before they reset
+    LINK_ROOT = LINK_LOGO = LINK_BAIT = LINK_CAST = LINK_TEXT = -1;
+    LINK_TRACK = LINK_METER = LINK_FISH = -1;
+    LINK_PANEL_BACK = LINK_PANEL_MEDIA = LINK_PANEL_CLOSE = LINK_PANEL_OPEN = LINK_PANEL_SWAP = -1;
 
     integer numPrims = llGetNumberOfPrims();
     integer i;
 
-    // Single-prim object — treat it as root only
-    if (numPrims == 1) {
-        LINK_ROOT = LINK_THIS;
-        // In single-prim mode, route everything to the root
-        LINK_STATUS_TEXT = LINK_THIS;
-        gLinksScanned = TRUE;
-        return;
-    }
-
-    // Multi-prim: scan from link 1 through numPrims
-    // Root is always link 1 - no need to look it up
+    // Root is always link 1 (LINK_THIS for a single prim).
     LINK_ROOT = 1;
-    for (i = 1; i <= numPrims; i++) {
+    if (numPrims == 1) LINK_ROOT = LINK_THIS;
+    for (i = 2; i <= numPrims; i++) {
         string name = llGetLinkName(i);
-
-        if (name == "HUD_StartButton")        LINK_START_BTN = i;
-        else if (name == "HUD_BaitButton")    LINK_BAIT_BTN = i;
-        else if (name == "HUD_FishButton")    LINK_FISH_BTN = i;
-        else if (name == "HUD_QuestButton")   LINK_QUEST_BTN = i;
-        else if (name == "HUD_ShopButton")    LINK_SHOP_BTN = i;
-        else if (name == "HUD_PowerBar")      LINK_POWER_BAR = i;
-        else if (name == "HUD_TensionBar")    LINK_TENSION_BAR = i;
-        else if (name == "HUD_FishIcon")      LINK_FISH_ICON = i;
-        else if (name == "HUD_StatusText")    LINK_STATUS_TEXT = i;
-        else if (name == "HUD_PointsDisplay") LINK_POINTS_DISPLAY = i;
-        else if (name == "HUD_LevelDisplay")  LINK_LEVEL_DISPLAY = i;
-        else if (name == "HUD_BaitIcon")      LINK_BAIT_ICON = i;
-        else if (name == "XP_Bar")            LINK_XP_BAR = i;
-        else if (name == "HUD_MediaPanel")   LINK_MEDIA_PANEL = i;
-        else if (name == "HUD_Info")         LINK_INFO = i;
+        if (name == "HUD_Logo")            LINK_LOGO = i;
+        else if (name == "HUD_Bait")       LINK_BAIT = i;
+        else if (name == "HUD_Cast")       LINK_CAST = i;
+        else if (name == "HUD_Text")       LINK_TEXT = i;
+        else if (name == "HUD_Track")      LINK_TRACK = i;
+        else if (name == "HUD_Meter")      LINK_METER = i;
+        else if (name == "HUD_Fish")       LINK_FISH = i;
+        else if (name == "PanelBack")      LINK_PANEL_BACK = i;
+        else if (name == "PanelMedia")     LINK_PANEL_MEDIA = i;
+        else if (name == "PanelClose")     LINK_PANEL_CLOSE = i;
+        else if (name == "PanelOpen")      LINK_PANEL_OPEN = i;
+        else if (name == "PanelSwap")      LINK_PANEL_SWAP = i;
     }
 
-    // Verify all required links are present (root is always present)
     list missing = [];
-    if (LINK_START_BTN == -1)   missing += ["HUD_StartButton"];
-    if (LINK_BAIT_BTN == -1)    missing += ["HUD_BaitButton"];
-    if (LINK_FISH_BTN == -1)    missing += ["HUD_FishButton"];
-    if (LINK_QUEST_BTN == -1)   missing += ["HUD_QuestButton"];
-    if (LINK_SHOP_BTN == -1)    missing += ["HUD_ShopButton"];
-    if (LINK_POWER_BAR == -1)   missing += ["HUD_PowerBar"];
-    if (LINK_TENSION_BAR == -1) missing += ["HUD_TensionBar"];
-    if (LINK_FISH_ICON == -1)   missing += ["HUD_FishIcon"];
-    if (LINK_STATUS_TEXT == -1) missing += ["HUD_StatusText"];
+    if (LINK_LOGO == -1) missing += ["HUD_Logo"];
+    if (LINK_BAIT == -1) missing += ["HUD_Bait"];
+    if (LINK_CAST == -1) missing += ["HUD_Cast"];
+    if (LINK_TEXT == -1) missing += ["HUD_Text"];
 
     if (llGetListLength(missing) > 0) {
         llOwnerSay("╔═══════════════════════════════════════════");
@@ -492,17 +477,137 @@ scanLinks() {
             llOwnerSay("║   • " + llList2String(missing, mi));
         }
         llOwnerSay("╠═══════════════════════════════════════════");
-        llOwnerSay("║ Edit each prim and set its Name field in");
-        llOwnerSay("║ the General tab to match. Then touch the HUD");
-        llOwnerSay("║ to rescan, or detach and reattach.");
+        llOwnerSay("║ Build the HUD with FishingHUD_Builder (see");
+        llOwnerSay("║ lsl/Textures/HUD/BUILD.md), or name the prims");
+        llOwnerSay("║ by hand, then touch the HUD to rescan.");
         llOwnerSay("╚═══════════════════════════════════════════");
         gLinksScanned = FALSE;
         return;
     }
 
-    // Success — brief confirmation
+    // Remember the built size/position of every prim the script hides or
+    // moves, while they're still at their built layout (the builder clears
+    // these and resets this script). After that, hidden prims come back from
+    // the record, not from their current (shrunken) size.
+    list remember = [LINK_TRACK, "HUD_Track", LINK_METER, "HUD_Meter", LINK_FISH, "HUD_Fish",
+                     LINK_TEXT, "HUD_Text",
+                     LINK_PANEL_BACK, "PanelBack", LINK_PANEL_MEDIA, "PanelMedia",
+                     LINK_PANEL_CLOSE, "PanelClose", LINK_PANEL_OPEN, "PanelOpen",
+                     LINK_PANEL_SWAP, "PanelSwap"];
+    for (i = 0; i < llGetListLength(remember); i += 2) {
+        integer lk = llList2Integer(remember, i);
+        string nm = llList2String(remember, i + 1);
+        if (lk != -1 && safeLDRead("hud_size_" + nm) == "") {
+            list p = llGetLinkPrimitiveParams(lk, [PRIM_SIZE, PRIM_POS_LOCAL]);
+            vector sz = llList2Vector(p, 0);
+            if (sz.y > HIDDEN_SIZE.y * 1.5 || sz.z > HIDDEN_SIZE.z * 1.5 || nm == "HUD_Text") {
+                safeLDWrite("hud_size_" + nm, (string)sz);
+                safeLDWrite("hud_pos_" + nm, (string)llList2Vector(p, 1));
+            }
+        }
+    }
+
     gLinksScanned = TRUE;
-    showPlayButton();  // Ensure play face is showing on startup
+    gStripShown = -1;
+    findTutorialPrims();
+    if (!gTutorialActive) hidePrim(TUT_LINK_POINTER);
+    hidePanelPrims();
+    updateStrip();
+    updateCastButton();
+    setLogo(FALSE);
+}
+
+// ── Built layout records ──
+vector builtSize(integer link, string name) {
+    string s = safeLDRead("hud_size_" + name);
+    if (s != "") return (vector)s;
+    return llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_SIZE]), 0);
+}
+
+vector builtPos(integer link, string name) {
+    string s = safeLDRead("hud_pos_" + name);
+    if (s != "") return (vector)s;
+    return llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0);
+}
+
+// "Hidden" = tiny AND transparent: a transparent prim still catches clicks.
+hidePrim(integer link) {
+    if (link < 2) return;   // never the root; 0 / -1 = prim not present
+    llSetLinkPrimitiveParamsFast(link, [PRIM_SIZE, HIDDEN_SIZE,
+        PRIM_COLOR, ALL_SIDES, <1.0, 1.0, 1.0>, 0.0, PRIM_TEXT, "", ZERO_VECTOR, 0.0]);
+}
+
+showPrim(integer link, string name) {
+    if (link < 2) return;
+    llSetLinkPrimitiveParamsFast(link, [PRIM_SIZE, builtSize(link, name),
+        PRIM_POS_LOCAL, builtPos(link, name), PRIM_COLOR, ALL_SIDES, <1.0, 1.0, 1.0>, 1.0]);
+}
+
+// Pick a cell on a sheet texture: cols x rows grid, cell = row * cols + col.
+setCell(integer link, string tex, integer cols, integer rows, integer cell) {
+    if (link == -1) return;
+    if (llGetInventoryType(tex) != INVENTORY_TEXTURE) return;
+    float rx = 1.0 / cols;
+    float ry = 1.0 / rows;
+    integer col = cell % cols;
+    integer row = cell / cols;
+    llSetLinkPrimitiveParamsFast(link, [PRIM_TEXTURE, ALL_SIDES, tex, <rx, ry, 0.0>,
+        <(col + 0.5) * rx - 0.5, 0.5 - (row + 0.5) * ry, 0.0>, 0.0]);
+}
+
+setLogo(integer opened) {
+    setCell(LINK_LOGO, TEX_LOGO, 2, 1, opened);
+}
+
+// FISH / STOP / dimmed FISH (nothing to fish at yet)
+updateCastButton() {
+    integer cell = BTN_FISH;
+    if (gState != STATE_IDLE && gState != STATE_MENU) cell = BTN_STOP;
+    else if (gCurrentSpotId == 0 || gEquippedBaitId == 0 || gBaitRemaining <= 0) cell = BTN_FISH_DIM;
+    setCell(LINK_CAST, TEX_BUTTONS, 2, 4, cell);
+}
+
+// Bait chip: icon on the chip, name and count floating above it.
+updateBaitChip() {
+    if (LINK_BAIT == -1) return;
+    integer cell = BTN_BAIT;
+    string txt;
+    vector col = <1.0, 1.0, 1.0>;
+    if (gToken == "") {
+        txt = "";
+    } else if (gEquippedBaitId == 0 || gBaitRemaining <= 0) {
+        cell = BTN_BAIT_EMPTY;
+        col = <1.0, 0.45, 0.42>;
+        if (gEquippedBaitId == 0) txt = "No bait - tap";
+        else txt = gEquippedBait + ": 0";
+    } else {
+        if (gBaitRemaining <= BAIT_LOW_AT) {
+            cell = BTN_BAIT_LOW;
+            col = <1.0, 0.75, 0.3>;
+        }
+        txt = gEquippedBait + " ×" + (string)gBaitRemaining;
+    }
+    setCell(LINK_BAIT, TEX_BUTTONS, 2, 4, cell);
+    llSetLinkPrimitiveParamsFast(LINK_BAIT, [PRIM_TEXT, txt, col, 1.0]);
+}
+
+// ── Hover text: the latest message on top, the status line under it ──
+renderText() {
+    if (LINK_TEXT == -1) return;
+    string t = gInfoMsg;
+    if (gStatusText != "") {
+        if (t != "") t += "\n";
+        t += gStatusText;
+    }
+    vector col = gStatusColor;
+    if (gInfoMsg != "") col = <0.95, 0.97, 1.0>;
+    llSetLinkPrimitiveParamsFast(LINK_TEXT, [PRIM_TEXT, t, col, 1.0]);
+}
+
+setStatus(string msg, vector col) {
+    gStatusText = msg;
+    gStatusColor = col;
+    renderText();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -590,7 +695,7 @@ pollPairingStatus() {
 }
 
 showStatus(string msg) {
-    safeLinkParams(LINK_STATUS_TEXT, [PRIM_TEXT, "🎣 " + msg, <1.0, 0.85, 0.4>, 1.0]);
+    setStatus("🎣 " + msg, <1.0, 0.85, 0.4>);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -599,10 +704,7 @@ showStatus(string msg) {
 
 // Pointer overlay offset on the X axis (depth).
 // HUD plane is at X=0; pointer sits slightly forward toward camera.
-float POINTER_FORWARD_X = -0.01;
-
-// Off-screen position used when hiding the pointer.
-vector OFFSET_HIDDEN = <0.0, 0.0, -100.0>;
+float POINTER_FORWARD_X = -0.012;   // one layer in front of the button it circles
 
 // Locate the TutorialText and TutorialPointer child prims by name.
 findTutorialPrims() {
@@ -649,33 +751,37 @@ tutSetText(string text) {
 tutSetPointer(string buttonName) {
     if (TUT_LINK_POINTER == 0) return;
 
+    // Tackle is the bait chip; every other page lives behind the logo.
     string targetPrim = "";
-    if (buttonName == "tackle")      targetPrim = "HUD_BaitButton";
-    else if (buttonName == "fish")   targetPrim = "HUD_FishButton";
-    else if (buttonName == "play")   targetPrim = "HUD_StartButton";
-    else if (buttonName == "quests") targetPrim = "HUD_QuestButton";
-    else if (buttonName == "shop")   targetPrim = "HUD_ShopButton";
+    if (buttonName == "tackle")      targetPrim = "HUD_Bait";
+    else if (buttonName == "play")   targetPrim = "HUD_Cast";
+    else if (buttonName == "fish" || buttonName == "quests" || buttonName == "shop") targetPrim = "HUD_Logo";
 
     if (targetPrim == "") {
-        // Hide
-        llSetLinkPrimitiveParamsFast(TUT_LINK_POINTER, [
-            PRIM_POS_LOCAL, OFFSET_HIDDEN,
-            PRIM_COLOR, ALL_SIDES, <1.0, 1.0, 1.0>, 0.0,
-            PRIM_TEXT, "", <1.0, 1.0, 1.0>, 0.0
-        ]);
+        hidePrim(TUT_LINK_POINTER);
         return;
     }
 
     vector btnPos = getLinkLocalPos(targetPrim);
-    if (btnPos == ZERO_VECTOR) {
+    if (btnPos == ZERO_VECTOR && targetPrim != "HUD_Logo") {
         // Couldn't find button — bail silently
         return;
     }
+    // A highlight ring a little bigger than the button it circles.
+    vector btnSize = ZERO_VECTOR;
+    integer bi;
+    for (bi = 2; bi <= llGetNumberOfPrims(); bi++)
+        if (llGetLinkName(bi) == targetPrim)
+            btnSize = llList2Vector(llGetLinkPrimitiveParams(bi, [PRIM_SIZE]), 0);
+    float ring = btnSize.z * 1.35;
+    if (btnSize.y * 0.8 > ring) ring = btnSize.y * 0.8;
+    if (ring < 0.04) ring = 0.04;
 
     llSetLinkPrimitiveParamsFast(TUT_LINK_POINTER, [
-        PRIM_POS_LOCAL, <POINTER_FORWARD_X, btnPos.y, btnPos.z>,
-        PRIM_COLOR, ALL_SIDES, <1.0, 1.0, 0.0>, 0.85,
-        PRIM_TEXT, "👆", <1.0, 1.0, 0.0>, 1.0
+        PRIM_SIZE, <0.01, ring, ring>,
+        PRIM_POS_LOCAL, <btnPos.x + POINTER_FORWARD_X, btnPos.y, btnPos.z>,
+        PRIM_COLOR, ALL_SIDES, <1.0, 1.0, 1.0>, 1.0,
+        PRIM_TEXT, "👆", <1.0, 0.9, 0.2>, 1.0
     ]);
 }
 
@@ -683,18 +789,18 @@ tutSetPointer(string buttonName) {
 // Returns instruction text and what button to point at, separated by '|'.
 // Buttons: tackle | fish | play | quests | shop | hide
 string tutorialStepInfo(integer step) {
-    if (step == 0)  return "Welcome to OSFishing! Click the pointer to begin.|play";
-    if (step == 1)  return "Click Quests to see what's available.|quests";
-    if (step == 2)  return "Accept any quest, then click the pointer to continue.|quests";
-    if (step == 3)  return "Click Tackle to manage your gear.|tackle";
-    if (step == 4)  return "Equip a bait, then click the pointer to continue.|tackle";
+    if (step == 0)  return "Welcome to OSFishing! Click the ring to begin.|play";
+    if (step == 1)  return "The logo opens your menu. Click the ring for Quests.|quests";
+    if (step == 2)  return "Accept any quest, then click the ring to continue.|quests";
+    if (step == 3)  return "The bait chip opens your Tackle. Click the ring.|tackle";
+    if (step == 4)  return "Equip a bait, then click the ring to continue.|tackle";
     if (step == 5)  return "Walk near a fishing spot. Look for 🎣 in the world.|hide";
-    if (step == 6)  return "Click Play to start fishing.|play";
-    if (step == 7)  return "Hold E or PgUp to charge cast, release to throw.|hide";
-    if (step == 8)  return "Watch the bar! Hold E/PgUp when it's near center.|hide";
-    if (step == 9)  return "Caught one! Click Fish Inventory to see it.|fish";
-    if (step == 10) return "Click Shop to sell your catch.|shop";
-    if (step == 11) return "Sell a fish, then click the pointer to continue.|shop";
+    if (step == 6)  return "Click FISH to start fishing.|play";
+    if (step == 7)  return "Hold PgUp (or E/W) to charge, release to cast.|hide";
+    if (step == 8)  return "Bite? PgDn to hook! Then follow the fish:\nreel when it tires, steer against its runs.|hide";
+    if (step == 9)  return "Caught one! Click the ring to see your fish.|fish";
+    if (step == 10) return "Click the ring to open the Shop.|shop";
+    if (step == 11) return "Sell a fish, then click the ring to continue.|shop";
     if (step == 12) return "All done! Click the pointer to finish.|play";
     return "|hide";
 }
@@ -780,7 +886,7 @@ showPairingCode(string code) {
     display += "Visit the web portal:\n";
     display += "Settings > Pair HUD\n";
     display += "Enter the code above";
-    safeLinkParams(LINK_STATUS_TEXT, [PRIM_TEXT, display, <0.4, 1.0, 0.6>, 1.0]);
+    setStatus(display, <0.4, 1.0, 0.6>);
     llOwnerSay("═══════════════════════════════════");
     llOwnerSay("PAIRING CODE: " + code);
     llOwnerSay("Visit the web portal, go to Settings > Pair HUD,");
@@ -898,176 +1004,335 @@ safeStopSound() {
 
 // ── HUD Display Updates ──
 
+// Status line, bait chip, FISH button and fight strip for the current state.
+// The status line shows the spot you're at; the fight, victory and pairing
+// set their own status and are left alone here.
 updateMainDisplay() {
     if (!gLinksScanned) return;
+    if (gToken != "" && !gPairing && gState != STATE_FIGHT && gState != STATE_VICTORY && gState != STATE_LANDING) {
+        if (gCurrentSpotId != 0) setStatus("📍 " + gCurrentSpotName, <0.8, 0.9, 1.0>);
+        else setStatus("", <1.0, 1.0, 1.0>);
+    }
+    updateBaitChip();
+    updateCastButton();
+    updateStrip();
+}
 
-    string text = "🎣 OSFishing\n";
-    text += "Level " + (string)gLevel + " | XP: " + (string)gXP;
+// ── Fight strip: track + meter + fish, just above the bar ──
+// Shown while charging a cast (meter = power) and during a fight (meter =
+// line tension, fish = what the fish is doing). Hidden while the panel is
+// open: the fishing view shows the same thing bigger, and a website page
+// would cover it (panelForFishing() swaps a website page out first).
+integer stripWanted() {
+    if (LINK_TRACK == -1 || gPanelOpen) return FALSE;
+    return (gState == STATE_CHARGING || gState == STATE_HOOKSET || gState == STATE_FIGHT);
+}
 
-    safeLinkParams(LINK_STATUS_TEXT, [PRIM_TEXT, text, <0.9, 0.95, 1.0>, 1.0]);
+updateStrip() {
+    if (!gLinksScanned) return;
+    integer want = stripWanted();
+    if (want == gStripShown) return;
+    gStripShown = want;
+    if (want) {
+        showPrim(LINK_TRACK, "HUD_Track");
+        hidePrim(LINK_METER);           // drawn by setMeter as it fills
+        if (gState == STATE_FIGHT) placeFish();
+        else hidePrim(LINK_FISH);
+    } else {
+        hidePrim(LINK_TRACK);
+        hidePrim(LINK_METER);
+        hidePrim(LINK_FISH);
+    }
+}
 
-    // Show XP progress bar only when not fishing
-    if (gState == STATE_IDLE) showXPBar();
-    else hideXPBar();
+// Fill the meter from its left end (+Y is screen left).
+setMeter(float pct, vector col) {
+    if (LINK_METER == -1 || gStripShown != TRUE) return;
+    if (pct > 1.0) pct = 1.0;
+    if (pct < 0.01) { hidePrim(LINK_METER); return; }
+    vector full = builtSize(LINK_METER, "HUD_Meter");
+    vector pos  = builtPos(LINK_METER, "HUD_Meter");
+    float w = full.y * pct;
+    pos.y += (full.y - w) / 2.0;
+    llSetLinkPrimitiveParamsFast(LINK_METER, [PRIM_SIZE, <full.x, w, full.z>,
+        PRIM_POS_LOCAL, pos, PRIM_COLOR, ALL_SIDES, col, 1.0]);
+}
+
+// The fish swims along the track toward the side it's running to, and its
+// picture says what to do: running left / right, thrashing, or tired.
+placeFish() {
+    if (LINK_FISH == -1 || gStripShown != TRUE) return;
+    vector fsz = builtSize(LINK_FISH, "HUD_Fish");
+    vector pos = builtPos(LINK_FISH, "HUD_Fish");
+    vector tsz = builtSize(LINK_TRACK, "HUD_Track");
+    float off = gFightAngle / 0.524;            // -1 (right) .. +1 (left)
+    if (off > 1.0) off = 1.0;
+    if (off < -1.0) off = -1.0;
+    pos.y += off * (tsz.y - fsz.y) / 2.0;
+
+    integer cell = ICON_FISH_CALM;
+    if (gIsJunkFight) cell = ICON_JUNK;
+    else if (gFishState == FISH_RUSHING_LEFT)  cell = ICON_FISH_LEFT;
+    else if (gFishState == FISH_RUSHING_RIGHT) cell = ICON_FISH_RIGHT;
+    else if (gFishState == FISH_EXHAUSTED)     cell = ICON_FISH_TIRED;
+    else if (gFishState == FISH_STRUGGLING) {
+        cell = ICON_FISH_JUMP;
+        if (((integer)(gFightElapsed / gFightTick)) % 2) pos.z += fsz.z * 0.3;
+    }
+    llSetLinkPrimitiveParamsFast(LINK_FISH, [PRIM_SIZE, fsz, PRIM_POS_LOCAL, pos,
+        PRIM_COLOR, ALL_SIDES, <1.0, 1.0, 1.0>, 1.0]);
+    setCell(LINK_FISH, TEX_ICONS, 8, 4, cell);
 }
 
 updateFightDisplay() {
     if (!gLinksScanned) return;
+    updateStrip();
 
     float pct = gTension / gLineStrength;
     if (pct > 1.0) pct = 1.0;
-
     vector color;
     if (pct < 0.5) color = <pct * 2, 1.0 - pct, 0.0>;
     else color = <1.0, 1.0 - (pct - 0.5) * 2, 0.0>;
+    if (pct < 0.03) pct = 0.03;   // keep a sliver showing: the meter is live
+    setMeter(pct, color);
+    placeFish();
 
-    float barY = TENSION_BAR_MIN_Y + pct * (TENSION_BAR_MAX_Y - TENSION_BAR_MIN_Y);
-    if (LINK_TENSION_BAR != -1) {
-        list curSize = llGetLinkPrimitiveParams(LINK_TENSION_BAR, [PRIM_SIZE]);
-        vector sz = llList2Vector(curSize, 0);
-        sz.y = barY;
-        safeLinkParams(LINK_TENSION_BAR, [
-            PRIM_SIZE, sz,
-            PRIM_COLOR, ALL_SIDES, color, 1.0
-        ]);
-    }
-
-    // ── Fish icon positioning ──
-    // The fish icon sits at HOME_POS by default (positioned above the HUD).
-    // Movement during fight is applied as an OFFSET from home.
-    // Adjust FISH_HOME_POS to reposition where the fish "lives" on your HUD.
-    vector FISH_HOME_POS = <0.0, 0.0, 0.12>;   // 12cm above HUD root - tune as needed
-    vector fishPos = FISH_HOME_POS;
-
-    if (gFishState == FISH_RUSHING_LEFT)       fishPos = FISH_HOME_POS + <-0.08, 0.0, 0.0>;
-    else if (gFishState == FISH_RUSHING_RIGHT) fishPos = FISH_HOME_POS + < 0.08, 0.0, 0.0>;
-    else if (gFishState == FISH_STRUGGLING)    fishPos = FISH_HOME_POS + < 0.0, 0.0, 0.04>;
-    // FISH_EXHAUSTED and default: sits at home position
-
-    safeLinkParams(LINK_FISH_ICON, [PRIM_POS_LOCAL, fishPos]);
-
-    // Build the floating text — minimal on status
     string fightText = gFishName + " " + fmtWeight(gFishWeight) + "lb\n";
-    fightText += "Dist: " + (string)llRound(gFightDistance) + "m | Tension: " + (string)llRound(pct * 100) + "%";
-    safeLinkParams(LINK_STATUS_TEXT, [PRIM_TEXT, fightText, <0.9, 0.95, 1.0>, 1.0]);
+    fightText += "Dist: " + (string)llRound(gFightDistance) + "m | Tension: " + (string)llRound(gTension / gLineStrength * 100) + "%";
+    setStatus(fightText, <0.9, 0.95, 1.0>);
 
-    // Show fish state and player action guide on HUD_Info
+    // What to do right now (also shown big in the fishing view)
     string fishLabel = "";
-    if (gFishState == FISH_STRUGGLING)         fishLabel = "STRUGGLING — Stop reeling!";
-    else if (gFishState == FISH_RUSHING_LEFT)  fishLabel = "RUSHING LEFT — Pull RIGHT!";
-    else if (gFishState == FISH_RUSHING_RIGHT) fishLabel = "RUSHING RIGHT — Pull LEFT!";
-    else if (gFishState == FISH_EXHAUSTED)     fishLabel = "EXHAUSTED — REEL NOW!";
+    if (gIsJunkFight)                          fishLabel = "HEAVY! Reel in short bursts (PgDn), ease off with PgUp";
+    else if (gFishState == FISH_STRUGGLING)    fishLabel = "THRASHING — let go of reel!";
+    else if (gFishState == FISH_RUSHING_LEFT)  fishLabel = "RUNNING LEFT — steer RIGHT (→ / D)";
+    else if (gFishState == FISH_RUSHING_RIGHT) fishLabel = "RUNNING RIGHT — steer LEFT (← / A)";
+    else if (gFishState == FISH_EXHAUSTED)     fishLabel = "TIRED — REEL NOW! (PgDn / S)";
     hudInfo(fishLabel);
 }
 
+// Cast power on the meter while charging
 showPowerBar(float power) {
-    if (LINK_POWER_BAR == -1) return;
-    float barY = POWER_BAR_MIN_Y + power * (POWER_BAR_MAX_Y - POWER_BAR_MIN_Y);
-    list curSize = llGetLinkPrimitiveParams(LINK_POWER_BAR, [PRIM_SIZE]);
-    vector sz = llList2Vector(curSize, 0);
-    sz.y = barY;
-    safeLinkParams(LINK_POWER_BAR, [
-        PRIM_SIZE, sz,
-        PRIM_COLOR, ALL_SIDES, <0.2, 0.6, 1.0>, 1.0
-    ]);
+    setMeter(power, <0.35, 0.7, 1.0>);
 }
 
 hidePowerBar() {
-    if (LINK_POWER_BAR == -1) return;
-    list curSize = llGetLinkPrimitiveParams(LINK_POWER_BAR, [PRIM_SIZE]);
-    vector sz = llList2Vector(curSize, 0);
-    sz.y = POWER_BAR_MIN_Y;
-    safeLinkParams(LINK_POWER_BAR, [
-        PRIM_SIZE, sz,
-        PRIM_COLOR, ALL_SIDES, <0.2, 0.6, 1.0>, 0.0
-    ]);
+    setMeter(0.0, ZERO_VECTOR);
 }
 
-showXPBar() {
-    if (LINK_XP_BAR == -1) return;
-    float pct = 0.0;
-    if (gXpLevelTotal > 0 && gXpToNext >= 0) {
-        integer earned = gXpLevelTotal - gXpToNext;
-        if (earned < 0) earned = 0;
-        pct = (float)earned / (float)gXpLevelTotal;
-    } else if (gXpToNext <= 0) {
-        pct = 1.0;  // Max level
+// Clear the fight strip now (the next state change redraws what it needs).
+hideFightDisplay() {
+    if (gStripShown == TRUE) {
+        hidePrim(LINK_TRACK);
+        hidePrim(LINK_METER);
+        hidePrim(LINK_FISH);
     }
-    if (pct < 0.0) pct = 0.0;
-    if (pct > 1.0) pct = 1.0;
-
-    float barY = XP_BAR_MIN_Y + pct * (XP_BAR_MAX_Y - XP_BAR_MIN_Y);
-    list curSize = llGetLinkPrimitiveParams(LINK_XP_BAR, [PRIM_SIZE]);
-    vector sz = llList2Vector(curSize, 0);
-    sz.y = barY;
-    safeLinkParams(LINK_XP_BAR, [
-        PRIM_SIZE, sz,
-        PRIM_COLOR, ALL_SIDES, <0.4, 0.7, 1.0>, 1.0
-    ]);
+    gStripShown = FALSE;
 }
 
-hideXPBar() {
-    if (LINK_XP_BAR == -1) return;
-    list curSize = llGetLinkPrimitiveParams(LINK_XP_BAR, [PRIM_SIZE]);
-    vector sz = llList2Vector(curSize, 0);
-    sz.y = XP_BAR_MIN_Y;
-    safeLinkParams(LINK_XP_BAR, [
-        PRIM_SIZE, sz,
-        PRIM_COLOR, ALL_SIDES, <0.4, 0.7, 1.0>, 0.0
-    ]);
+// ══ Media panel ══
+// Two views: the website (portal embed, any page) and the live fishing view,
+// which this script serves itself from its HTTP-in URL (see http_request).
+// The fishing view needs that URL, so on a grid that denies HTTP-in the
+// panel only has the website and the fight stays on the bar.
+
+string portalBase() {
+    string u = gApiUrl;
+    integer apiIdx = llSubStringIndex(u, "api/");
+    if (apiIdx != -1) u = llGetSubString(u, 0, apiIdx - 1);
+    return u;   // ends in "/"
 }
 
-// ── Media Panel: slide out and load a web page ──
-showMediaPanel(string page) {
-    if (LINK_MEDIA_PANEL == -1) return;
-
-    // Build the portal URL with embed mode and auto-auth
-    string portalUrl = gApiUrl;
-    integer apiIdx = llSubStringIndex(portalUrl, "/api/");
-    if (apiIdx != -1) portalUrl = llGetSubString(portalUrl, 0, apiIdx);
-
-    // Generate a signature for auto-login
+string portalEmbedUrl(string page) {
     string ts = (string)llGetUnixTime();
     string authSig = llSHA256String((string)gTokenId + ":" + ts + ":" + gToken);
+    return portalBase() + "?embed=1&page=" + page +
+           "&token_id=" + (string)gTokenId +
+           "&sig=" + llEscapeURL(authSig) +
+           "&ts=" + ts;
+}
 
-    string url = portalUrl + "/?embed=1&page=" + page +
-                 "&token_id=" + (string)gTokenId +
-                 "&sig=" + llEscapeURL(authSig) +
-                 "&ts=" + ts;
+string fishViewUrl() {
+    string u = gCallbackUrl;
+    if (llGetSubString(u, -1, -1) != "/") u += "/";
+    return u + "fish";
+}
 
-    // Slide the panel into view
-    safeLinkParams(LINK_MEDIA_PANEL, [PRIM_POSITION, MEDIA_SHOWN_POS]);
+integer canFishView() {
+    return (gCallbackUrl != "" && LINK_PANEL_MEDIA != -1);
+}
 
-    // Set the media on the front face (face 0)
-    llSetLinkMedia(LINK_MEDIA_PANEL, 4, [
-        PRIM_MEDIA_CURRENT_URL, url,
-        PRIM_MEDIA_HOME_URL, url,
-        PRIM_MEDIA_AUTO_SCALE, TRUE,
-        PRIM_MEDIA_WIDTH_PIXELS, 640,
-        PRIM_MEDIA_HEIGHT_PIXELS, 640,
-        PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
-        PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_OWNER
+hidePanelPrims() {
+    hidePrim(LINK_PANEL_BACK);
+    hidePrim(LINK_PANEL_MEDIA);
+    hidePrim(LINK_PANEL_CLOSE);
+    hidePrim(LINK_PANEL_OPEN);
+    hidePrim(LINK_PANEL_SWAP);
+}
+
+// PanelSwap: "MENU" while the fishing view shows, "FISHING" while the website does.
+updateSwap() {
+    if (LINK_PANEL_SWAP == -1) return;
+    if (gPanelOpen && canFishView()) {
+        showPrim(LINK_PANEL_SWAP, "PanelSwap");
+        if (gPanelFishView) setCell(LINK_PANEL_SWAP, TEX_BUTTONS, 2, 4, BTN_MENU);
+        else setCell(LINK_PANEL_SWAP, TEX_BUTTONS, 2, 4, BTN_FISHING);
+    } else {
+        hidePrim(LINK_PANEL_SWAP);
+    }
+}
+
+// While the panel is open the message text moves beside the bar (screen
+// left of it), so it doesn't float over the page.
+moveText(integer panelOpen) {
+    if (LINK_TEXT == -1) return;
+    vector pos = builtPos(LINK_TEXT, "HUD_Text");
+    if (panelOpen) {
+        vector bar = llList2Vector(llGetLinkPrimitiveParams(LINK_ROOT, [PRIM_SIZE]), 0);
+        pos = <pos.x, bar.y * 0.8, 0.0>;
+    }
+    llSetLinkPrimitiveParamsFast(LINK_TEXT, [PRIM_POS_LOCAL, pos]);
+}
+
+// Load a URL on the media face (pauses the script ~1s, like every media call).
+setPanelMedia(string url) {
+    if (LINK_PANEL_MEDIA == -1) return;
+    if (llGetInventoryType(TEX_MEDIA_LOADING) == INVENTORY_TEXTURE)
+        llSetLinkPrimitiveParamsFast(LINK_PANEL_MEDIA, [PRIM_TEXTURE, MEDIA_FACE, TEX_MEDIA_LOADING,
+            <1.0, 1.0, 0.0>, ZERO_VECTOR, 0.0]);
+    safeLDWrite("hud_media_on", "1");
+    integer status = llSetLinkMedia(LINK_PANEL_MEDIA, MEDIA_FACE, [
+        PRIM_MEDIA_CURRENT_URL,          url,
+        PRIM_MEDIA_HOME_URL,             url,
+        PRIM_MEDIA_AUTO_PLAY,            TRUE,
+        PRIM_MEDIA_FIRST_CLICK_INTERACT, TRUE,
+        PRIM_MEDIA_AUTO_SCALE,           TRUE,
+        PRIM_MEDIA_AUTO_ZOOM,            FALSE,
+        PRIM_MEDIA_WIDTH_PIXELS,         MEDIA_W_PX,
+        PRIM_MEDIA_HEIGHT_PIXELS,        MEDIA_H_PX,
+        PRIM_MEDIA_PERMS_INTERACT,       PRIM_MEDIA_PERM_OWNER,
+        PRIM_MEDIA_PERMS_CONTROL,        PRIM_MEDIA_PERM_NONE
     ]);
-
-    gMediaOpen = TRUE;
-    gMediaPage = page;
+    if (status != STATUS_OK) {
+        if (llGetInventoryType(TEX_MEDIA_UNAVAILABLE) == INVENTORY_TEXTURE)
+            llSetLinkPrimitiveParamsFast(LINK_PANEL_MEDIA, [PRIM_TEXTURE, MEDIA_FACE, TEX_MEDIA_UNAVAILABLE,
+                <1.0, 1.0, 0.0>, ZERO_VECTOR, 0.0]);
+        llOwnerSay("The panel couldn't load (media error " + (string)status + ").");
+    }
 }
 
-hideMediaPanel() {
-    if (LINK_MEDIA_PANEL == -1) return;
-    safeLinkParams(LINK_MEDIA_PANEL, [PRIM_POSITION, MEDIA_HIDDEN_POS]);
-    llClearLinkMedia(LINK_MEDIA_PANEL, 4);
-    gMediaOpen = FALSE;
-    gMediaPage = "";
-}
-
-// ── Info prim: show a message that fades after a few seconds ──
-hudInfo(string msg) {
-    if (LINK_INFO == -1) {
-        llOwnerSay(msg);  // Fallback if no info prim
+// Open the panel on the fishing view (fishView TRUE) or a website page.
+openPanel(integer fishView, string page) {
+    if (LINK_PANEL_MEDIA == -1) {
+        // No panel prims: the website in the viewer's browser instead
+        if (!fishView) llLoadURL(gOwner, "Open OSFishing", portalBase() + "?page=" + page);
         return;
     }
-    safeLinkParams(LINK_INFO, [PRIM_TEXT, msg, <0.9, 0.9, 0.8>, 1.0]);
+    if (!gPanelOpen) {
+        gPanelOpen = TRUE;
+        showPrim(LINK_PANEL_BACK, "PanelBack");
+        showPrim(LINK_PANEL_MEDIA, "PanelMedia");
+        showPrim(LINK_PANEL_CLOSE, "PanelClose");
+        showPrim(LINK_PANEL_OPEN, "PanelOpen");
+        setLogo(TRUE);
+        moveText(TRUE);
+        updateStrip();
+    }
+    gPanelFishView = fishView;
+    if (fishView) {
+        setPanelMedia(fishViewUrl());
+    } else {
+        if (page != "") gPanelPage = page;
+        setPanelMedia(portalEmbedUrl(gPanelPage));
+    }
+    updateSwap();
+}
+
+closePanel() {
+    if (!gPanelOpen) return;
+    gPanelOpen = FALSE;
+    gPanelFishView = FALSE;
+    if (LINK_PANEL_MEDIA != -1) llClearLinkMedia(LINK_PANEL_MEDIA, MEDIA_FACE);
+    safeLDDelete("hud_media_on");
+    hidePanelPrims();
+    setLogo(FALSE);
+    moveText(FALSE);
+    updateStrip();
+    // The strip is back on the bar: redraw it for the current state
+    if (gState == STATE_FIGHT) updateFightDisplay();
+    else if (gState == STATE_CHARGING) showPowerBar(gCastPower);
+}
+
+// Mid-cast moments where a website page must not cover the bar's strip.
+integer fightBusy() {
+    return (gState == STATE_CHARGING || gState == STATE_BITE || gState == STATE_HOOKSET
+         || gState == STATE_FIGHT || gState == STATE_LANDING);
+}
+
+toggleMediaPanel(string page) {
+    if (gPanelOpen && !gPanelFishView && gPanelPage == page) closePanel();
+    else openPanel(FALSE, page);
+}
+
+// A cast is starting or a fish is biting: the player must be able to see
+// the fight. A website page would hide the strip, so show the fishing view
+// instead, or close the panel if this grid can't serve it.
+panelForFishing() {
+    if (!gPanelOpen || gPanelFishView) return;
+    if (canFishView()) openPanel(TRUE, "");
+    else closePanel();
+}
+
+// ── Live state for the fishing view (GET <url>/s) ──
+string fishViewState() {
+    float dist = 0.0;
+    if (gState == STATE_FIGHT || gState == STATE_HOOKSET || gState == STATE_LANDING) dist = gFightDistance;
+    else if (gState == STATE_REELING) dist = gReelInDist;
+    else if (gAnchorPos != ZERO_VECTOR) {
+        vector v = gAnchorPos - llGetPos();
+        v.z = 0.0;
+        dist = llVecMag(v);
+    }
+    float cap = 50.0;
+    if (gCurrentWaterType == "river") cap = 40.0;
+    else if (gCurrentWaterType == "lake") cap = 75.0;
+    else if (gCurrentWaterType == "ocean") cap = 100.0;
+    float tension = 0.0;
+    if (gLineStrength > 0.0) tension = gTension / gLineStrength;
+    float stamina = 0.0;
+    if (gFishStaminaMax > 0.0) stamina = gFishStamina / gFishStaminaMax;
+    float biteLeft = 0.0;
+    if (gState == STATE_BITE && gBiteActive) biteLeft = gBiteDeadline - llGetTime();
+    return llList2Json(JSON_OBJECT, [
+        "s", gState, "fs", gFishState, "jk", gIsJunkFight,
+        "t", tension, "d", dist, "cap", cap, "a", gFightAngle, "sta", stamina,
+        "pw", gCastPower, "bl", biteLeft, "bw", gBiteWindow,
+        "f", gFishName, "w", gFishWeight, "r", gRarityId, "rn", gLastRarity,
+        "m", gInfoMsg, "mq", gInfoSeq, "ns", gNibbleSeq,
+        "rl", gPlayerReeling, "lo", gPlayerLineOut, "dir", gPlayerDirection,
+        "bn", gEquippedBait, "bq", gBaitRemaining,
+        "sp", gCurrentSpotName, "wt", gCurrentWaterType, "lv", gLevel
+    ]);
+}
+
+// The page itself is a shell: the code comes from the website, the data
+// from this script. Same-origin polling, so no CORS and no mixed content.
+string fishViewShell() {
+    return "<!doctype html><html><head><meta charset=\"utf-8\"><title>OSFishing</title></head>"
+        + "<body style=\"margin:0;background:#082A66\"><div id=\"fv\"></div><script src=\""
+        + portalBase() + "hud/fishview.js?v=" + (string)(llGetUnixTime() / 3600)
+        + "\"></script></body></html>";
+}
+
+// ── Info text: a message that fades after a few seconds ──
+hudInfo(string msg) {
+    if (LINK_TEXT == -1) {
+        llOwnerSay(msg);  // Fallback if the HUD isn't built yet
+        return;
+    }
+    gInfoMsg = msg;
+    gInfoSeq++;
+    renderText();
     gInfoVisible = TRUE;
     gInfoFadeTime = llGetTime() + 6.0;  // Fade after 6 seconds
     // States with no running timer of their own need one for the fade.
@@ -1077,26 +1342,18 @@ hudInfo(string msg) {
 }
 
 clearInfo() {
-    if (LINK_INFO == -1) return;
-    safeLinkParams(LINK_INFO, [PRIM_TEXT, "", ZERO_VECTOR, 0.0]);
+    gInfoMsg = "";
     gInfoVisible = FALSE;
+    renderText();
 }
 
-// ── Play/Stop button rotation ──
-// Play visible: rotation <0, 0, 0> (face 4 forward)
-// Stop visible: rotation <0, 0, 190> degrees (face 2 forward)
+// ── FISH / STOP button ──
 showPlayButton() {
-    if (LINK_START_BTN == -1) return;
-    safeLinkParams(LINK_START_BTN, [
-        PRIM_ROT_LOCAL, llEuler2Rot(<0.0, 0.0, 0.0> * DEG_TO_RAD)
-    ]);
+    updateCastButton();
 }
 
 showStopButton() {
-    if (LINK_START_BTN == -1) return;
-    safeLinkParams(LINK_START_BTN, [
-        PRIM_ROT_LOCAL, llEuler2Rot(<0.0, 0.0, 190.0> * DEG_TO_RAD)
-    ]);
+    setCell(LINK_CAST, TEX_BUTTONS, 2, 4, BTN_STOP);
 }
 
 // Check info fade in timer (call from timer event)
@@ -1113,7 +1370,8 @@ checkInfoFade() {
 // Every state change calls this instead of llSetTimerEvent directly, so no
 // path can stop a timer another feature still needs (pairing poll, fade).
 // One-shot waits (bite window, victory pause) keep a deadline, so a
-// recompute mid-wait doesn't restart them.
+// recompute mid-wait doesn't restart them. Also keeps the fight strip in
+// step with the state.
 float   gBiteDeadline    = 0.0;
 float   gVictoryDeadline = 0.0;
 
@@ -1124,6 +1382,7 @@ float untilDeadline(float deadline) {
 }
 
 restoreTimer() {
+    updateStrip();
     float rate = 0.0;
     if (gPairing)                        rate = gPairPollRate;
     else if (gState == STATE_CHARGING || gState == STATE_CAST || gState == STATE_REELING)
@@ -1133,29 +1392,6 @@ restoreTimer() {
     else if (gState == STATE_VICTORY)    rate = untilDeadline(gVictoryDeadline);
     else if (gInfoVisible)               rate = 2.0;   // just the notice fade
     llSetTimerEvent(rate);
-}
-
-toggleMediaPanel(string page) {
-    if (gMediaOpen && gMediaPage == page) {
-        hideMediaPanel();
-    } else {
-        showMediaPanel(page);
-    }
-}
-
-hideFightDisplay() {
-    if (LINK_TENSION_BAR != -1) {
-        list curSize = llGetLinkPrimitiveParams(LINK_TENSION_BAR, [PRIM_SIZE]);
-        vector sz = llList2Vector(curSize, 0);
-        sz.y = TENSION_BAR_MIN_Y;
-        safeLinkParams(LINK_TENSION_BAR, [
-            PRIM_SIZE, sz,
-            PRIM_COLOR, ALL_SIDES, <1.0, 1.0, 1.0>, 0.0
-        ]);
-    }
-    // Return fish icon to its home position (above the HUD panel).
-    // Must match FISH_HOME_POS in updateFightDisplay().
-    safeLinkParams(LINK_FISH_ICON, [PRIM_POS_LOCAL, <0.0, 0.0, 0.09>]);
 }
 
 // ── Dialog Helper ──
@@ -1337,6 +1573,16 @@ handlePush(string body) {
     }
 }
 
+// First wear after a build or a new owner: put the bar at bottom centre,
+// HOME_GAP above the screen edge. After that the wearer can move it.
+placeOnScreen() {
+    if (llGetAttached() != ATTACH_HUD_BOTTOM) return;
+    if (safeLDRead("hud_placed") != "") return;
+    vector bar = llList2Vector(llGetLinkPrimitiveParams(LINK_ROOT, [PRIM_SIZE]), 0);
+    llSetPos(<0.0, 0.0, HOME_GAP + bar.z / 2.0>);
+    safeLDWrite("hud_placed", "1");
+}
+
 default {
     state_entry() {
         gOwner = llGetOwner();
@@ -1344,10 +1590,12 @@ default {
         gState = STATE_IDLE;
 
         scanLinks();
-
-        if (gLinksScanned) {
-            hidePowerBar();
-            hideFightDisplay();
+        placeOnScreen();
+        // A page left on the (now hidden) media face from before the reset
+        // would keep loading in the viewer.
+        if (LINK_PANEL_MEDIA != -1 && safeLDRead("hud_media_on") != "") {
+            llClearLinkMedia(LINK_PANEL_MEDIA, MEDIA_FACE);
+            safeLDDelete("hud_media_on");
         }
 
         // Start listening immediately
@@ -1369,11 +1617,7 @@ default {
         if (change & CHANGED_LINK) {
             
             scanLinks();
-            if (gLinksScanned) {
-                hidePowerBar();
-                hideFightDisplay();
-                updateMainDisplay();
-            }
+            if (gLinksScanned) updateMainDisplay();
         }
         if (change & CHANGED_OWNER) llResetScript();
         if (change & (CHANGED_REGION | CHANGED_TELEPORT)) {
@@ -1408,11 +1652,7 @@ default {
         if (!gLinksScanned) {
             
             scanLinks();
-            if (gLinksScanned) {
-                hidePowerBar();
-                hideFightDisplay();
-                updateMainDisplay();
-            }
+            if (gLinksScanned) updateMainDisplay();
             return;
         }
 
@@ -1432,14 +1672,9 @@ default {
                 return;
             }
 
-            if (ptr == "quests") {
-                if (gState != STATE_FIGHT) toggleMediaPanel("quests");
-            } else if (ptr == "tackle") {
-                if (gState != STATE_FIGHT && gState != STATE_CHARGING) toggleMediaPanel("tackle");
-            } else if (ptr == "fish") {
-                if (gState != STATE_FIGHT) toggleMediaPanel("fish");
-            } else if (ptr == "shop") {
-                if (gState != STATE_FIGHT) toggleMediaPanel("shop");
+            if (ptr == "quests" || ptr == "tackle" || ptr == "fish" || ptr == "shop") {
+                if (fightBusy()) return;
+                openPanel(FALSE, ptr);
             } else if (ptr == "play") {
                 if (gTutorialStep == 6) {
                     if (gCurrentSpotId == 0) {
@@ -1452,7 +1687,6 @@ default {
                     }
                     gCastPower = 0.0;
                     gCharging = FALSE;
-                    hideMediaPanel();
                     showStopButton();
                     llRequestPermissions(gOwner,
                         PERMISSION_TAKE_CONTROLS |
@@ -1465,7 +1699,7 @@ default {
             return;
         }
 
-        if (link == LINK_START_BTN) {
+        if (link == LINK_CAST) {
             // Toggle: if fishing, stop. If idle, start.
             if (gState != STATE_IDLE) {
                 hudInfo("Reeling in...");
@@ -1477,40 +1711,51 @@ default {
                 return;
             }
             if (gEquippedBaitId == 0 || gBaitRemaining <= 0) {
-                hudInfo("Equip bait first! Use the Bait button.");
+                hudInfo("Equip bait first! Tap the bait chip.");
                 return;
             }
-            
+
             gCastPower = 0.0;
             gCharging = FALSE;
-            hideMediaPanel();
-            showStopButton();  // Rotate to show stop face
+            showStopButton();
             llRequestPermissions(gOwner,
                 PERMISSION_TAKE_CONTROLS |
                 PERMISSION_TRIGGER_ANIMATION |
                 PERMISSION_TRACK_CAMERA |
                 PERMISSION_CONTROL_CAMERA);
         }
-        else if (link == LINK_BAIT_BTN) {
-            if (gState == STATE_FIGHT || gState == STATE_CHARGING) return;
+        else if (link == LINK_LOGO) {
+            // Open / close the panel. While fishing it opens on the live
+            // fishing view (when this grid lets the HUD serve it).
+            if (gPanelOpen) closePanel();
+            else if (gState != STATE_IDLE && gState != STATE_MENU && canFishView()) openPanel(TRUE, "");
+            else if (fightBusy()) hudInfo("Finish this cast first - the menu would cover it.");
+            else openPanel(FALSE, gPanelPage);
+        }
+        else if (link == LINK_BAIT) {
+            if (fightBusy()) {
+                hudInfo("Change bait between casts.");
+                return;
+            }
             toggleMediaPanel("tackle");
         }
-        else if (link == LINK_FISH_BTN) {
-            if (gState == STATE_FIGHT) return;
-            toggleMediaPanel("fish");
+        else if (link == LINK_PANEL_CLOSE) {
+            closePanel();
         }
-        else if (link == LINK_QUEST_BTN) {
-            if (gState == STATE_FIGHT) return;
-            toggleMediaPanel("quests");
+        else if (link == LINK_PANEL_OPEN) {
+            llLoadURL(gOwner, "Open OSFishing in your web browser.", portalBase() + "?page=" + gPanelPage);
         }
-        else if (link == LINK_SHOP_BTN) {
-            if (gState == STATE_FIGHT) return;
-            toggleMediaPanel("shop");
+        else if (link == LINK_PANEL_SWAP) {
+            if (gPanelFishView) {
+                if (fightBusy()) {
+                    hudInfo("Finish this cast first - the menu would cover it.");
+                    return;
+                }
+                openPanel(FALSE, gPanelPage);
+            }
+            else if (canFishView()) openPanel(TRUE, "");
         }
-        else if (link == LINK_MEDIA_PANEL) {
-            // Clicking the media panel itself does nothing — interaction
-            // happens through the embedded web page
-        }
+        // The media face itself: clicks go to the page.
     }
 
     // ── Permissions ──
@@ -1530,9 +1775,10 @@ default {
             hudInfo("Hold PAGE UP / W / E to charge, release to cast...");
             gState = STATE_CHARGING;
             gCastPower = 0.0;
-            showPowerBar(0.0);
-            hideXPBar();
+            panelForFishing();
             restoreTimer();
+            showPowerBar(0.0);
+            updateCastButton();
         }
 
         if (perm & PERMISSION_CONTROL_CAMERA) {
@@ -1788,6 +2034,7 @@ default {
                         if (gBobberKey != NULL_KEY) {
                             llRegionSayTo(gBobberKey, CH_HUD_TO_BOBBER, "NIBBLE");
                         }
+                        gNibbleSeq++;
                         safePlaySound("nibble_subtle", 0.6);
                         safePlayAnim("fishing_nibble");
                     } else {
@@ -1836,6 +2083,7 @@ default {
                         gState = STATE_BITE;
                         gBiteActive = TRUE;
                         hudInfo("!! BITE !! Press PAGE DOWN to hook!");
+                        panelForFishing();
 
                         if (gBobberKey != NULL_KEY) {
                             llRegionSayTo(gBobberKey, CH_HUD_TO_BOBBER, "BITE");
@@ -2162,6 +2410,9 @@ default {
                 return;
             }
 
+            // Ease the fish's angle toward where it's running (smooth arc)
+            gFightAngle += (gFightAngleTarget - gFightAngle) * 0.15;
+
             updateFightDisplay();
 
             float tPct = gTension / gLineStrength;
@@ -2169,10 +2420,6 @@ default {
 
             // Move bobber based on fight distance and angle
             if (gBobberKey != NULL_KEY) {
-                // Gradually shift angle toward target (smooth arc, not snap)
-                float angleDiff = gFightAngleTarget - gFightAngle;
-                gFightAngle += angleDiff * 0.15;  // Ease toward target each tick
-
                 vector myPos = llGetPos();
                 // Base direction: from player toward anchor
                 vector toAnchor = gAnchorPos - myPos;
@@ -2204,6 +2451,9 @@ default {
             if (method == URL_REQUEST_GRANTED) {
                 gCallbackUrl = body;
                 registerCallbackUrl();
+                // The fishing view lives at our URL, which just changed
+                if (gPanelOpen && gPanelFishView) openPanel(TRUE, "");
+                updateSwap();
             }
             else if (method == URL_REQUEST_DENIED) {
                 if (!gTriedPlainUrl) {
@@ -2217,7 +2467,27 @@ default {
                     // hud_status instead.
                     gCallbackUrl = "";
                     if (gToken != "") apiCall("hud_no_http_in", "");
+                    // No URL, no fishing view: the fight stays on the bar
+                    if (gPanelOpen && gPanelFishView) closePanel();
+                    updateSwap();
                 }
+            }
+            return;
+        }
+
+        // Fishing view in the media panel: the page shell, and its live
+        // state (polled a few times a second while the view is open).
+        // Read-only: nothing here changes the game.
+        if (method == "GET") {
+            string path = llGetHTTPHeader(id, "x-path-info");
+            if (path == "/s") {
+                llSetContentType(id, CONTENT_TYPE_TEXT);
+                llHTTPResponse(id, 200, fishViewState());
+            } else if (path == "/fish" || path == "/fish/") {
+                llSetContentType(id, CONTENT_TYPE_HTML);
+                llHTTPResponse(id, 200, fishViewShell());
+            } else {
+                llHTTPResponse(id, 404, "Not found");
             }
             return;
         }
@@ -2612,12 +2882,9 @@ default {
             hudInfo(infoMsg);
 
             // Show victory text on status prim
-            safeLinkParams(LINK_STATUS_TEXT, [
-                PRIM_TEXT,
-                "🎉 CAUGHT IT!\n" + gFishName + "\n" +
-                fmtWeight(gFishWeight) + " lbs (" + rarity + ")",
-                <0.4, 1.0, 0.4>, 1.0
-            ]);
+            gLastRarity = rarity;
+            setStatus("🎉 CAUGHT IT!\n" + gFishName + "\n" +
+                fmtWeight(gFishWeight) + " lbs (" + rarity + ")", <0.4, 1.0, 0.4>);
 
             // Despawn bobber but KEEP controls for victory delay
             if (gBobberKey != NULL_KEY) {
