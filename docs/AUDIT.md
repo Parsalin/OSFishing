@@ -96,8 +96,8 @@ In-world (LSL) fixes only reach players once the updated objects are handed out.
 - [x] **12.** `check_account` returns only `exists`.
 - [x] **13.** `bin/sweep.php` daily at 03:41 (managed crontab block in
   `deploy.sh`).
-- [x] **14.** Legacy auth/setup removed. The live routing snippet still has
-  the `/setup` rewrite until root runs `deploy/nginx/install-snippet.sh`.
+- [x] **14.** Legacy auth/setup removed, including the live `/setup` nginx
+  rewrite (snippet reinstalled 2026-11-19; `/setup` now 404s).
 - [x] **15.** `jsonGet` reads escaped strings; pushes send raw UTF-8.
 - [x] **16.** Portal snippets use text nodes.
 - [x] **17.** Tournaments: the code's design is canonical; migration 10

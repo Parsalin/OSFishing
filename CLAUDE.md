@@ -20,6 +20,11 @@ stale by definition. Full details: `deploy/SERVER-HANDOFF.md`.
   isolated (own Unix user, SSH key, FPM pool, DB). Never reach into `/var/www/fertility`.
 - Nginx + **PHP 8.4-FPM** (pool `osfishing`, log `/var/log/php8.4-fpm-osfishing.log`) + **MariaDB**
 - SSH: `ssh -i ~/.ssh/osfishing_deploy osfishing@flamesfall.net "<command>"` (key only)
+- Root-level work (nginx, /etc, packages) that `osfishing` can't do — it may
+  only `sudo systemctl reload php8.4-fpm`: use Claude's sudo account,
+  `ssh -i ~/.ssh/flamesfall_claude claude@flamesfall.net "sudo -n <command>"`.
+  Use it only when `osfishing` can't do the job. Routing snippet changes:
+  `sudo bash /var/www/osfishing/repo/deploy/nginx/install-snippet.sh`.
 - App root `/var/www/osfishing/`; repo checkout `/var/www/osfishing/repo/`;
   live tree `/var/www/osfishing/web/` (docroot `web/public/`)
 - Database `osfishing`, user `osfishing`; password in `/home/osfishing/secrets/db.txt`
