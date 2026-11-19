@@ -348,6 +348,13 @@ matter how nginx is configured. Anything added outside `public/` is private by
 construction; anything added inside it is public. There is no `.htaccess` —
 nginx ignores those; routing lives in `deploy/nginx/`.
 
+## Best practices and audit
+
+`docs/BEST_PRACTICES.md` is the general rule list learned across Fertility and
+OSFishing (trust, time/schema, pushes, deploy, LSL, UI, working practice).
+Follow it. `docs/AUDIT.md` is the current worklist of places OSFishing doesn't
+yet (2026-11-19 scan); tick items off there as they're fixed.
+
 ## LSL / grid gotchas
 
 Full set in `docs/GRID_COMMS_LESSONS.md` (from the sibling Fertility project).

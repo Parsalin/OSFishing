@@ -890,7 +890,16 @@ function renderSidebar(mobile) {
       h('span',{class:'nav-label'},item.label),
       item.key==='quests' && questBadge ? h('span',{style:{marginLeft:'auto',color:'#ffd700',fontWeight:900,fontSize:'14px',lineHeight:1}},questBadge) : null,
       item.key==='changelog' && state.changelogUnseen > 0 ? h('span',{style:{marginLeft:'auto',width:'8px',height:'8px',borderRadius:'50%',background:'var(--accent)'}}) : null
-    ))),
+    )),
+      // Admins only, and not inside the HUD's media panel (too small for the
+      // admin pages). The admin API enforces this server-side regardless.
+      (state.player && state.player.is_admin && !document.documentElement.classList.contains('embed'))
+        ? h('div',{style:{borderTop:'1px solid var(--border-light)',marginTop:'8px',paddingTop:'8px'}},
+            h('a',{class:'nav-item',href:'/admin/',title:'Admin panel',style:{textDecoration:'none'}},
+              h('span',{class:'nav-icon'},'🛡️'),
+              h('span',{class:'nav-label'},'Admin Panel')))
+        : null
+    ),
     h('div',{class:'sidebar-footer'},
       !mobile?h('button',{onClick:()=>{state.sidebarCollapsed=!state.sidebarCollapsed;render();}},h('span',{html:c?icons.expand:icons.collapse}),...(c?[]:[' Collapse'])):null,
       h('button',{onClick:toggleTheme},h('span',{html:state.theme==='dark'?icons.sun:icons.moon}),...(c?[]:[state.theme==='dark'?' Light Mode':' Dark Mode']))
