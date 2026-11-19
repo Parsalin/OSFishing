@@ -99,14 +99,40 @@ class Auth {
     /**
      * Web login: validate username + password, create session.
      */
+    // Failed logins allowed in LOGIN_WINDOW_MIN minutes before refusing:
+    // per username (guessing one account) and per address (spraying many).
+    const LOGIN_WINDOW_MIN   = 15;
+    const LOGIN_MAX_PER_USER = 5;
+    const LOGIN_MAX_PER_IP   = 20;
+
     public static function webLogin(string $username, string $password): array {
-        $stmt = db()->prepare('SELECT * FROM players WHERE username = :u');
+        $pdo  = db();
+        $user = substr(strtolower(trim($username)), 0, 64);
+        $ip   = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+
+        // Checked before the password, so a locked-out guess learns nothing.
+        $stmt = $pdo->prepare('
+            SELECT SUM(username = :u) AS by_user, SUM(ip_address = :ip) AS by_ip
+            FROM login_attempts
+            WHERE attempted_at > UTC_TIMESTAMP() - INTERVAL ' . self::LOGIN_WINDOW_MIN . ' MINUTE
+              AND (username = :u2 OR ip_address = :ip2)
+        ');
+        $stmt->execute([':u' => $user, ':ip' => $ip, ':u2' => $user, ':ip2' => $ip]);
+        $recent = $stmt->fetch();
+        if ((int)$recent['by_user'] >= self::LOGIN_MAX_PER_USER || (int)$recent['by_ip'] >= self::LOGIN_MAX_PER_IP) {
+            json_error('Too many failed logins. Wait ' . self::LOGIN_WINDOW_MIN . ' minutes and try again, or use an Account Recovery terminal in-world.', 429);
+        }
+
+        $stmt = $pdo->prepare('SELECT * FROM players WHERE username = :u');
         $stmt->execute([':u' => $username]);
         $player = $stmt->fetch();
 
         if (!$player || !password_verify($password, $player['password_hash'])) {
+            $pdo->prepare('INSERT INTO login_attempts (username, ip_address) VALUES (:u, :ip)')
+                ->execute([':u' => $user, ':ip' => $ip]);
             json_error('Invalid username or password', 401);
         }
+        $pdo->prepare('DELETE FROM login_attempts WHERE username = :u')->execute([':u' => $user]);
 
         // Create session
         $sessionId = bin2hex(random_bytes(64));

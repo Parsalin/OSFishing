@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-19-login-lockout', 'date' => '2026-11-19', 'type' => 'changed',
+         'text' => 'After five wrong passwords in a row, logins to that account pause for 15 minutes, so nobody can keep guessing your password.'],
         ['id' => '2026-11-19-signup-from-hud', 'date' => '2026-11-19', 'type' => 'changed',
          'text' => 'New accounts are created from the link your HUD gives you, and your HUD pairs as soon as the account is made. This stops anyone from signing up with someone else\'s avatar.'],
         ['id' => '2026-11-19-linked-avatars', 'date' => '2026-11-19', 'type' => 'new',
