@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-19-hud-pairing-stall', 'date' => '2026-11-19', 'type' => 'fixed',
+         'text' => 'HUD: pairing could stall and never notice you had entered the code if a message on the HUD faded at the wrong moment. (Needs the updated HUD.)'],
         ['id' => '2026-11-19-login-lockout', 'date' => '2026-11-19', 'type' => 'changed',
          'text' => 'After five wrong passwords in a row, logins to that account pause for 15 minutes, so nobody can keep guessing your password.'],
         ['id' => '2026-11-19-signup-from-hud', 'date' => '2026-11-19', 'type' => 'changed',

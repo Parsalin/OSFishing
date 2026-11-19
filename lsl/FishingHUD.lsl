@@ -554,7 +554,7 @@ pollPairingStatus() {
         // where the last poll's response arrives after we declare expiry
         gPairing = FALSE;
         gPairingCode = "";
-        llSetTimerEvent(0.0);
+        restoreTimer();
         showStatus("Pairing expired - touch to retry");
         return;
     }
@@ -1022,9 +1022,9 @@ hudInfo(string msg) {
     safeLinkParams(LINK_INFO, [PRIM_TEXT, msg, <0.9, 0.9, 0.8>, 1.0]);
     gInfoVisible = TRUE;
     gInfoFadeTime = llGetTime() + 6.0;  // Fade after 6 seconds
-    // If we're idle (no timer running), start a light timer for fade
-    if (gState == STATE_IDLE) {
-        llSetTimerEvent(2.0);
+    // States with no running timer of their own need one for the fade.
+    if (gState == STATE_IDLE || gState == STATE_MENU || gState == STATE_LANDING) {
+        restoreTimer();
     }
 }
 
@@ -1055,11 +1055,36 @@ showStopButton() {
 checkInfoFade() {
     if (gInfoVisible && llGetTime() > gInfoFadeTime) {
         clearInfo();
-        // If idle, stop the timer we started just for fading
-        if (gState == STATE_IDLE) {
-            llSetTimerEvent(0.0);
-        }
+        // Drop back to whatever the current state needs. Setting 0 here
+        // used to kill the pairing poll if a notice faded mid-pairing.
+        restoreTimer();
     }
+}
+
+// ── The one place that decides the timer rate ──
+// Every state change calls this instead of llSetTimerEvent directly, so no
+// path can stop a timer another feature still needs (pairing poll, fade).
+// One-shot waits (bite window, victory pause) keep a deadline, so a
+// recompute mid-wait doesn't restart them.
+float   gBiteDeadline    = 0.0;
+float   gVictoryDeadline = 0.0;
+
+float untilDeadline(float deadline) {
+    float left = deadline - llGetTime();
+    if (left < 0.05) left = 0.05;
+    return left;
+}
+
+restoreTimer() {
+    float rate = 0.0;
+    if (gPairing)                        rate = gPairPollRate;
+    else if (gState == STATE_CHARGING || gState == STATE_CAST || gState == STATE_REELING)
+                                         rate = 0.1;
+    else if (gState == STATE_FIGHT)      rate = gFightTick;
+    else if (gState == STATE_BITE && gBiteActive) rate = untilDeadline(gBiteDeadline);
+    else if (gState == STATE_VICTORY)    rate = untilDeadline(gVictoryDeadline);
+    else if (gInfoVisible)               rate = 2.0;   // just the notice fade
+    llSetTimerEvent(rate);
 }
 
 toggleMediaPanel(string page) {
@@ -1141,7 +1166,6 @@ stopFishing() {
         llClearCameraParams();
     }
 
-    llSetTimerEvent(0.0);
     hidePowerBar();
     hideFightDisplay();
     showPlayButton();  // Rotate back to play face
@@ -1153,11 +1177,7 @@ stopFishing() {
 
     llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_IDLE");
     updateMainDisplay();
-
-    // If info text is still visible, keep a light timer to fade it
-    if (gInfoVisible) {
-        llSetTimerEvent(2.0);
-    }
+    restoreTimer();   // idle: only a notice fade (or pairing poll) remains
 }
 
 // ── Reset back to ready-to-cast state WITHOUT releasing controls/camera ──
@@ -1204,7 +1224,7 @@ resetToReady() {
     gCastPower = 0.0;
     showPowerBar(0.0);
     hudInfo("Hold PAGE UP to cast again...");
-    llSetTimerEvent(0.1);
+    restoreTimer();
     updateMainDisplay();
 }
 
@@ -1462,7 +1482,7 @@ default {
             gCastPower = 0.0;
             showPowerBar(0.0);
             hideXPBar();
-            llSetTimerEvent(0.1);
+            restoreTimer();
         }
 
         if (perm & PERMISSION_CONTROL_CAMERA) {
@@ -1600,7 +1620,7 @@ default {
                     gFishStateMinDur = 1.5;       // Short opening before first rush
 
                     updateFightDisplay();
-                    llSetTimerEvent(gFightTick);
+                    restoreTimer();
                 } else {
                     hudInfo("Too early! Fish got spooked!");
                     doReelIn(FALSE);
@@ -1657,6 +1677,7 @@ default {
 
         // Victory delay - hold controls/camera for 5s after catch then release
         if (gState == STATE_VICTORY) {
+            if (llGetTime() < gVictoryDeadline) { restoreTimer(); return; }
             safeStopAnim("fishing_landed"); safeStopAnim("cheer");
             resetToReady();
             return;
@@ -1771,7 +1792,8 @@ default {
                         }
 
                         safePlaySound("bite_alert", 1.0);
-                        llSetTimerEvent(gBiteWindow);
+                        gBiteDeadline = llGetTime() + gBiteWindow;
+                        restoreTimer();
                         return;
                     }
                 }
@@ -1798,13 +1820,14 @@ default {
         }
 
         if (gState == STATE_BITE && gBiteActive) {
+            if (llGetTime() < gBiteDeadline) { restoreTimer(); return; }
             safePlaySound("bite_miss", 0.8);
             safePlayAnim("fishing_disappointed");
             hudInfo("Too slow! The fish got away...");
             // Go back to waiting - fish escaping doesn't end the cast
             gState = STATE_CAST;
             gBiteActive = FALSE;
-            llSetTimerEvent(0.1);
+            restoreTimer();
             return;
         }
 
@@ -2085,7 +2108,7 @@ default {
                     "&fight_duration=" + (string)llRound(gFightElapsed) +
                     "&cast_distance=" + (string)gCastPower
                 );
-                llSetTimerEvent(0.0);
+                restoreTimer();   // LANDING: waits on confirm_catch
                 return;
             }
 
@@ -2214,6 +2237,7 @@ default {
             string pairUrl  = jsonGet(body, "pair_url");
             gPairTimeout = llGetUnixTime() + expiresIn;
             gPairing = TRUE;
+            restoreTimer();   // start the pair poll before anything else
             showPairingCode(gPairingCode);
             // Offer the one-click pair URL
             if (pairUrl != "" && pairUrl != JSON_INVALID) {
@@ -2224,7 +2248,6 @@ default {
                 llLoadURL(gOwner, pairMsg, pairUrl);
                 llOwnerSay("📎 One-click pair link offered (or use code " + gPairingCode + " manually). Pair link: " + pairUrl);
             }
-            llSetTimerEvent(gPairPollRate);
             return;
         }
 
@@ -2237,7 +2260,7 @@ default {
                 gPairingCode = "";
                 gNonce = 0;
                 saveToken();  // Persist for next attach/reset
-                llSetTimerEvent(0.0);
+                restoreTimer();
                 hudInfo("HUD paired successfully!");
                 showStatus("Paired! Loading profile...");
                 gHttpReq = apiCall("hud_status", "");
@@ -2447,7 +2470,7 @@ default {
                     (string)gAnchorPos + "|" + (string)gCastPower);
 
                 gState = STATE_CAST;
-                llSetTimerEvent(0.1);
+                restoreTimer();
                 safePlaySound("bobber_splash", 0.8);
                 safePlayAnim("fishing_wait");
 
@@ -2591,7 +2614,8 @@ default {
 
             // Enter victory state - 5 second delay before releasing controls
             gState = STATE_VICTORY;
-            llSetTimerEvent(5.0);
+            gVictoryDeadline = llGetTime() + 5.0;
+            restoreTimer();
             return;
         }
 
