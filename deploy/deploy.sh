@@ -75,7 +75,7 @@ install -d -m 700 "${HOME}/logs"
 CRON_BLOCK="# BEGIN osfishing-managed (deploy/deploy.sh — edit there, not here)
 23 3 * * * bash ${REPO_DIR}/deploy/backup.sh >> ${HOME}/logs/backup.log 2>&1
 # END osfishing-managed"
-{ crontab -l 2>/dev/null | sed '/^# BEGIN osfishing-managed/,/^# END osfishing-managed/d'; echo "${CRON_BLOCK}"; } | crontab -
+{ { crontab -l 2>/dev/null || true; } | sed '/^# BEGIN osfishing-managed/,/^# END osfishing-managed/d'; echo "${CRON_BLOCK}"; } | crontab -
 
 echo "==> Reloading PHP-FPM (clears OPcache)"
 sudo /usr/bin/systemctl reload php8.4-fpm
