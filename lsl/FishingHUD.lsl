@@ -402,6 +402,18 @@ toRod(string msg) {
     }
 }
 
+// ── Gather point we're gathering at (replies go to its key, not the region) ──
+key     gGatherKey  = NULL_KEY;
+integer gGatherId   = 0;
+
+// TRUE if object `obj` is within `range` metres of us. Used to ignore
+// messages on shared channels from objects elsewhere in the region.
+integer isNear(key obj, float range) {
+    list d = llGetObjectDetails(obj, [OBJECT_POS]);
+    if (llGetListLength(d) == 0) return FALSE;
+    return llVecDist(llGetPos(), llList2Vector(d, 0)) <= range;
+}
+
 // ── HTTP ──
 key     gHttpReq    = NULL_KEY;
 string  gHttpAction = "";
@@ -2539,9 +2551,13 @@ default {
             }
 
             // Send result back to the gather point object (for stock display)
-            llRegionSay(CH_GATHER_HUD,
-                "GATHER_RESULT|" + (string)gathered + "|" + baitName + "|" +
-                (string)totalQty + "|" + depleted + "|" + (string)stockPct);
+            // To that point only (it used to go to every point in the
+            // region), naming the point so it can check.
+            if (gGatherKey != NULL_KEY) {
+                llRegionSayTo(gGatherKey, CH_GATHER_HUD,
+                    "GATHER_RESULT|" + (string)gathered + "|" + baitName + "|" +
+                    (string)totalQty + "|" + depleted + "|" + (string)stockPct + "|" + (string)gGatherId);
+            }
             return;
         }
 
@@ -2754,9 +2770,14 @@ default {
         if (ch == CH_GATHER_HUD) {
             list parts = llParseString2List(msg, ["|"], []);
             string cmd = llList2String(parts, 0);
+            // Only objects near us: anything in the region can message our
+            // avatar, and a tick spends that point's stock in our name.
+            if (!isNear(id, 20.0)) return;
             if (cmd == "GATHER_TICK") {
                 // Gather point is asking us to make an authenticated API call
                 integer pointId = (integer)llList2String(parts, 1);
+                gGatherKey = id;
+                gGatherId  = pointId;
                 gHttpReq = apiCall("gather_tick", "point_id=" + (string)pointId);
             }
             else if (cmd == "GATHER_MSG") {

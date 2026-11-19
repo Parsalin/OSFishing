@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-19-gather-stock-fix', 'date' => '2026-11-19', 'type' => 'fixed',
+         'text' => 'Bait gather points could show the stock of a different gather point in the same region after someone gathered there. (Needs the updated HUD.)'],
         ['id' => '2026-11-19-vendor-text-fallback', 'date' => '2026-11-19', 'type' => 'fixed',
          'text' => 'Bait vendors on grids that don\'t allow their drawn screen stopped working. After a reset they now show their prices and stock as floating text instead. (Needs the updated vendor.)'],
         ['id' => '2026-11-19-hud-pairing-stall', 'date' => '2026-11-19', 'type' => 'fixed',

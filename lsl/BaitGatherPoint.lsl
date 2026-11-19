@@ -340,6 +340,12 @@ default {
             string cmd = llList2String(parts, 0);
 
             if (cmd == "GATHER_RESULT") {
+                // Only the sitter's HUD, about this point (older HUDs send no
+                // point id). Otherwise any object could fake "depleted" and
+                // unseat people, or one point's stock would show on another.
+                if (gSitter == NULL_KEY || llGetOwnerKey(id) != gSitter) return;
+                string forPoint = llList2String(parts, 6);
+                if (forPoint != "" && (integer)forPoint != gPointId) return;
                 integer gathered = (integer)llList2String(parts, 1);
                 string depleted  = llList2String(parts, 4);
                 integer stockPct = (integer)llList2String(parts, 5);

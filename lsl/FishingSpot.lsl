@@ -1048,6 +1048,9 @@ default {
                 if (reqSpotId != gSpotId) return;
                 string itemName  = llList2String(parts, 2);
                 key    recipient = (key)llList2String(parts, 3);
+                // Only a recipient's own HUD may ask: the channel is shared,
+                // so otherwise any object could hand our junk to anyone.
+                if (llGetOwnerKey(id) != recipient) return;
                 if (llGetInventoryType(itemName) == INVENTORY_OBJECT)
                     llGiveInventory(recipient, itemName);
             }
