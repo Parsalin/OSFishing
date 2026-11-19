@@ -22,7 +22,7 @@ return function (PDO $pdo): void {
             read_by     INT UNSIGNED DEFAULT NULL,
             INDEX idx_unread (read_at, created_at),
             INDEX idx_dedupe (dedupe_key, created_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS logic_error_log (
@@ -34,6 +34,6 @@ return function (PDO $pdo): void {
             context_json TEXT         DEFAULT NULL,
             INDEX idx_cat_time (category, logged_at),
             INDEX idx_time (logged_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 };

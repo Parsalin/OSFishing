@@ -294,6 +294,14 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
   can. A HUD denied HTTP-in marks its grid `no_http_in` (first time alerts;
   Clear on the Grids tab re-arms it). Push payload `{"type":"ping"}` is the
   harmless test push every script ignores.
+- **One collation: `utf8mb4_unicode_ci`.** Comparing text columns of two
+  collations is an error (`Illegal mix of collations`), not a slow query —
+  it broke the Grids tab and every same-grid check until migration 08 unified
+  all tables on 2026-11-19. This MariaDB creates new tables as
+  `utf8mb4_uca1400_ai_ci` even though the database default says `unicode_ci`,
+  so **every `CREATE TABLE` must state `DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci`**, and a new text column on an existing table
+  inherits the table's.
 - **HUD requests must carry `X-SecondLife-Owner-Key`** (absent → `not_from_a_sim`,
   mismatch → `owner_mismatch`). curl tests against HUD actions must send it.
 - **SimOrigin (log-only):** `pair_request`, `check_account`, `aobj_pair_request`,

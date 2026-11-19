@@ -25,7 +25,7 @@ return function (PDO $pdo): void {
             INDEX idx_created (created_at),
             CONSTRAINT fk_push_queue_player
                 FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     $pdo->exec("ALTER TABLE hud_tokens ADD COLUMN IF NOT EXISTS no_http_in TINYINT(1) NOT NULL DEFAULT 0 AFTER callback_url");
 };

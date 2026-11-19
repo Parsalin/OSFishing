@@ -55,7 +55,7 @@ return function (PDO $pdo): void {
             message    VARCHAR(500) NOT NULL,
             ip         VARCHAR(45)  DEFAULT NULL,
             KEY idx_object (object_id, id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS login_tokens (
@@ -68,7 +68,7 @@ return function (PDO $pdo): void {
             used_at     DATETIME     DEFAULT NULL,
             KEY idx_player (player_id, purpose, created_at),
             CONSTRAINT fk_login_tokens_player FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     $pdo->exec("ALTER TABLE web_sessions ADD COLUMN IF NOT EXISTS recovery_until DATETIME DEFAULT NULL");
 };

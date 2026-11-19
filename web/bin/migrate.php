@@ -30,7 +30,7 @@ $pdo->exec("
     CREATE TABLE IF NOT EXISTS schema_migrations (
         id         VARCHAR(100) NOT NULL PRIMARY KEY,
         applied_at DATETIME     NOT NULL DEFAULT UTC_TIMESTAMP()
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 ");
 
 $applied = $pdo->query('SELECT id FROM schema_migrations')->fetchAll(PDO::FETCH_COLUMN);
