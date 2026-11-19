@@ -786,7 +786,9 @@ string jsonGet(string json, string akey) {
         // Quoted string value. Find the next " after the opening one.
         integer endQuote = llSubStringIndex(llGetSubString(rest, 1, -1), "\"");
         if (endQuote <= 0) return "";  // Empty string or missing close quote
-        return llGetSubString(rest, 1, endQuote);
+        // JSON may escape "/" as "\/" (PHP does by default); undo it so URLs
+        // like pair_url are usable.
+        return llDumpList2String(llParseStringKeepNulls(llGetSubString(rest, 1, endQuote), ["\\/"], []), "/");
     }
     integer i;
     string c;
