@@ -959,6 +959,32 @@ function renderGrids() {
   );
 }
 
+// ── RENDER: Alerts ──
+function renderAlerts() {
+  return h('div',null,
+    h('div',{style:{display:'flex',gap:'8px',alignItems:'center',marginBottom:'12px',flexWrap:'wrap'}},
+      h('label',{style:{fontSize:'12px',display:'flex',gap:'6px',alignItems:'center'}},
+        h('input',{type:'checkbox',checked:state.alertsUnreadOnly,onChange:e=>{state.alertsUnreadOnly=e.target.checked;loadAlerts();}}),'Unread only'),
+      state.unreadAlerts>0?h('button',{class:'btn btn-sm btn-secondary',onClick:markAllAlertsRead},'Mark all read'):null,
+      h('span',{style:{fontSize:'12px',color:'var(--muted)'}},state.unreadAlerts+' unread')
+    ),
+    state.alerts.length===0?h('div',{class:'empty'},'No alerts.'):
+    h('div',{style:{display:'flex',flexDirection:'column',gap:'8px'}},...state.alerts.map(a=>
+      h('div',{class:'card',style:{padding:'12px 14px',borderLeft:'3px solid '+(a.read_at?'var(--border)':'var(--accent)'),opacity:a.read_at?'0.7':'1'}},
+        h('div',{style:{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start'}},
+          h('div',null,
+            h('div',{style:{fontSize:'11px',color:'var(--muted)',marginBottom:'4px'}},fmtTime(a.created_at)+' — '+a.category),
+            h('div',{style:{fontSize:'13px',whiteSpace:'pre-wrap'}},a.message),
+            a.link?h('a',{href:a.link,style:{fontSize:'12px'},onClick:e=>{const m=String(a.link).match(/[?&]tab=([a-z]+)/);if(m){e.preventDefault();setTab(m[1]);}}},'Open'):null,
+            a.read_at?h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'4px'}},'Read '+fmtTime(a.read_at)+(a.read_by_name?' by '+a.read_by_name:'')):null
+          ),
+          a.read_at?null:h('button',{class:'btn btn-sm btn-secondary',onClick:()=>markAlertRead(a.id)},'Mark read')
+        )
+      )
+    ))
+  );
+}
+
 // ── RENDER: Admin objects ──
 function renderObjects() {
   const po = state.pendingObject;
