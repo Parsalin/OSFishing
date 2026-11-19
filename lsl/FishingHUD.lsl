@@ -385,8 +385,22 @@ integer gPlayerReeling   = FALSE;
 integer gPlayerLineOut   = FALSE;  // Page Up during fight = let line out
 integer gPlayerDirection = 0;    // -1 left, 0 none, +1 right
 
-// ── Bobber ──
+// ── Bobber / Rod ──
 key     gBobberKey = NULL_KEY;
+key     gRodKey    = NULL_KEY;   // learned from the rod's ROD_HELLO
+
+// Send a command to our rod. To its key once known; until then (or after
+// it's gone) llSay on the rod channel, which the worn rod always hears and
+// other players' rods ignore (they check the owner). Never
+// llRegionSayTo(avatar): that may not reach attachment scripts.
+toRod(string msg) {
+    if (gRodKey != NULL_KEY && llGetListLength(llGetObjectDetails(gRodKey, [OBJECT_POS])) > 0) {
+        llRegionSayTo(gRodKey, CH_HUD_TO_ROD, msg);
+    } else {
+        gRodKey = NULL_KEY;
+        llSay(CH_HUD_TO_ROD, msg);
+    }
+}
 
 // ── HTTP ──
 key     gHttpReq    = NULL_KEY;
@@ -1175,7 +1189,7 @@ stopFishing() {
         gBobberKey = NULL_KEY;
     }
 
-    llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_IDLE");
+    toRod("ROD_IDLE");
     updateMainDisplay();
     restoreTimer();   // idle: only a notice fade (or pairing poll) remains
 }
@@ -1217,7 +1231,7 @@ resetToReady() {
         gBobberKey = NULL_KEY;
     }
 
-    llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_IDLE");
+    toRod("ROD_IDLE");
 
     // Go back to charging state — ready for next cast
     gState = STATE_CHARGING;
@@ -1305,7 +1319,9 @@ default {
         // Start listening immediately
         llListen(CH_SPOT_TO_HUD, "", NULL_KEY, "");
         llListen(CH_BOBBER_TO_HUD, "", NULL_KEY, "");
-            llListen(CH_GATHER_HUD, "", NULL_KEY, "");
+        llListen(CH_GATHER_HUD, "", NULL_KEY, "");
+        llListen(CH_ROD_TO_HUD, "", NULL_KEY, "");
+        llSay(CH_HUD_TO_ROD, "ROD_PING");   // a rod already worn answers ROD_HELLO
         // Owner-only channel 0 commands (e.g. "/tutorial")
         llListen(0, "", gOwner, "");
 
@@ -1542,7 +1558,7 @@ default {
                         safePlayAnim("fishing_cast");
                     }
 
-                    llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_CAST|" + (string)gCastPower);
+                    toRod("ROD_CAST|" + (string)gCastPower);
 
                     gHttpReq = apiCall("cast",
                         "spot_id=" + (string)gCurrentSpotId +
@@ -1607,7 +1623,7 @@ default {
                         safePlayAnim("fishing_yank");
                     }
 
-                    llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_HOOKSET|" + (string)gBobberKey);
+                    toRod("ROD_HOOKSET|" + (string)gBobberKey);
 
                     gState = STATE_FIGHT;
                     gFightElapsed = 0.0;
@@ -1939,7 +1955,7 @@ default {
                 if (gTension >= gLineStrength) {
                     hudInfo("SNAP! Too heavy for your line!");
                     safePlaySound("line_snap", 1.0);
-                    llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_LINEBREAK");
+                    toRod("ROD_LINEBREAK");
                     // Report line break for XP + magnet loss
                     apiCall("line_break", "spot_id=" + (string)gCurrentSpotId);
                     doReelInFull(FALSE, TRUE);
@@ -2085,7 +2101,7 @@ default {
             if (gTension >= gLineStrength) {
                 hudInfo("SNAP! Line broke! " + gFishName + " escaped!");
                 safePlaySound("line_snap", 1.0);
-                llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_LINEBREAK");
+                toRod("ROD_LINEBREAK");
                 // Report line break for XP + magnet loss
                 apiCall("line_break", "spot_id=" + (string)gCurrentSpotId);
                 doReelInFull(FALSE, TRUE);
@@ -2115,7 +2131,7 @@ default {
             updateFightDisplay();
 
             float tPct = gTension / gLineStrength;
-            llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_TENSION|" + (string)tPct);
+            toRod("ROD_TENSION|" + (string)tPct);
 
             // Move bobber based on fight distance and angle
             if (gBobberKey != NULL_KEY) {
@@ -2455,7 +2471,7 @@ default {
                     hudInfo("Bad cast! Missed the fishing area.");
                     safePlaySound("bobber_splash", 0.5);
                     // Rez bobber briefly so player sees where it landed
-                    llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_REZ_BOBBER|" +
+                    toRod("ROD_REZ_BOBBER|" +
                         (string)gAnchorPos + "|" + (string)gCastPower);
                     llSleep(1.5);
                     resetToReady();
@@ -2466,7 +2482,7 @@ default {
                 gFightAngle = 0.0;
                 gFightAngleTarget = 0.0;
 
-                llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_REZ_BOBBER|" +
+                toRod("ROD_REZ_BOBBER|" +
                     (string)gAnchorPos + "|" + (string)gCastPower);
 
                 gState = STATE_CAST;
@@ -2577,7 +2593,7 @@ default {
                 llRegionSayTo(gBobberKey, CH_HUD_TO_BOBBER, "DESPAWN");
                 gBobberKey = NULL_KEY;
             }
-            llRegionSayTo(gOwner, CH_HUD_TO_ROD, "ROD_IDLE");
+            toRod("ROD_IDLE");
 
             // Hide fight UI elements
             hideFightDisplay();
@@ -2720,10 +2736,18 @@ default {
         }
 
         if (ch == CH_BOBBER_TO_HUD) {
+            // Only our own bobber; the channel is shared by every player.
+            if (llGetOwnerKey(id) != gOwner) return;
             list parts = llParseString2List(msg, ["|"], []);
             if (llList2String(parts, 0) == "BOBBER_READY") {
                 gBobberKey = id;
             }
+            return;
+        }
+
+        if (ch == CH_ROD_TO_HUD) {
+            if (llGetOwnerKey(id) != gOwner) return;
+            if (msg == "ROD_HELLO") gRodKey = id;
             return;
         }
 

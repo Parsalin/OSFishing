@@ -109,6 +109,9 @@ default {
     state_entry() {
         gOwner = llGetOwner();
         llListen(CH_HUD_TO_ROD, "", NULL_KEY, "");
+        // Tell the HUD our key so it can talk to us directly. llRegionSayTo
+        // aimed at the avatar may not reach attachment scripts on every grid.
+        llSay(CH_ROD_TO_HUD, "ROD_HELLO");
     }
 
     on_rez(integer param) {
@@ -129,7 +132,10 @@ default {
         list parts = llParseString2List(msg, ["|"], []);
         string cmd = llList2String(parts, 0);
 
-        if (cmd == "ROD_CAST") {
+        if (cmd == "ROD_PING") {
+            llSay(CH_ROD_TO_HUD, "ROD_HELLO");
+        }
+        else if (cmd == "ROD_CAST") {
             // Do nothing visually on the rod itself — HUD plays avatar cast anim.
         }
         else if (cmd == "ROD_REZ_BOBBER") {
@@ -155,7 +161,6 @@ default {
                 gBobberCastPower = power;
             } else {
                 llOwnerSay("ERROR: no 'FishingBobber' in rod inventory!");
-                llRegionSayTo(gOwner, CH_ROD_TO_HUD, "ERROR|No bobber in rod inventory");
             }
         }
         else if (cmd == "ROD_HOOKSET") {

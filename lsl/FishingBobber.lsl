@@ -105,8 +105,11 @@ default {
         // Listen for messages from the HUD
         llListen(CH_HUD_TO_BOBBER, "", NULL_KEY, "");
 
-        // Announce ourselves to the HUD so it knows our key
-        llRegionSayTo(gOwner, CH_BOBBER_TO_HUD, "BOBBER_READY");
+        // Announce ourselves to the HUD so it knows our key. llSay, not
+        // llRegionSayTo(owner): that may not reach attachment scripts. We
+        // were just rezzed at the avatar, so the HUD is in range; it checks
+        // the owner, so other players' HUDs ignore this.
+        llSay(CH_BOBBER_TO_HUD, "BOBBER_READY");
 
         // Wait briefly for CAST_TO from rod; if none arrives in 0.5s,
         // assume we were rezzed standalone and start bobbing.
