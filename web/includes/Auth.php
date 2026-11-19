@@ -35,6 +35,10 @@ class Auth {
         if (!$player) {
             json_error('Session expired or invalid', 401);
         }
+        // A ban takes effect on sessions that already exist, not only at login.
+        if (!empty($player['is_banned'])) {
+            json_error('Account banned', 403);
+        }
 
         return $player;
     }
@@ -103,6 +107,9 @@ class Auth {
             json_error('Invalid username or password', 401);
         }
         $pdo->prepare('DELETE FROM login_attempts WHERE username = :u')->execute([':u' => $user]);
+        if (!empty($player['is_banned'])) {
+            json_error('Account banned', 403);
+        }
 
         // Create session
         $sessionId = bin2hex(random_bytes(64));

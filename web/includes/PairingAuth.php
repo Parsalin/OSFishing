@@ -189,6 +189,16 @@ class PairingAuth {
             return ['claimed' => false, 'message' => 'Waiting for code entry on web portal...'];
         }
 
+        // Hand the token out once (BP 5). The atomic UPDATE means two polls
+        // racing can't both get it. A HUD whose reply was lost just keeps
+        // waiting until the code expires and then asks for a new one.
+        $stmt = $pdo->prepare('UPDATE hud_pairing_codes SET token_collected_at = UTC_TIMESTAMP()
+                               WHERE id = :id AND token_collected_at IS NULL');
+        $stmt->execute([':id' => $row['id']]);
+        if ($stmt->rowCount() !== 1) {
+            return ['claimed' => false, 'message' => 'This code was already used. Touch the HUD to pair again.'];
+        }
+
         return [
             'claimed'  => true,
             'token'    => $row['token'],
@@ -335,6 +345,9 @@ class PairingAuth {
 
         if (!$row) {
             json_error('Invalid or revoked token. Re-pair your HUD.', 401);
+        }
+        if (!empty($row['is_banned'])) {
+            json_error('Account banned', 403);
         }
 
         // The token belongs to the avatar that paired it. (Tokens from before
