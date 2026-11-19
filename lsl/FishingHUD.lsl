@@ -809,12 +809,34 @@ string jsonGet(string json, string akey) {
     idx += colonIdx + 1;
     string rest = llStringTrim(llGetSubString(json, idx, idx + 2048), STRING_TRIM_HEAD);
     if (llGetSubString(rest, 0, 0) == "\"") {
-        // Quoted string value. Find the next " after the opening one.
-        integer endQuote = llSubStringIndex(llGetSubString(rest, 1, -1), "\"");
-        if (endQuote <= 0) return "";  // Empty string or missing close quote
-        // JSON may escape "/" as "\/" (PHP does by default); undo it so URLs
-        // like pair_url are usable.
-        return llDumpList2String(llParseStringKeepNulls(llGetSubString(rest, 1, endQuote), ["\\/"], []), "/");
+        // Quoted string value: read up to the first UNescaped quote, undoing
+        // \" \\ \/ \n \t on the way. (Stopping at the first quote cut values
+        // like  He said \"hi\"  short.) \uXXXX is left as-is: the server
+        // sends raw UTF-8 (JSON_UNESCAPED_UNICODE).
+        // Names differ from the loop below: OpenSim compiles LSL to C#,
+        // which rejects an inner-block name reused by the outer scope.
+        string sOut = "";
+        integer sLen = llStringLength(rest);
+        integer sPos = 1;
+        while (sPos < sLen) {
+            // Copy the plain run up to the next quote or backslash in one go.
+            string tail = llGetSubString(rest, sPos, -1);
+            integer q = llSubStringIndex(tail, "\"");
+            integer b = llSubStringIndex(tail, "\\");
+            if (q == -1) return "";                        // unterminated
+            if (b == -1 || q < b) {
+                if (q > 0) sOut += llGetSubString(tail, 0, q - 1);
+                return sOut;
+            }
+            if (b > 0) sOut += llGetSubString(tail, 0, b - 1);
+            string e = llGetSubString(tail, b + 1, b + 1);
+            if (e == "n") sOut += "\n";
+            else if (e == "t") sOut += "\t";
+            else if (e == "u") sOut += "\\u";              // left encoded
+            else if (e != "r") sOut += e;                  // \" \\ \/
+            sPos += b + 2;
+        }
+        return "";
     }
     integer i;
     string c;
