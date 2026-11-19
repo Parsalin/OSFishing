@@ -12,16 +12,45 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 ## Architecture
 
 ### Server stack
-- Ubuntu, user `spuser2`, Nginx + PHP 8.3 + MySQL
-- Web root: `/var/www/html/fishing/`
-- Database: `fishing_game`, user `fishing_user`
-- Code layout:
-  - `/var/www/html/fishing/api/index.php` — single-entry router for all API requests
-  - `/var/www/html/fishing/includes/` — class files (Auth, Player, Fishing, Quest, etc.)
-  - `/var/www/html/fishing/config.php` — DB connection
-  - `/var/www/html/fishing/index.html` (or `fishing-portal.html`) — SPA web portal
-  - `/var/www/html/fishing/admin.html` — admin panel
-  - `/var/www/html/fishing/pair.php` — auto-pair landing page
+The old host (`sp.wa.darkheartsos.net`, user `spuser2`, `/var/www/html/fishing/`,
+DB `fishing_game`/`fishing_user`) is gone. Any of those names in docs or scripts is
+stale by definition. Full details: `deploy/SERVER-HANDOFF.md`.
+
+- VPS `flamesfall.net` (InterServer, Debian 13), shared with Fertility but fully
+  isolated (own Unix user, SSH key, FPM pool, DB). Never reach into `/var/www/fertility`.
+- Nginx + **PHP 8.4-FPM** (pool `osfishing`, log `/var/log/php8.4-fpm-osfishing.log`) + **MariaDB**
+- SSH: `ssh -i ~/.ssh/osfishing_deploy osfishing@flamesfall.net "<command>"` (key only)
+- App root `/var/www/osfishing/`; repo checkout `/var/www/osfishing/repo/`;
+  live tree `/var/www/osfishing/web/` (docroot `web/public/`)
+- Database `osfishing`, user `osfishing`; password in `/home/osfishing/secrets/db.txt`
+  and the server-only `web/config.php`. Never hardcode it.
+- **The host and MariaDB run on America/New_York.** The app runs in UTC (see rules).
+- Code layout (live tree):
+  - `public/api/index.php` — single-entry router for all API requests
+  - `includes/` — class files; `includes/bootstrap.php` is loaded first by everything
+  - `config.php` — DB connection + constants (gitignored, server-only)
+  - `public/index.html` — SPA portal; `public/admin/index.html` — admin panel
+  - `public/pair.php` — auto-pair landing; `public/recover.php` — recovery login link
+  - `bin/migrate.php`, `bin/find_account.php` — CLI tools
+
+### Deploy
+```bash
+git push
+ssh -i ~/.ssh/osfishing_deploy osfishing@flamesfall.net 'bash /var/www/osfishing/repo/deploy/deploy.sh main'
+```
+`deploy.sh` syncs the whole tree (never copy single files), `php -l`s it, runs
+`bin/migrate.php`, then reloads PHP-FPM. A failed migration stops the deploy
+before the reload. Schema changes are only ever made by a new file in
+`web/migrations/versioned/` (PHP returning `function (PDO $pdo): void`, named
+`YYYY_MM_DD_NN_what.php`, idempotent) — never by hand on the server.
+`php bin/migrate.php --status` lists pending ones.
+
+**Before every commit — changelog check:** if the change alters anything a player
+can see or do (HUD, website, mechanics, numbers, messages, fixes they'd notice), add
+an entry to `web/includes/Changelog.php` **in the same commit**. Entries start hidden
+until an admin publishes them on the portal's What's New page. Skip only admin-only,
+internal, refactor or docs-only commits, and say so when reporting the commit. Plain
+player language; never spoil a discovery; never rename or reuse a shipped `id`.
 
 ### Trust model
 - Server is authoritative for all game decisions: catch outcomes, XP, currency, item rolls
@@ -43,14 +72,67 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 - **OSSL**: core enabled; `osGetRegionStats`, `osGetAvatarList` confirmed available; `osTeleportAgent` / NPC / media / terrain not probed
 - **Matthew's avatar UUID (Darkhearts Playground)**: `9a9304c2-620d-496a-ba50-2bf45cf8dbd9`
 - **Matthew's avatar UUID (grid used to register on flamesfall, 2026-09-14)**:
-  `6c87720f-3285-45db-b02c-f4bec40ae5b2` — this is the one on the `players` row,
-  so it is the UUID the HUD must authenticate with.
+  `6c87720f-3285-45db-b02c-f4bec40ae5b2` — the account's primary avatar
+  (`players.uuid`). The Darkhearts avatar `9a9304c2…` is not linked yet: pair a
+  HUD on it while logged in and confirm the link. It must be linked before it can
+  set up an admin object (the owner must be an avatar linked to an admin account).
 
-> **Avatar UUIDs are per-grid.** `players.uuid` is a single column, so an account
-> can only pair from the grid whose UUID it holds. The same person on a second
-> grid is a different UUID and currently cannot pair to the same account. Worth
-> resolving before multi-grid play (an alt-UUID table, or pairing keyed on
-> something other than UUID) — see the note in TODO.
+> **Avatar UUIDs are per-grid.** An account can now hold several avatars
+> (`player_uuids`) — see Account & Avatar Model.
+
+## Account & Avatar Model
+
+- **One account, many avatars.** `player_uuids` maps each avatar UUID to an
+  account; a UUID belongs to at most one account. A hypergrid visitor keeps their
+  UUID, so that is still one avatar. `players.uuid` is only the primary avatar.
+- **Never look a player up by `players.uuid`.** Go through `player_uuids`
+  (`PairingAuth::playerIdForUuid`, or `WHERE id = (SELECT pu.player_id FROM
+  player_uuids pu WHERE pu.uuid = :u)`). A `players.uuid` match silently misses
+  every linked avatar.
+- **Linking** happens only by claiming a pairing code while logged in. A code from
+  an avatar on no account returns `needs_confirm` first; the player must confirm
+  "add this avatar to my account" (pair.php page or the portal's confirm step).
+  An avatar on another account is refused. Removing an avatar revokes its HUDs;
+  the last avatar can't be removed.
+- `hud_tokens.avatar_uuid` binds a token to the avatar that paired it;
+  `requireHUD` returns `uuid` = that avatar and `account_uuid` = the primary.
+- **Finding an account (always do this first).** Whenever someone names a
+  player by name, username or any UUID, resolve it before anything else — never
+  guess a UUID or run ad hoc `LIKE` queries:
+  `ssh -i ~/.ssh/osfishing_deploy osfishing@flamesfall.net "cd /var/www/osfishing/web && php bin/find_account.php <query>"`.
+  Same lookup as the admin Players search (`Admin::findAccount`). Use the printed
+  `player_id` for all game-data queries.
+- **Never open a recovery link** (`/recover.php?token=…`) to test it: opening
+  it uses it up. Login links are only ever issued by a recovery terminal; never
+  add an API action that mints one for a UUID.
+
+## Admin Objects & Account Recovery
+
+`includes/AdminObjects.php`, admin panel **Objects** tab, ported from Fertility.
+
+- **Pairing:** on reset the object calls `aobj_pair_request` (owner must be an
+  avatar linked to an admin account) and opens `/admin/?tab=objects&approve=<code>`
+  for its owner; an admin approves there (15 min). The object polls
+  `aobj_pair_status`; the first poll after approval collects its token **once**.
+  Only `sha256(token)` is stored; the token lives in script memory only, and
+  `on_rez`/`CHANGED_OWNER` reset the script. Re-pairing an object revokes its old row.
+- **Every request must match:** token; `X-SecondLife-Object-Key` (the approved
+  object); owner (= `uuid` = `X-SecondLife-Owner-Key`) still an admin;
+  `REMOTE_ADDR` equal to the approved address (never a forwarded header — there
+  is no proxy); its grid identity; the type's `ALLOWED` actions. Wrong object /
+  owner / demoted owner → revoked at once + alert. New address → refused
+  (`address_changed`), one alert, admin clicks **Accept new address**. Disallowed
+  action / wrong grid → refused + alert (once an hour per reason).
+- **Why the address:** OpenSim saves script memory inside a taken copy, and a
+  grid owner can read it from their database; headers are just headers.
+- **Recovery (`aobj_recovery`):** only for an avatar linked on the terminal's
+  own grid (`player_uuids.grid_identity`) — a hypergrid visitor could be a
+  look-alike minted with someone's UUID. Not banned; one link per account per
+  10 min. Returns `/recover.php?token=…` (15 min, once), opened with `llLoadURL`
+  so only the toucher sees it. That session may change the password without the
+  old one, once; a password change ends every other session.
+- Terminals check in (`aobj_hello`) every 30 min; `recovery_terminals` lists
+  those seen in 48 h on the login page with hop links.
 
 ## In-world objects
 
@@ -65,7 +147,7 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 - **PrepTable** — sit-to-use, prep fish for parts and craft special baits.
 - **BaitVendor** — buyable bait (system-supplied) with cooldowns, price tags.
 - **ShopRegister** — placed by players to register a "shop" location at their parcel.
-- **PasswordReset** — UUID-verified in-world kiosk for password reset.
+- **AccountRecoveryTerminal** — admin object (see Admin Objects). Touch for a one-time login link that lets you set a new password. Replaced PasswordReset, whose API action reset any player's password with no auth.
 - **TrophyPlaque** + **TrophyText** + **TrophyFish** — in-world trophy display, plaque rezzes a fish mesh at calibrated scale and rotation, with name/weight/rarity on a floating text plaque.
 
 ### Tutorial child prims (in HUD)
@@ -83,7 +165,8 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 ## Database (key tables)
 
 ### Player
-- `players` — uuid, username, password_hash, display_name, level, xp, fishing_points, equipped_rod/bait/line, home_grid, tutorial_completed, tutorial_step, spot_limit_override
+- `players` — uuid (primary avatar), username, password_hash, display_name, level, xp, fishing_points, equipped_rod/bait/line, home_grid (a grid identity), tutorial_completed, tutorial_step, spot_limit_override
+- `player_uuids` — every avatar on an account: uuid (UNIQUE), player_id, grid_identity (grid it plays from, set on link or first HUD use), avatar_name, linked_at, last_used_at
 - `player_quests` — accepted quests with status and progress
 
 ### Fishing
@@ -99,13 +182,13 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 
 ### Spots & ownership
 - `fishing_spots` — players own spots, count toward limit (active+non-archived only). Spots can be system-owned.
-- Archive instead of delete: `archived=1, archived_at=NOW(), is_active=0` — preserves catch_log/leaderboard references
+- Archive instead of delete: `archived=1, archived_at=UTC_TIMESTAMP(), is_active=0` — preserves catch_log/leaderboard references
 - Restoration: rezzing a fresh prim in same region offers archive recovery dialog
 - Spot_limit_override per player allows admins to grant extra slots
 
 ### Multi-grid
-- `grids` — name, status (pending/approved/denied), nickname, hop_gateway (e.g., "playground.darkheartsos.com:8002")
-- `hud_tokens` — per-grid pairing tokens (player_id, grid_name, token, last_nonce, callback_url, is_active, revoked_at)
+- `grids` — one row per SIM HOST: grid_name (host:port as scripts report it), grid_identity (base domain — the grid), status (pending/approved/denied), nickname, hop_gateway (e.g., "playground.darkheartsos.com:8002"), notes, no_http_in, public_host, push_problem, push_checked_at
+- `hud_tokens` — per-grid pairing tokens (player_id, avatar_uuid, grid_name, token, last_nonce, callback_url, no_http_in, is_active, revoked_at)
 - `hud_pair_attempts` — audit log of every pair_request (UUID, grid, IP, succeeded)
 - `hud_exclusion_triggers` — log when 60s mutual-exclusion lockout fires (player_id, triggered_uuid, blocking_uuid)
 
@@ -113,6 +196,14 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 - `prim_callbacks` — prim_uuid, prim_type, ref_id, callback_url, region, grid, last_seen
 - Stale callbacks (>90 min no heartbeat) get swept; fishing spots auto-deactivated
 - Buffs pushed to spot via callback URL; HUD also has callback URL for tutorial events
+
+### Admin & housekeeping
+- `schema_migrations` — applied `web/migrations/versioned/` files
+- `admin_alerts` — shared admin inbox (Alerts tab); `AdminAlerts::send()` with optional dedupe key + window
+- `logic_error_log` — silent self-repairs / fail-closed checks (Logic Log tab)
+- `admin_objects` / `admin_object_log` — approved in-world admin objects and their activity
+- `login_tokens` — one-time recovery login links (sha256 only); `web_sessions.recovery_until`
+- `changelog_published` / `changelog_seen` — What's New publish state and per-player last visit
 
 ### Tutorials, trophies, etc.
 - `player_saved_fish` — separate trophy collection (referenced by status='saved' in player_fish)
@@ -152,12 +243,16 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 
 ## Recent major work
 
+- 2026-11-19: Fertility's grid/admin rules ported — UTC everywhere + migration
+  runner, admin alerts + logic log, grid identity / push checks, linked avatars,
+  admin objects + recovery terminal (open password reset removed), sim-origin
+  check, changelog
 - Multi-grid pairing with per-grid tokens
 - 60s mutual exclusion lockout (one HUD active across all grids)
 - Hard kill on revoke vs soft deactivation
 - Audit log of pair attempts and exclusion triggers (visible in admin)
 - Tutorial system with TutorialText + TutorialPointer child prims
-- Auto-pair URL with `/fishing/pair?uuid=X&code=Y` landing page
+- Auto-pair URL with `/pair?uuid=X&code=Y` landing page
 - Spot archive instead of delete, with recovery flow
 - Map: pan/zoom/drag, hop:// URLs, home grid setting
 - Heartbeat system: 30 min interval, server marks inactive after ~90 min silence
@@ -170,24 +265,71 @@ Secondary approved grid: #1337 Fresh - MetaVerse
 - Branch: `main`
 - Local path: `C:\Users\Matthew\Projects\OSFishing`
 
+## Critical rules & gotchas (server)
+
+- **All times are UTC.** `includes/bootstrap.php` (loaded by every entry point
+  and class — never require `config.php` directly) sets PHP to UTC and the DB
+  session to `+00:00`. Still write `UTC_TIMESTAMP()`/`UTC_DATE()` in SQL (never
+  `NOW()`/`CURDATE()`) and `gmdate()` in PHP (never `date()`), so nothing depends
+  on the session setting. The host and MariaDB are on America/New_York, so a
+  script that skips bootstrap would silently write local time. New DATETIME
+  columns use `DEFAULT UTC_TIMESTAMP()`. The website shows times in the viewer's
+  zone (`fmtTime`/`fmtDay` in the portal and admin JS); API values stay UTC.
+  Migration 02 converted all stored times on 2026-11-19.
+- **Grid identity is the base domain.** Scripts report the sim hostname
+  (`regions03-2.wa.darkheartsos.net:8002`); one grid runs many. `Grid::identityOf()`
+  gives the grid (full host for shared hosting like `outworldz.net`, IPs and
+  dotless names). Compare grids only with `Grid::sameGridSql()`, never raw
+  `grid_name` equality. Any code that stores a new `grid_name` must call
+  `Grid::findOrRegister()` so the host exists in `grids`.
+- **Approval is per grid.** A new host of an approved/denied grid inherits that
+  decision (+ nickname, hop gateway) and the admins get an alert; an unknown grid
+  is pending and alerts once a day. Pending/denied grids can't pair or set up spots.
+- **"Same region" means same region name AND same grid.** Region names repeat
+  across grids. Every region-based query must also match the grid.
+- **Pushes:** all go through `PushQueue::post`, which swaps in the grid's
+  `public_host` for sims that report a private address. `Grid::checkPushLater()`
+  runs after the reply whenever a HUD/prim registers a callback URL and flags
+  `push_problem` (private / unreachable), finding a public host itself when it
+  can. A HUD denied HTTP-in marks its grid `no_http_in` (first time alerts;
+  Clear on the Grids tab re-arms it). Push payload `{"type":"ping"}` is the
+  harmless test push every script ignores.
+- **HUD requests must carry `X-SecondLife-Owner-Key`** (absent → `not_from_a_sim`,
+  mismatch → `owner_mismatch`). curl tests against HUD actions must send it.
+- **SimOrigin (log-only):** `pair_request`, `check_account`, `aobj_pair_request`,
+  `spot_register`, `shop_register`, `gather_register` (when it sends a grid)
+  check the connecting address against the sim hostname's DNS. Failures →
+  `logic_error_log` `sim_origin_mismatch` + one alert per grid per day. Flip
+  `SimOrigin::ENFORCE` once the log shows no real grid failing.
+- **LSL replies are cut at 2,048 bytes** unless the request sets
+  `HTTP_BODY_MAXLENGTH`; a cut-off JSON reply is lost whole and silently. Keep
+  `/api` replies to in-world scripts small (hud_status already caps queued pushes at 4).
+- **Admin alerts** (`AdminAlerts::send`) are for things an admin should act on.
+  **Logic Log** (`LogicErrorLog::log`) is only for self-repairs and fail-closed
+  checks, never normal gameplay. Categories in use: `sim_origin_mismatch`.
+  Add a row here when adding a category. Neither helper ever throws.
+
 ## Repo layout
 
 ```
 OSFishing/
 ├── config.example.php   — template; real config.php lives on the server, never committed
 ├── deploy/              — deploy script, nginx config, server handoff doc
-│   ├── deploy.sh        — run on the server; pulls a branch and rsyncs it live
+│   ├── deploy.sh        — run on the server; pulls a branch, rsyncs, migrates, reloads
 │   └── nginx/           — vhost + routing snippet (install as root)
 ├── lsl/                 — all in-world LSL scripts (*.lsl)
 └── web/
     ├── config.php       — DB credentials + HUD_SECRET (gitignored, server-only)
-    ├── includes/        — PHP class files
-    ├── migrations/      — schema.sql (consolidated) + historical *_migration.sql
+    ├── bin/             — CLI: migrate.php, find_account.php (not web-served)
+    ├── includes/        — PHP class files (bootstrap.php first)
+    ├── migrations/      — schema.sql (baseline), versioned/ (applied by migrate.php),
+    │                      historical *_migration.sql
     └── public/          — THE DOCROOT — only this directory is web-served
         ├── index.html   — web portal SPA
         ├── api/index.php— single-entry API router
         ├── admin/       — admin panel
-        ├── pair.php     — auto-pair landing page
+        ├── pair.php     — auto-pair / link-avatar landing page
+        ├── recover.php  — one-time recovery login link
         ├── register.php — player registration
         └── setup.php    — setup flow
 ```
@@ -226,8 +368,9 @@ The ones that bite hardest:
 - PHP classes: `web/includes/*.php`
 - API router: `web/public/api/index.php`
 - Web-servable files: `web/public/` only
-- Database: build from `web/migrations/schema.sql`; the individual
-  `*_migration.sql` files are history and do not all replay cleanly
+- Database: build from `web/migrations/schema.sql`, then `php bin/migrate.php`.
+  The loose `*_migration.sql` files are history and do not all replay cleanly;
+  new schema changes go in `web/migrations/versioned/` only
 - config.php is gitignored — edit `config.example.php` to document new constants
 
 ## Git workflow
@@ -241,6 +384,14 @@ After making changes, always:
 
 - Camera revisit (move + set; or move-then-release; or chat command toggle)
 - Big Mouth Billy Bass (animatronic wall fish)
+- **Unauthenticated in-world endpoints trust a `uuid` param.** Many in-world
+  actions (`shop_buy`, `shop_sell`, `buff_activate`, `buff_buy`, `craft_item`,
+  `butcher_fish`, `spot_delete`, `spot_update`, `trophy_for_plaque`, …) take a
+  `uuid` and act as that player with no token, so a hand-made request can spend
+  another player's points or delete their spot. Fix: give in-world objects an
+  object token (like admin objects) or require the HUD's signed request, and at
+  minimum check `X-SecondLife-Owner-Key`/toucher against `uuid`. Found
+  2026-11-19, not fixed yet.
 - Tournament.php schema mismatch fix — `includes/Tournament.php` queries
   `name, metric, spot_id, region_name, grid_name, start_time, end_time,
   status, created_by`; the `tournaments` table built by
@@ -248,14 +399,6 @@ After making changes, always:
   target_water_id, starts_at, ends_at, min_level, is_active`. Two different
   designs that were never reconciled. Decide which is canonical, then fix the
   other side. Every other table/column the PHP queries was verified present.
-- One account is locked to one avatar UUID — `players.uuid` is UNIQUE and every
-  lookup is `WHERE uuid = :uuid`, so a player with a *different avatar* on
-  another grid cannot pair to their existing account. The existing multi-grid
-  work (per-grid `hud_tokens`, exclusion lockout) covers the same avatar
-  hypergridding, which keeps its UUID — not a second avatar. Fix would be an
-  alt-UUID table (`player_uuids`: player_id, uuid, grid) with the lookups
-  joined through it. Matthew hit this on 2026-09-14 registering from a
-  non-Darkhearts grid.
 - World events (admin-toggle double XP, rare spawns)
 - More quests (seasonal, chains, achievements)
 - Hover popup on map dots with hop links inline
