@@ -70,6 +70,24 @@ class Auth {
     }
 
     /**
+     * The logged-in player for a page request (pair.php etc.), or null.
+     * Same session cookie as requireWeb(), but never exits.
+     */
+    public static function currentWebPlayer(): ?array {
+        $sessionId = $_COOKIE['fishing_session'] ?? null;
+        if (!$sessionId) return null;
+        $stmt = db()->prepare('
+            SELECT p.* FROM web_sessions s
+            JOIN players p ON p.id = s.player_id
+            WHERE s.id = :sid AND s.expires_at > UTC_TIMESTAMP()
+        ');
+        $stmt->execute([':sid' => $sessionId]);
+        $player = $stmt->fetch();
+        if (!$player || !empty($player['is_banned'])) return null;
+        return $player;
+    }
+
+    /**
      * Require admin privileges (works for both HUD and web).
      */
     public static function requireAdmin(array $player): void {
@@ -139,7 +157,7 @@ class Auth {
      * Get player by OpenSim UUID.
      */
     public static function getPlayerByUUID(string $uuid): ?array {
-        $stmt = db()->prepare('SELECT * FROM players WHERE uuid = :uuid');
+        $stmt = db()->prepare('SELECT * FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $uuid]);
         return $stmt->fetch() ?: null;
     }

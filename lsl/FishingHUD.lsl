@@ -2196,22 +2196,12 @@ default {
                 showStatus("Account found. Requesting pair code...");
                 requestPairing();
             } else {
-                // Direct user to the portal to register. Portal handles
-                // the registration UI and uses ?uuid= to pre-fill if supported.
-                string portalUrl = gApiUrl;
-                integer apiIdx = llSubStringIndex(portalUrl, "/api/");
-                if (apiIdx != -1) {
-                    portalUrl = llGetSubString(portalUrl, 0, apiIdx - 1);
-                }
-                string regUrl = portalUrl + "/register.php?uuid=" +
-                                llEscapeURL((string)gOwner) +
-                                "&name=" + llEscapeURL(gOwnerName);
-
-                showStatus("No account - click the link to register");
-                llLoadURL(gOwner,
-                    "Welcome to OSFishing! You don't have an account yet. Click below to open the registration page in your browser, then touch the HUD again once registered.",
-                    regUrl);
-                llOwnerSay("A registration link has been offered: " + regUrl);
+                // No account for this avatar yet. Pair anyway: the pair link
+                // lets the owner either log in to an account they already
+                // have (adding this avatar to it, e.g. their avatar on another
+                // grid) or create a new one.
+                showStatus("New avatar - requesting pair link...");
+                requestPairing();
             }
             return;
         }
@@ -2225,9 +2215,11 @@ default {
             showPairingCode(gPairingCode);
             // Offer the one-click pair URL
             if (pairUrl != "" && pairUrl != JSON_INVALID) {
-                llLoadURL(gOwner,
-                    "Click below to pair your HUD instantly. After logging in, your HUD will pair automatically. (Or use code " + gPairingCode + " manually under Settings > Pair HUD.)",
-                    pairUrl);
+                string newAv = jsonGet(body, "new_avatar");
+                string pairMsg = "Click below to pair your HUD instantly. After logging in, your HUD will pair automatically. (Or use code " + gPairingCode + " manually under Settings > Pair HUD.)";
+                if (newAv == "true" || newAv == "1" || newAv == JSON_TRUE)
+                    pairMsg = "Welcome to OSFishing! This avatar isn't on an account yet. Click below, then log in to add it to your existing account, or create a new account.";
+                llLoadURL(gOwner, pairMsg, pairUrl);
                 llOwnerSay("📎 One-click pair link offered (or use code " + gPairingCode + " manually). Pair link: " + pairUrl);
             }
             llSetTimerEvent(gPairPollRate);

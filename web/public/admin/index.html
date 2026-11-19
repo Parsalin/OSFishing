@@ -323,6 +323,11 @@ async function updatePlayer(pid, data) {
   const r = await api('admin_update_player', { player_id: String(pid), ...data });
   if (r.success) { toast('Player updated'); loadPlayerDetail(pid); } else toast(r.error, true);
 }
+async function adminUnlinkAvatar(pid, uuid) {
+  if (!confirm('Unlink avatar '+uuid+' from this account and revoke its HUDs?')) return;
+  const r = await api('admin_unlink_avatar', { player_id:String(pid), avatar_uuid:uuid });
+  if (r.success) { toast(r.message); loadPlayerDetail(pid); } else toast(r.error, true);
+}
 async function grantBait(pid, baitId, qty) {
   const r = await api('admin_grant_bait', { player_id:String(pid), bait_id:String(baitId), quantity:String(qty) });
   if (r.success) { toast('Bait granted'); loadPlayerDetail(pid); } else toast(r.error, true);
@@ -401,7 +406,7 @@ function renderPlayers() {
   if (state.playerDetail) return renderPlayerDetail();
   return h('div',null,
     h('div',{class:'search-bar'},
-      h('input',{placeholder:'Search players...',value:state.playerSearch,onInput:e=>{state.playerSearch=e.target.value;},onKeydown:e=>{if(e.key==='Enter')loadPlayers();}}),
+      h('input',{placeholder:'Find account: name, username, any avatar UUID...',value:state.playerSearch,onInput:e=>{state.playerSearch=e.target.value;},onKeydown:e=>{if(e.key==='Enter')loadPlayers();}}),
       h('button',{class:'btn btn-primary',onClick:loadPlayers},'Search')
     ),
     h('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'12px'}},state.playerTotal+' players found'),
@@ -448,7 +453,7 @@ function renderPlayerDetail() {
         editField('Points', p.fishing_points, v=>updatePlayer(p.id,{fishing_points:v})),
         editField('Spot Limit', p.spot_limit_override||'auto', v=>updatePlayer(p.id,{spot_limit_override:v==='auto'?'null':v}))
       ),
-      h('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}},'UUID: '+p.uuid),
+      h('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}},'Primary UUID: '+p.uuid),
       h('div',{style:{fontSize:'11px',color:'var(--muted)'}},'Last fished: '+(p.last_fished ? fmtTime(p.last_fished) : 'never')+' — Created: '+fmtTime(p.created_at)),
       h('div',{style:{
         marginTop:'10px',padding:'8px 10px',borderRadius:'6px',
@@ -473,6 +478,23 @@ function renderPlayerDetail() {
         )
       )
     )),
+
+    // Linked avatars
+    h('div',{class:'detail-panel'},
+      h('h4',null,'Linked Avatars ('+((d.avatars||[]).length)+')'),
+      (d.avatars||[]).length?h('table',null,
+        h('thead',null,h('tr',null,...['Avatar','UUID','Grid','Linked','Last used','HUDs',''].map(x=>h('th',null,x)))),
+        h('tbody',null,...d.avatars.map(a=>h('tr',null,
+          h('td',null,(a.avatar_name||'—')+(a.is_primary==1?' (primary)':'')),
+          h('td',{style:{fontSize:'10px',fontFamily:'monospace'}},a.uuid),
+          h('td',{style:{fontSize:'11px'}},a.grid_nickname||a.grid_identity||'—'),
+          h('td',{style:{fontSize:'11px',color:'var(--muted)'}},fmtTime(a.linked_at)),
+          h('td',{style:{fontSize:'11px',color:'var(--muted)'}},a.last_used_at?fmtTime(a.last_used_at):'never'),
+          h('td',null,String(a.hud_count||0)),
+          h('td',null,d.avatars.length>1?h('button',{class:'btn btn-sm btn-danger',onClick:()=>adminUnlinkAvatar(p.id,a.uuid)},'Unlink'):null)
+        )))
+      ):h('div',{style:{color:'var(--muted)',fontSize:'12px'}},'None')
+    ),
 
     // Bait inventory
     h('div',{class:'detail-panel'},

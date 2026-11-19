@@ -16,7 +16,7 @@ class Player {
         $pdo = db();
 
         // Check if already registered
-        $stmt = $pdo->prepare('SELECT id FROM players WHERE uuid = :uuid');
+        $stmt = $pdo->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $uuid]);
         if ($stmt->fetch()) {
             json_error('Player already registered', 409);

@@ -38,7 +38,7 @@ class ShopSystem
 
         $playerId = null;
         if ($ownerKey !== '') {
-            $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+            $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $ownerKey]);
             $player = $stmt->fetch();
             if ($player) {
@@ -368,7 +368,7 @@ class ShopSystem
 
     public static function deposit(string $ownerUuid, int $listingId, int $qty): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
         $stmt->execute([':u' => $ownerUuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
@@ -386,7 +386,7 @@ class ShopSystem
 
     public static function withdraw(string $ownerUuid, int $listingId, int $qty): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
         $stmt->execute([':u' => $ownerUuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
@@ -405,7 +405,7 @@ class ShopSystem
 
     public static function adminRestock(string $adminUuid, int $listingId): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
         $stmt->execute([':u' => $adminUuid]);
         $player = $stmt->fetch();
         if (!$player || !(int)$player['is_admin']) json_error('Admin only');
@@ -448,7 +448,7 @@ class ShopSystem
         if ($modifier < 0.9 || $modifier > 1.1) json_error('Modifier must be between 0.9 and 1.1');
         $pdo = db();
 
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
         $stmt->execute([':u' => $ownerUuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');

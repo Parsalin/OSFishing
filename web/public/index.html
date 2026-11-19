@@ -489,9 +489,26 @@ async function loadPairedDevices() {
 async function pairHud() {
   const code = state.pairingCode.trim();
   if (!code || code.length < 6) { showToast('Enter a valid 6-digit code', true); return; }
-  const r = await api('web_pair_claim', { code, device_name: 'HUD' });
-  if (r.success) { showToast('HUD paired successfully!'); state.pairingCode = ''; loadPairedDevices(); }
+  let r = await api('web_pair_claim', { code, device_name: 'HUD' });
+  // A HUD worn by an avatar that isn't on any account: confirm before linking it here.
+  if (r.success && r.needs_confirm) {
+    const who = (r.avatar_name || r.avatar_uuid) + (r.grid ? ' on ' + r.grid : '');
+    if (!confirm('Add the avatar ' + who + ' to your account?\n\nOnly do this if that avatar is yours. It will share this account\'s fish, points, gear and quests. You can remove it later under Linked Avatars.')) return;
+    r = await api('web_pair_claim', { code, device_name: 'HUD', confirm_link: '1' });
+  }
+  if (r.success) { showToast(r.message || 'HUD paired successfully!'); state.pairingCode = ''; loadPairedDevices(); loadLinkedAvatars(); }
   else { showToast(r.error || 'Pairing failed', true); }
+}
+async function loadLinkedAvatars() {
+  const r = await api('web_linked_avatars');
+  if (r.success) state.linkedAvatars = r.avatars || [];
+  render();
+}
+async function unlinkAvatar(uuid, name) {
+  if (!confirm('Remove ' + (name || uuid) + ' from your account? Its HUDs stop working until it is paired again.')) return;
+  const r = await api('web_unlink_avatar', { avatar_uuid: uuid });
+  if (r.success) { showToast(r.message); loadLinkedAvatars(); loadPairedDevices(); }
+  else showToast(r.error, true);
 }
 async function revokeDevice(deviceId) {
   if (!confirm('Revoke this device? The HUD will need to re-pair.')) return;
@@ -623,6 +640,7 @@ async function loadSettings() {
   const r = await api('web_titles');
   if (r.success) state.titles = r.titles || [];
   loadPairedDevices();
+  loadLinkedAvatars();
   loadPairAttempts();
   loadMySpots();
   render();
@@ -659,15 +677,11 @@ async function doLogin() {
     state.loggedIn = true;
     state.player = r.player;
 
-    // If user was redirected from /pair before logging in, claim it now
-    if (sessionStorage.getItem('flashPairPending') === '1') {
-      sessionStorage.removeItem('flashPairPending');
-      const claim = await api('web_claim_pending_pair');
-      if (claim.success) {
-        showToast('HUD paired automatically!');
-      } else {
-        showToast(claim.error || 'Pairing claim failed', true);
-      }
+    // Came from a HUD pairing link while logged out: go back to it now.
+    const pairNext = sessionStorage.getItem('pairNext');
+    if (pairNext) {
+      sessionStorage.removeItem('pairNext');
+      if (/^\/pair\?/.test(pairNext)) { location.href = pairNext; return; }
     }
     if (sessionStorage.getItem('flashPaired') === '1') {
       sessionStorage.removeItem('flashPaired');
@@ -1440,6 +1454,25 @@ function renderSettings() {
         )
       )),
       h('div',{class:'card'},h('div',{class:'card-body'},
+        h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'8px'}},'Linked Avatars'),
+        h('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginBottom:'12px'}},
+          'Avatars that play on this account. To add one (for example your avatar on another grid), wear the HUD on it and open its pairing link while logged in here.'),
+        (state.linkedAvatars||[]).length === 0
+          ? h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'Loading…')
+          : h('div',{style:{display:'flex',flexDirection:'column',gap:'8px'}},
+              ...(state.linkedAvatars||[]).map(a=>
+                h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',padding:'10px 12px',background:'var(--bg-input)',borderRadius:'8px'}},
+                  h('div',{style:{minWidth:0}},
+                    h('div',{style:{fontSize:'13px',fontWeight:600}},(a.avatar_name||'Avatar')+(a.is_primary==1?'  ·  primary':'')),
+                    h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},(a.grid_nickname||a.grid_identity||'grid unknown')+' — last used '+(a.last_used_at?fmtTime(a.last_used_at):'never')),
+                    h('div',{style:{fontSize:'10px',color:'var(--text-muted)',fontFamily:'monospace',wordBreak:'break-all'}},a.uuid)
+                  ),
+                  (state.linkedAvatars||[]).length > 1 ? h('button',{class:'btn btn-secondary btn-sm',onClick:()=>unlinkAvatar(a.uuid, a.avatar_name)},'Remove') : null
+                )
+              )
+            )
+      )),
+      h('div',{class:'card'},h('div',{class:'card-body'},
         h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Paired Devices'),
         (state.pairedDevices||[]).filter(d=>d.is_active==1).length === 0
           ? h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'No devices paired yet.')
@@ -1448,6 +1481,7 @@ function renderSettings() {
                 h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',background:'var(--bg-input)',borderRadius:'8px'}},
                   h('div',null,
                     h('div',{style:{fontSize:'13px',fontWeight:600}}, (d.grid_name ? d.grid_name + ' ' : '') + (d.device_name || 'HUD')),
+                    (()=>{ const av=(state.linkedAvatars||[]).find(a=>a.uuid===d.avatar_uuid); return av ? h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},'Avatar: '+(av.avatar_name||av.uuid)) : null; })(),
                     h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},'Last used: '+(d.last_used ? fmtTime(d.last_used) : 'never'))
                   ),
                   h('button',{class:'btn btn-danger btn-sm',onClick:()=>revokeDevice(d.id)},'Revoke')
@@ -2239,9 +2273,10 @@ function render() {
     sessionStorage.setItem('flashPaired', '1');
     history.replaceState({}, '', window.location.pathname);
   }
-  // Flash: was redirected from /pair pre-login; need to login then re-claim
-  if (params.get('pair_pending') === '1') {
-    sessionStorage.setItem('flashPairPending', '1');
+  // Sent here by /pair while logged out: return there after login.
+  const pairNext = params.get('pair_next');
+  if (pairNext && /^\/pair\?/.test(pairNext)) {
+    sessionStorage.setItem('pairNext', pairNext);
     history.replaceState({}, '', window.location.pathname);
   }
   const pageParam = params.get('page');

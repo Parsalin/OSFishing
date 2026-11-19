@@ -25,8 +25,12 @@ class Admin
         $where = '';
         $params = [];
         if ($search !== '') {
-            $where = 'WHERE p.username LIKE :s OR p.display_name LIKE :s2 OR p.uuid LIKE :s3';
-            $params = [':s' => "%$search%", ':s2' => "%$search%", ':s3' => "%$search%"];
+            // Any linked avatar's UUID or name matches too, not only the primary.
+            $where = 'WHERE p.username LIKE :s OR p.display_name LIKE :s2 OR p.uuid LIKE :s3
+                       OR EXISTS (SELECT 1 FROM player_uuids pu WHERE pu.player_id = p.id
+                                   AND (pu.uuid LIKE :s4 OR pu.avatar_name LIKE :s5))';
+            $params = [':s' => "%$search%", ':s2' => "%$search%", ':s3' => "%$search%",
+                       ':s4' => "%$search%", ':s5' => "%$search%"];
         }
         $stmt = $pdo->prepare("
             SELECT p.id, p.uuid, p.username, p.display_name, p.level, p.xp,
@@ -119,13 +123,72 @@ class Admin
         // Remove sensitive fields
         unset($player['password_hash'], $player['setup_token'], $player['token_expires']);
 
+        require_once __DIR__ . '/PairingAuth.php';
+        $avatars = PairingAuth::linkedAvatars($playerId);
+
         return [
             'player'  => $player,
+            'avatars' => $avatars,
             'bait'    => $bait,
             'lines'   => $lines,
             'spots'   => $spots,
             'catches' => $catches,
         ];
+    }
+
+    /**
+     * The canonical account lookup: always resolve a player this way before
+     * doing anything with a name or UUID someone gave you. Tiered exact match
+     * (player id, any linked avatar UUID, username) and only then a partial
+     * match on usernames, display names, avatar names and UUIDs. Exact match
+     * returns one account; otherwise every candidate.
+     */
+    public static function findAccount(string $query): array {
+        $pdo = db();
+        $q = trim($query);
+        if ($q === '') json_error('Enter a name, username, UUID or player id');
+
+        $ids = [];
+        $how = 'partial';
+        if (ctype_digit($q)) {
+            $s = $pdo->prepare('SELECT id FROM players WHERE id = :id');
+            $s->execute([':id' => (int)$q]);
+            if ($id = $s->fetchColumn()) { $ids = [(int)$id]; $how = 'player id'; }
+        }
+        if (!$ids && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $q)) {
+            $s = $pdo->prepare('SELECT player_id FROM player_uuids WHERE uuid = :u');
+            $s->execute([':u' => strtolower($q)]);
+            if ($id = $s->fetchColumn()) { $ids = [(int)$id]; $how = 'avatar uuid'; }
+        }
+        if (!$ids) {
+            $s = $pdo->prepare('SELECT id FROM players WHERE username = :u');
+            $s->execute([':u' => $q]);
+            if ($id = $s->fetchColumn()) { $ids = [(int)$id]; $how = 'username'; }
+        }
+        if (!$ids) {
+            $like = '%' . $q . '%';
+            $s = $pdo->prepare('
+                SELECT DISTINCT p.id FROM players p
+                LEFT JOIN player_uuids pu ON pu.player_id = p.id
+                WHERE p.username LIKE :a OR p.display_name LIKE :b OR pu.avatar_name LIKE :c OR pu.uuid LIKE :d
+                ORDER BY p.id LIMIT 25
+            ');
+            $s->execute([':a' => $like, ':b' => $like, ':c' => $like, ':d' => $like]);
+            $ids = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+
+        require_once __DIR__ . '/PairingAuth.php';
+        $out = [];
+        foreach ($ids as $id) {
+            $s = $pdo->prepare('SELECT id, uuid, username, display_name, level, is_admin, is_banned, created_at, last_login, last_fished
+                                  FROM players WHERE id = :id');
+            $s->execute([':id' => $id]);
+            $row = $s->fetch();
+            if (!$row) continue;
+            $row['avatars'] = PairingAuth::linkedAvatars($id);
+            $out[] = $row;
+        }
+        return ['match' => $how, 'accounts' => $out];
     }
 
     public static function updatePlayer(int $playerId, array $data): array {

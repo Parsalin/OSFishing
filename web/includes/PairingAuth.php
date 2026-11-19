@@ -15,33 +15,49 @@ require_once __DIR__ . '/Grid.php';
 
 class PairingAuth {
 
+    /** The account id an avatar UUID is linked to, or null. */
+    public static function playerIdForUuid(string $uuid): ?int {
+        $stmt = db()->prepare('SELECT player_id FROM player_uuids WHERE uuid = :u');
+        $stmt->execute([':u' => strtolower(trim($uuid))]);
+        $id = $stmt->fetchColumn();
+        return $id === false ? null : (int)$id;
+    }
+
+    /** Avatar name the sim stamps on the request (cannot be set by a script). */
+    private static function headerAvatarName(): string {
+        $n = trim((string)($_SERVER['HTTP_X_SECONDLIFE_OWNER_NAME'] ?? ''));
+        return mb_substr($n, 0, 128);
+    }
+
     /**
      * Step 1: HUD requests a pairing code for a UUID.
-     * UUID must already have an account (created via web setup).
+     *
+     * An avatar already linked to an account gets a code only that account
+     * can claim. An avatar with no account still gets a code: whoever claims
+     * it on the website (logged in, after confirming) links this avatar to
+     * their account. That is how a second avatar joins an existing account.
      */
     public static function requestCode(string $uuid, string $gridName = ''): array {
         $pdo = db();
+        $uuid = strtolower(trim($uuid));
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $uuid)) {
+            json_error('Invalid avatar UUID', 400);
+        }
 
-        // Verify the UUID has an account
-        $stmt = $pdo->prepare('SELECT id, display_name FROM players WHERE uuid = :uuid');
-        $stmt->execute([':uuid' => $uuid]);
-        $player = $stmt->fetch();
+        $playerId   = self::playerIdForUuid($uuid);
+        $avatarName = self::headerAvatarName();
 
         // Log the attempt regardless of outcome
         $pdo->prepare('
             INSERT INTO hud_pair_attempts (player_id, attempted_uuid, grid_name, avatar_name, ip_address, succeeded)
             VALUES (:pid, :uuid, :gn, :av, :ip, 0)
         ')->execute([
-            ':pid'  => $player ? (int)$player['id'] : null,
+            ':pid'  => $playerId,
             ':uuid' => $uuid,
             ':gn'   => $gridName ?: null,
-            ':av'   => $player ? ($player['display_name'] ?? null) : null,
+            ':av'   => $avatarName !== '' ? $avatarName : null,
             ':ip'   => $_SERVER['REMOTE_ADDR'] ?? null,
         ]);
-
-        if (!$player) {
-            json_error('No account exists for this avatar. Please register on the website first.', 404);
-        }
 
         // Invalidate any older unclaimed codes for this UUID (any grid)
         $stmt = $pdo->prepare('
@@ -69,23 +85,47 @@ class PairingAuth {
         $expires = gmdate('Y-m-d H:i:s', time() + 300); // 5 minute expiry
 
         $stmt = $pdo->prepare('
-            INSERT INTO hud_pairing_codes (code, player_uuid, grid_name, player_id, expires_at)
-            VALUES (:c, :uuid, :gn, :pid, :exp)
+            INSERT INTO hud_pairing_codes (code, player_uuid, avatar_name, grid_name, player_id, expires_at)
+            VALUES (:c, :uuid, :an, :gn, :pid, :exp)
         ');
         $stmt->execute([
             ':c'    => $code,
             ':uuid' => $uuid,
+            ':an'   => $avatarName !== '' ? $avatarName : null,
             ':gn'   => $gridName ?: null,
-            ':pid'  => $player['id'],
+            ':pid'  => $playerId,
             ':exp'  => $expires,
         ]);
 
         return [
             'pairing_code' => $code,
             'expires_in'   => 300,
+            'new_avatar'   => $playerId === null,
             'pair_url'     => self::baseUrl() . '/pair?uuid=' . urlencode($uuid) . '&code=' . urlencode($code),
-            'message'      => 'Enter this code on the web portal under Settings > Pair HUD',
+            'message'      => $playerId === null
+                ? 'This avatar is not linked to an account yet. Open the link to add it to your account, or create one.'
+                : 'Enter this code on the web portal under Settings > Pair HUD',
         ];
+    }
+
+    /**
+     * A live, unclaimed code for this avatar, with what claiming it would do
+     * for $playerId: 'pair' (avatar already on this account), 'link' (avatar
+     * on no account — claiming links it), or 'other_account'.
+     */
+    public static function describeCode(string $uuid, string $code, int $playerId): ?array {
+        $code = self::normalizeCode($code);
+        $stmt = db()->prepare('
+            SELECT * FROM hud_pairing_codes
+            WHERE code = :c AND player_uuid = :u AND claimed = 0 AND expires_at > UTC_TIMESTAMP()
+        ');
+        $stmt->execute([':c' => $code, ':u' => strtolower(trim($uuid))]);
+        $row = $stmt->fetch();
+        if (!$row) return null;
+        $owner = self::playerIdForUuid($row['player_uuid']);
+        $row['effect'] = $owner === null ? 'link' : ($owner === $playerId ? 'pair' : 'other_account');
+        $row['grid_identity'] = $row['grid_name'] ? Grid::identityOf($row['grid_name']) : '';
+        return $row;
     }
 
     /**
@@ -159,15 +199,21 @@ class PairingAuth {
 
     /**
      * Step 2: Web portal claims a code (player is logged in via session).
+     *
+     * The code's avatar must be on this account already, or on no account —
+     * then claiming links it here, but only with $confirmLink: without it the
+     * caller gets needs_confirm + who the avatar is, so the player confirms
+     * "add this avatar to my account" knowingly. (Entering someone else's
+     * code would otherwise hand their avatar control of your account.)
      */
-    public static function claimCode(int $playerId, string $code, string $deviceName = 'HUD'): array {
+    public static function claimCode(int $playerId, string $code, string $deviceName = 'HUD', bool $confirmLink = false): array {
         $code = self::normalizeCode($code);
         $pdo = db();
 
-        // Find the code (must be unclaimed, not expired, and belong to this player)
         $stmt = $pdo->prepare('
             SELECT * FROM hud_pairing_codes
-            WHERE code = :c AND player_id = :pid AND claimed = 0 AND expires_at > UTC_TIMESTAMP()
+            WHERE code = :c AND claimed = 0 AND expires_at > UTC_TIMESTAMP()
+              AND (player_id = :pid OR player_id IS NULL)
         ');
         $stmt->execute([':c' => $code, ':pid' => $playerId]);
         $row = $stmt->fetch();
@@ -176,27 +222,46 @@ class PairingAuth {
             json_error('Invalid or expired pairing code, or it does not belong to your account.', 400);
         }
 
-        // Get grid_name from the pairing code
-        $gridName = $row['grid_name'] ?? null;
+        $avatarUuid = strtolower($row['player_uuid']);
+        $gridName   = $row['grid_name'] ?? null;
+        $owner      = self::playerIdForUuid($avatarUuid);
+        if ($owner !== null && $owner !== $playerId) {
+            json_error('That avatar belongs to a different account.', 403);
+        }
+        $linking = $owner === null;
+        if ($linking && !$confirmLink) {
+            return [
+                'needs_confirm' => true,
+                'avatar_uuid'   => $avatarUuid,
+                'avatar_name'   => $row['avatar_name'],
+                'grid'          => $gridName ? Grid::identityOf($gridName) : '',
+                'message'       => 'This avatar is not on your account yet. Confirm to link it.',
+            ];
+        }
 
         // Generate the device token (long random string)
         $token = bin2hex(random_bytes(48));
 
         $pdo->beginTransaction();
         try {
-            // Re-pair on the SAME grid revokes that grid's old token only.
-            // Other grids stay alive (hypergrid travelers re-visiting paired grids).
-            if ($gridName !== null && $gridName !== '') {
-                $pdo->prepare('UPDATE hud_tokens
-                               SET is_active = 0, revoked_at = UTC_TIMESTAMP()
-                               WHERE player_id = :pid AND grid_name = :gn AND revoked_at IS NULL')
-                    ->execute([':pid' => $playerId, ':gn' => $gridName]);
-            } else {
-                $pdo->prepare('UPDATE hud_tokens
-                               SET is_active = 0, revoked_at = UTC_TIMESTAMP()
-                               WHERE player_id = :pid AND grid_name IS NULL AND revoked_at IS NULL')
-                    ->execute([':pid' => $playerId]);
+            if ($linking) {
+                $pdo->prepare('
+                    INSERT INTO player_uuids (player_id, uuid, grid_identity, avatar_name, last_used_at)
+                    VALUES (:pid, :u, :gi, :n, UTC_TIMESTAMP())
+                ')->execute([
+                    ':pid' => $playerId, ':u' => $avatarUuid,
+                    ':gi'  => $gridName ? Grid::identityOf($gridName) : null,
+                    ':n'   => $row['avatar_name'],
+                ]);
             }
+
+            // Re-pair of the SAME avatar on the SAME grid revokes that token only.
+            // Other grids and other avatars stay alive.
+            $pdo->prepare('UPDATE hud_tokens
+                           SET is_active = 0, revoked_at = UTC_TIMESTAMP()
+                           WHERE player_id = :pid AND grid_name <=> :gn
+                             AND (avatar_uuid = :au OR avatar_uuid IS NULL) AND revoked_at IS NULL')
+                ->execute([':pid' => $playerId, ':gn' => $gridName, ':au' => $avatarUuid]);
 
             // Mark this pairing attempt as succeeded
             $pdo->prepare('UPDATE hud_pair_attempts
@@ -208,11 +273,12 @@ class PairingAuth {
 
             // Insert the token with grid scope
             $stmt = $pdo->prepare('
-                INSERT INTO hud_tokens (player_id, token, device_name, grid_name, last_used, last_ip)
-                VALUES (:pid, :tok, :dn, :gn, UTC_TIMESTAMP(), :ip)
+                INSERT INTO hud_tokens (player_id, avatar_uuid, token, device_name, grid_name, last_used, last_ip)
+                VALUES (:pid, :au, :tok, :dn, :gn, UTC_TIMESTAMP(), :ip)
             ');
             $stmt->execute([
                 ':pid' => $playerId,
+                ':au'  => $avatarUuid,
                 ':tok' => $token,
                 ':dn'  => $deviceName,
                 ':gn'  => $gridName,
@@ -235,8 +301,9 @@ class PairingAuth {
         }
 
         return [
-            'message'   => 'HUD paired successfully!',
-            'device_id' => $tokenId,
+            'message'       => $linking ? 'Avatar linked and HUD paired!' : 'HUD paired successfully!',
+            'device_id'     => $tokenId,
+            'linked_avatar' => $linking,
         ];
     }
 
@@ -270,19 +337,23 @@ class PairingAuth {
             json_error('Invalid or revoked token. Re-pair your HUD.', 401);
         }
 
-        // Verify UUID matches the player
-        if ($row['uuid'] !== $uuid) {
+        // The token belongs to the avatar that paired it. (Tokens from before
+        // linked avatars have avatar_uuid backfilled to the account's uuid.)
+        $tokenAvatar = strtolower((string)($row['avatar_uuid'] ?: $row['uuid']));
+        if (strcasecmp($tokenAvatar, $uuid) !== 0) {
             json_error('UUID mismatch', 401);
         }
 
-        // Cross-check the owner-key header against the claimed uuid.
-        // The simulator sets X-Secondlife-Owner-Key and a script cannot forge
-        // it, so this is a free identity assertion on top of the token: a
-        // token leaked from one player's HUD cannot be replayed from another
-        // avatar's attachment. Absent header = a non-sim client (curl tests,
-        // the web portal), which still has to pass the signature check below.
+        // Every HUD request comes from a sim, and the sim stamps
+        // X-Secondlife-Owner-Key; a script cannot set it. Require it and
+        // cross-check: a token leaked from one player's HUD cannot be replayed
+        // from another avatar's attachment. Only FishingHUD signs requests, so
+        // nothing legitimate arrives without it. curl tests must send it.
         $ownerKey = $_SERVER['HTTP_X_SECONDLIFE_OWNER_KEY'] ?? '';
-        if ($ownerKey !== '' && strcasecmp($ownerKey, $uuid) !== 0) {
+        if ($ownerKey === '') {
+            json_error('not_from_a_sim', 401);
+        }
+        if (strcasecmp($ownerKey, $uuid) !== 0) {
             error_log("owner_mismatch: header={$ownerKey} uuid={$uuid} action={$action}");
             json_error('owner_mismatch', 401);
         }
@@ -316,7 +387,7 @@ class PairingAuth {
         $blockingRow = $stmt->fetch();
         if ($blockingRow) {
             // Find the UUID currently holding the lock
-            $blockerStmt = $pdo->prepare('SELECT p.uuid FROM hud_tokens ht
+            $blockerStmt = $pdo->prepare('SELECT COALESCE(ht.avatar_uuid, p.uuid) FROM hud_tokens ht
                 JOIN players p ON p.id = ht.player_id
                 WHERE ht.id = :id');
             $blockerStmt->execute([':id' => $blockingRow['id']]);
@@ -347,11 +418,15 @@ class PairingAuth {
             ':ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
             ':tid' => $tokenId,
         ]);
+        $pdo->prepare('UPDATE player_uuids SET last_used_at = UTC_TIMESTAMP() WHERE uuid = :u')
+            ->execute([':u' => $tokenAvatar]);
 
-        // Return the player record
+        // Return the player record. 'uuid' is the avatar making this request
+        // (an account can have several); 'account_uuid' is its primary one.
         return [
             'id' => (int)$row['player_id'],
-            'uuid' => $row['uuid'],
+            'uuid' => $tokenAvatar,
+            'account_uuid' => $row['uuid'],
             'username' => $row['username'],
             'display_name' => $row['display_name'],
             'level' => (int)$row['level'],
@@ -378,7 +453,7 @@ class PairingAuth {
         }
 
         // Check if UUID already has an account
-        $stmt = $pdo->prepare('SELECT id FROM players WHERE uuid = :uuid');
+        $stmt = $pdo->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $uuid]);
         if ($stmt->fetch()) {
             json_error('An account already exists for this avatar. Try logging in instead.', 409);
@@ -412,12 +487,14 @@ class PairingAuth {
             VALUES (:uuid, :u, :p, :d)
         ');
         $stmt->execute([
-            ':uuid' => $uuid,
+            ':uuid' => strtolower($uuid),
             ':u'    => $username,
             ':p'    => $hash,
             ':d'    => $displayName,
         ]);
         $playerId = (int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO player_uuids (player_id, uuid, avatar_name) VALUES (:pid, :u, :n)')
+            ->execute([':pid' => $playerId, ':u' => strtolower($uuid), ':n' => $displayName]);
 
         // Grant starter rod, line, and bait
         $pdo->prepare('INSERT IGNORE INTO player_rods (player_id, rod_id) VALUES (:pid, 1)')
@@ -468,7 +545,7 @@ class PairingAuth {
      */
     public static function getArchivedSpots(string $uuid, string $region, string $gridName = ''): array {
         $pdo  = db();
-        $stmt = $pdo->prepare('SELECT id, level, is_admin, spot_limit_override FROM players WHERE uuid = :u');
+        $stmt = $pdo->prepare('SELECT id, level, is_admin, spot_limit_override FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
         $stmt->execute([':u' => $uuid]);
         $player = $stmt->fetch();
         if (!$player) return ['archived' => [], 'inactive' => [], 'spot_count' => 0, 'spot_limit' => 3, 'is_admin' => 0];
@@ -543,7 +620,7 @@ class PairingAuth {
                                         float $posX, float $posY, float $posZ,
                                         string $regionName, string $gridName = ''): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
         $stmt->execute([':u' => $uuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
@@ -603,7 +680,7 @@ class PairingAuth {
         if ($waterType === '') json_error('Water type is required');
         if ($ownerKey === '') json_error('Missing owner_key');
 
-        $stmt = $pdo->prepare('SELECT id, level, is_admin, spot_limit_override FROM players WHERE uuid = :uuid');
+        $stmt = $pdo->prepare('SELECT id, level, is_admin, spot_limit_override FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $ownerKey]);
         $player = $stmt->fetch();
         if (!$player) json_error('No fishing account. Register first.', 403);
@@ -713,7 +790,7 @@ class PairingAuth {
      */
     public static function getSpotSetupInfo(string $uuid): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, level, is_admin, spot_limit_override FROM players WHERE uuid = :uuid');
+        $stmt = $pdo->prepare('SELECT id, level, is_admin, spot_limit_override FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $uuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('No fishing account found', 404);
@@ -745,7 +822,7 @@ class PairingAuth {
      */
     public static function updateSpot(string $ownerUuid, int $spotId, array $data): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :uuid');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $ownerUuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
@@ -802,7 +879,7 @@ class PairingAuth {
      */
     public static function addJunkItem(string $ownerUuid, int $spotId, string $itemName, float $rarityWeight = 1.0, string $rarityLabel = 'common'): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :uuid');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $ownerUuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
@@ -833,7 +910,7 @@ class PairingAuth {
      */
     public static function removeJunkItem(string $ownerUuid, int $junkId): array {
         $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE uuid = :uuid');
+        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $ownerUuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
@@ -1264,7 +1341,7 @@ class PairingAuth {
      * Check if a UUID has an account (no auth needed).
      */
     public static function checkAccount(string $uuid): array {
-        $stmt = db()->prepare('SELECT id, display_name FROM players WHERE uuid = :uuid');
+        $stmt = db()->prepare('SELECT id, display_name FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $uuid]);
         $player = $stmt->fetch();
         if (!$player) return ['exists' => false];
@@ -1276,7 +1353,7 @@ class PairingAuth {
      */
     public static function listDevices(int $playerId): array {
         $stmt = db()->prepare('
-            SELECT id, device_name, grid_name, issued_at, last_used, last_ip, is_active
+            SELECT id, device_name, grid_name, avatar_uuid, issued_at, last_used, last_ip, is_active
             FROM hud_tokens
             WHERE player_id = :pid AND revoked_at IS NULL
             ORDER BY last_used DESC
@@ -1321,7 +1398,8 @@ class PairingAuth {
                 COUNT(*) AS trigger_count,
                 MAX(het.triggered_at) AS last_triggered
             FROM hud_exclusion_triggers het
-            LEFT JOIN players p ON p.uuid = het.triggered_uuid
+            LEFT JOIN player_uuids pu ON pu.uuid = het.triggered_uuid
+            LEFT JOIN players p ON p.id = pu.player_id
             WHERE het.player_id = :pid
             GROUP BY het.triggered_uuid, p.display_name, p.username
             ORDER BY trigger_count DESC
@@ -1334,6 +1412,59 @@ class PairingAuth {
             'total_triggers' => $total,
             'by_uuid' => $byUuid,
         ];
+    }
+
+    /** Avatars linked to an account, primary first. */
+    public static function linkedAvatars(int $playerId): array {
+        $stmt = db()->prepare('
+            SELECT pu.uuid, pu.grid_identity, pu.avatar_name, pu.linked_at, pu.last_used_at,
+                   (pu.uuid = LOWER(p.uuid) COLLATE utf8mb4_unicode_ci) AS is_primary,
+                   (SELECT COUNT(*) FROM hud_tokens ht
+                     WHERE ht.player_id = pu.player_id AND ht.avatar_uuid = pu.uuid AND ht.revoked_at IS NULL) AS hud_count,
+                   (SELECT MAX(g.nickname) FROM grids g WHERE g.grid_identity = pu.grid_identity) AS grid_nickname
+              FROM player_uuids pu
+              JOIN players p ON p.id = pu.player_id
+             WHERE pu.player_id = :pid
+             ORDER BY is_primary DESC, pu.last_used_at DESC
+        ');
+        $stmt->execute([':pid' => $playerId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Remove an avatar from an account and revoke its HUDs. The last avatar
+     * can't be removed. If it was the primary, another becomes primary.
+     */
+    public static function unlinkAvatar(int $playerId, string $uuid): array {
+        $pdo = db();
+        $uuid = strtolower(trim($uuid));
+        $owner = self::playerIdForUuid($uuid);
+        if ($owner !== $playerId) json_error('That avatar is not on this account', 404);
+        $count = $pdo->prepare('SELECT COUNT(*) FROM player_uuids WHERE player_id = :pid');
+        $count->execute([':pid' => $playerId]);
+        if ((int)$count->fetchColumn() <= 1) json_error('This is the only avatar on the account; it cannot be removed.', 400);
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('UPDATE hud_tokens SET is_active = 0, revoked_at = UTC_TIMESTAMP()
+                            WHERE player_id = :pid AND avatar_uuid = :u AND revoked_at IS NULL')
+                ->execute([':pid' => $playerId, ':u' => $uuid]);
+            $pdo->prepare('DELETE FROM player_uuids WHERE player_id = :pid AND uuid = :u')
+                ->execute([':pid' => $playerId, ':u' => $uuid]);
+            $prim = $pdo->prepare('SELECT LOWER(uuid) FROM players WHERE id = :pid');
+            $prim->execute([':pid' => $playerId]);
+            if ($prim->fetchColumn() === $uuid) {
+                $next = $pdo->prepare('SELECT uuid FROM player_uuids WHERE player_id = :pid ORDER BY last_used_at DESC, id LIMIT 1');
+                $next->execute([':pid' => $playerId]);
+                $pdo->prepare('UPDATE players SET uuid = :u WHERE id = :pid')
+                    ->execute([':u' => $next->fetchColumn(), ':pid' => $playerId]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+        return ['message' => 'Avatar removed from the account and its HUDs revoked.'];
     }
 
     /**

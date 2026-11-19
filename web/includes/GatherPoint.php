@@ -38,7 +38,7 @@ class GatherPoint
         $playerId = null;
         $isSystem = 1;
         if ($ownerKey !== '') {
-            $stmt = $pdo->prepare('SELECT id, level FROM players WHERE uuid = :uuid');
+            $stmt = $pdo->prepare('SELECT id, level FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
             $stmt->execute([':uuid' => $ownerKey]);
             $owner = $stmt->fetch();
             if ($owner) {

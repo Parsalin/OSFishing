@@ -119,7 +119,7 @@ try {
             $uuid = require_param('uuid');
             $newPassword = require_param('new_password');
             if (strlen($newPassword) < 6) json_error('Password must be at least 6 characters');
-            $stmt = db()->prepare('SELECT id, display_name FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id, display_name FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $player = $stmt->fetch();
             if (!$player) json_error('Account not found');
@@ -246,7 +246,7 @@ try {
         case 'spot_level_up':
             $uuid   = require_param('uuid');
             $spotId = (int)require_param('spot_id');
-            $stmt   = db()->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+            $stmt   = db()->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $actor  = $stmt->fetch();
             if (!$actor) json_error('Player not found', 401);
@@ -262,7 +262,7 @@ try {
             $uuid = require_param('uuid');
             $spotId = (int)require_param('spot_id');
             // Verify ownership or admin
-            $stmt = db()->prepare('SELECT id, is_admin FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $player = $stmt->fetch();
             if (!$player) json_error('Player not found');
@@ -345,10 +345,21 @@ try {
             json_success(PairingAuth::checkStatus($uuid, $code));
 
         case 'web_pair_claim':
+            // A code from an avatar on no account returns needs_confirm first;
+            // the portal asks "link this avatar?" and repeats with confirm_link=1.
             $player = AuthEmbed::requireWeb();
             $code = require_param('code');
             $deviceName = optional_param('device_name', 'HUD');
-            json_success(PairingAuth::claimCode((int)$player['id'], $code, $deviceName));
+            $confirm = optional_param('confirm_link', '0') === '1';
+            json_success(PairingAuth::claimCode((int)$player['id'], $code, $deviceName, $confirm));
+
+        case 'web_linked_avatars':
+            $player = AuthEmbed::requireWeb();
+            json_success(['avatars' => PairingAuth::linkedAvatars((int)$player['id'])]);
+
+        case 'web_unlink_avatar':
+            $player = AuthEmbed::requireWeb();
+            json_success(PairingAuth::unlinkAvatar((int)$player['id'], require_param('avatar_uuid')));
 
         case 'web_paired_devices':
             $player = AuthEmbed::requireWeb();
@@ -369,12 +380,6 @@ try {
             $player = AuthEmbed::requireWeb();
             $deviceId = (int)require_param('device_id');
             json_success(PairingAuth::revokeDevice((int)$player['id'], $deviceId));
-
-        // ── Registration (no auth — first-time HUD attach) ──
-        case 'register':
-            $uuid = require_param('uuid');
-            $name = require_param('display_name');
-            json_success(Player::register($uuid, $name));
 
         // ── Player status (HUD login / refresh) ──
         case 'hud_status':
@@ -639,20 +644,6 @@ try {
             $username = require_param('username');
             $password = require_param('password');
             json_success(Auth::webLogin($username, $password));
-
-        // ── Web: claim a deferred pair after login ──
-        case 'web_claim_pending_pair':
-            $player = AuthEmbed::requireWeb();
-            if (!isset($_SESSION['pair_after_login'])) {
-                json_error('No pending pairing', 404);
-            }
-            $pending = $_SESSION['pair_after_login'];
-            unset($_SESSION['pair_after_login']);
-            // Verify uuid matches
-            if (strcasecmp($player['uuid'], $pending['uuid']) !== 0) {
-                json_error('Pairing link is for a different account', 403);
-            }
-            json_success(PairingAuth::claimCode((int)$player['id'], $pending['code'], 'HUD'));
 
         // ── Web: logout ──
         case 'web_logout':
@@ -971,6 +962,14 @@ try {
             $pid = (int)require_param('player_id');
             json_success(Admin::getPlayer($pid));
 
+        case 'admin_find_account':
+            Admin::requireAdmin();
+            json_success(Admin::findAccount(require_param('query')));
+
+        case 'admin_unlink_avatar':
+            Admin::requireAdmin();
+            json_success(PairingAuth::unlinkAvatar((int)require_param('player_id'), require_param('avatar_uuid')));
+
         case 'admin_update_player':
             Admin::requireAdmin();
             $pid = (int)require_param('player_id');
@@ -1077,7 +1076,7 @@ try {
         case 'web_butcher_list':
             $uuid = optional_param('uuid', null);
             if ($uuid) {
-                $stmt = db()->prepare('SELECT * FROM players WHERE uuid = :u');
+                $stmt = db()->prepare('SELECT * FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
                 $stmt->execute([':u' => $uuid]);
                 $player = $stmt->fetch();
                 if (!$player) json_error('Player not found');
@@ -1090,7 +1089,7 @@ try {
         case 'web_butcher_fish':
             $uuid = optional_param('uuid', null);
             if ($uuid) {
-                $stmt = db()->prepare('SELECT * FROM players WHERE uuid = :u');
+                $stmt = db()->prepare('SELECT * FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
                 $stmt->execute([':u' => $uuid]);
                 $player = $stmt->fetch();
                 if (!$player) json_error('Player not found');
@@ -1147,7 +1146,7 @@ try {
 
         case 'buff_inventory':
             $uuid = require_param('uuid');
-            $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
@@ -1161,7 +1160,7 @@ try {
             $uuid = require_param('uuid');
             $spotId = (int)require_param('spot_id');
             $buffItemId = (int)require_param('buff_item_id');
-            $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
@@ -1170,7 +1169,7 @@ try {
         case 'buff_buy':
             $uuid = require_param('uuid');
             $buffItemId = (int)require_param('buff_item_id');
-            $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
@@ -1194,7 +1193,7 @@ try {
         // ── Crafting (at butcher table) ──
         case 'craft_recipes':
             $uuid = require_param('uuid');
-            $stmt = db()->prepare('SELECT level FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT level FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
@@ -1203,7 +1202,7 @@ try {
         case 'craft_item':
             $uuid = require_param('uuid');
             $buffType = require_param('buff_type');
-            $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
@@ -1288,7 +1287,7 @@ try {
 
         case 'trophy_for_plaque':
             $uuid = require_param('uuid');
-            $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
@@ -1337,7 +1336,7 @@ try {
 
         case 'shop_buy':
             $uuid = require_param('uuid');
-            $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
@@ -1346,7 +1345,7 @@ try {
 
         case 'shop_sell':
             $uuid = require_param('uuid');
-            $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
@@ -1355,7 +1354,7 @@ try {
 
         case 'shop_transactions':
             $uuid = require_param('uuid');
-            $stmt = db()->prepare('SELECT id FROM players WHERE uuid = :u');
+            $stmt = db()->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
             $stmt->execute([':u' => $uuid]);
             $p = $stmt->fetch();
             if (!$p) json_error('Player not found');
