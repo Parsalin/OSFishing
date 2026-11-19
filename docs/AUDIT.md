@@ -1,7 +1,8 @@
 # OSFishing — best-practices audit (2026-11-19)
 
 A scan of the repo against `docs/BEST_PRACTICES.md` (numbers in brackets refer
-to it). Nothing here is fixed yet unless marked. Tick items off as they land.
+to it). Ticked items are fixed; the commit subject names the item number.
+In-world (LSL) fixes only reach players once the updated objects are handed out.
 
 ## 🔴 High
 
@@ -13,71 +14,98 @@ to it). Nothing here is fixed yet unless marked. Tick items off as they land.
   `butcher_fish`, `spot_delete`, `spot_update`, `spot_add_junk`,
   `spot_remove_junk`, `spot_level_up`, `spot_restore`, `trophy_for_plaque`,
   plus `spot_register`/`shop_register`/`gather_register` via `owner_key`.
-  Fix: actions done *by a player* go through the HUD's signed request (objects
-  relay to the HUD, as gather points already do with `gather_tick`); actions
-  done *by an object* get an object token bound like admin objects. Interim:
-  require `X-SecondLife-Owner-Key` and match it to the object's registered
-  owner.
-- [ ] **2. Web registration takes any typed avatar UUID** [BP 2, 8]
-  `web_register` creates an account for whatever UUID is entered, so anyone
-  can squat a player's avatar UUID before they register (they then can't
-  register, and the UUID is "theirs"). Fix: create accounts only through the
-  HUD's pair link (the code proves the avatar), i.e. register.php requires a
-  live pairing code for that UUID.
-- [ ] **3. No scheduled database backup** [BP 43]
-  `/var/backups/osfishing` exists but no job runs (SERVER-HANDOFF). Today's
-  only backup is the manual `~/pre_utc_backup_20261119.sql`.
+  - [x] **Step 1 (done, log-only):** `InWorldAuth::check` runs for all 28
+    actions (`INWORLD_UUID_ACTIONS` in the router). Owner actions need the
+    sim's owner header to equal the uuid (or the uuid to be an admin); toucher
+    actions need only come from a sim. Failures → Logic Log
+    `inworld_unverified`. Turn on `InWorldAuth::ENFORCE` once the log shows no
+    real object failing. Headers can be forged, so this only stops the naive
+    request.
+  - [ ] **Step 2: player actions move into the HUD.** An object can't submit
+    a HUD-signed request for the toucher: `requireHUD` requires the sim's
+    owner header to equal the signer, and an object's owner is the object's
+    owner, not the toucher. Relaying replies through the HUD fails too
+    (chat messages cap at 1,024 bytes; `butcher_list` is bigger). So:
+    - Vendor touch → vendor `llRegionSayTo(toucher, …, "VENDOR|<listing_id>")`;
+      the **HUD** shows the Buy/Sell/quantity dialogs and calls `shop_buy` /
+      `shop_sell` signed. The vendor keeps polling `shop_listing_status`.
+    - Fishing-spot buffs and the PrepTable (butcher, craft) → the HUD opens
+      its media panel on a portal page (`web_buff_*`, `web_butcher_*` exist;
+      add `web_craft_*`). The click on a page the player is logged into is the
+      consent.
+    - Then the server drops the uuid branch of those actions.
+    The cost: every deployed vendor, spot and PrepTable needs its new script,
+    and the HUD needs a release. Needs in-world testing.
+  - [ ] **Step 3: object tokens for owner actions** (spot settings, vendor
+    stock, gather/shop registration), issued at register and bound like admin
+    objects (object key, owner, address, grid). Replaces the header check.
+  - [ ] Spot `DELIVER_JUNK` should be confirmed by the server (pending junk
+    delivery recorded by `confirm_catch`, claimed once by the spot). Today the
+    spot only checks the request comes from the recipient's HUD (item 9), so a
+    scripted fake HUD could still farm a spot's junk items for itself.
+- [x] **2. Web registration takes any typed avatar UUID** [BP 2, 8]
+  `register.php` now needs the HUD's live pairing code for that UUID, creates
+  the account in one transaction and claims the code, so the HUD pairs at once.
+- [x] **3. No scheduled database backup** [BP 43]
+  `deploy/backup.sh` nightly at 03:23 (host time) to `~osfishing/backups`,
+  14 days. **Still on-server only**: a lost VPS loses the backups too. Needs
+  an off-site copy (rclone to B2 or similar, as Fertility's `03-backup.sh`)
+  and that needs root or a remote's credentials.
+- [ ] **18. `pair_status` can be brute-forced** (new) [BP 2, 5]
+  It's unauthenticated with no rate limit, and the avatar UUID is public.
+  While a code is live (5 min) a fast client can try codes for a target UUID;
+  if it finds the code after the owner claims it, it can collect the token
+  before the HUD's next 5 s poll. The token is now handed out only once, which
+  closes the "collect it any time later" hole, but not this race. Fix:
+  throttle `pair_status`/`pair_request` per address (as `login_attempts`),
+  and require the owner header to match `uuid`.
 
 ## 🟠 Medium
 
-- [ ] **4. No login throttling** — unlimited password guesses per username/IP.
-- [ ] **5. Pushes run inside the request, one by one** [BP 35]
-  `PairingAuth::pushToPlayer` / `PrimCallback::pushToType` call
-  `PushQueue::post` (3–5 s timeouts) before replying, e.g. on web equip/sell
-  and buff activation. Move to an outbox sent after `fastcgi_finish_request()`
-  with curl_multi, as Fertility's HudPushService does.
-- [ ] **6. HUD timer has many owners** [BP 52]
-  15 `llSetTimerEvent` call sites. `checkInfoFade()` sets the timer to 0 when
-  idle, which also stops the pairing poll if a notice was fading (e.g. right
-  after "Saved pairing is no longer valid") — the HUD then never sees the code
-  being claimed. Route every rate change through one `restoreTimer()`.
-- [ ] **7. BaitVendor draws (OSSL) before starting its timer** [BP 49]
-  `state_entry` calls `renderDisplay()` → `osSetDynamicTextureData` before
-  `llSetTimerEvent(300)`. On a grid that denies it the script halts with no
-  timer. Move the timer (and any listens) first, as LeaderboardDisplay and
-  TournamentBoard already do.
-- [ ] **8. `llRegionSayTo(<avatar key>, channel, …)` to reach scripts** [BP 55]
-  HUD → Rod (8 calls) and Bobber → HUD (`BOBBER_READY`). Fertility found
-  avatar-targeted `llRegionSayTo` reaches the viewer's chat but not listening
-  scripts on its grid. Verify in-world: if the rod animates and the bobber
-  moves during a fight, this grid delivers it; if not, switch to the object
-  key or `llSay`.
-- [ ] **9. Fixed shared channels** (-7710001…-7710007) [BP 56]
-  Everyone's HUD, rod, bobber, spots and gather points share them; messages
-  can cross between players in one region where the receiver doesn't check
-  the sender's owner. Derive per-owner channels.
+- [x] **4. No login throttling** — 5 failures per username or 20 per address
+  in 15 min → 429 (`login_attempts`).
+- [x] **5. Pushes run inside the request, one by one** [BP 35]
+  `PushQueue::sendLater` outbox, sent after `fastcgi_finish_request()` with
+  curl_multi (URLs in parallel, one URL in order). Flush-on-contact also runs
+  after the reply.
+- [x] **6. HUD timer has many owners** [BP 52]
+  One `restoreTimer()`; bite window and victory pause are deadlines.
+- [x] **7. BaitVendor draws (OSSL) before starting its timer** [BP 49]
+  Timer and fetch now come first, but that can't save a halted script. The
+  draw is bracketed by a LinksetData mark: if the last draw halted the
+  script, after a reset the vendor shows hover text instead. LeaderboardDisplay,
+  TournamentBoard and TrophyText could take the same guard.
+- [x] **8. `llRegionSayTo(<avatar key>, channel, …)` to reach scripts** [BP 55]
+  The rod announces `ROD_HELLO` and the HUD sends to its key (fallback
+  `llSay`); the bobber announces with `llSay` and the HUD checks the owner.
+  Spots, gather points and the PrepTable still use `llRegionSayTo(avatar)` to
+  reach the HUD. Gathering working in-world would show this grid delivers it.
+- [x] **9. Fixed shared channels** (-7710001…-7710007) [BP 56]
+  Kept the numbers (renumbering breaks every deployed object); added sender
+  checks instead: spot `DELIVER_JUNK` only from the recipient's HUD, gather
+  `GATHER_RESULT` only from the sitter's HUD for that point, HUD gather
+  messages only from objects within 20 m, and the result goes to the asking
+  point's key instead of every point in the region.
+- [x] **19. Duplicate listens in the HUD** (new) — `hud_status`'s reply
+  handler re-opened the spot/bobber/gather listens on every refresh; removed
+  (state_entry opens them once).
 
 ## 🟡 Low / cleanup
 
-- [ ] **10.** Session cookies set without `Secure` in `Auth::webLogin` and
-  `web_auto_login` (recover.php has it). [BP 66]
-- [ ] **11.** `Access-Control-Allow-Origin: *` on the API — nothing needs
-  cross-origin access; remove or pin to the site.
-- [ ] **12.** `check_account` returns the display name for any UUID
-  (enumeration); return only exists/not.
-- [ ] **13.** Nothing prunes expired `web_sessions`, `hud_pairing_codes`,
-  `hud_pair_attempts`, `login_tokens`; `push_queue` sweeps only on a 5% roll
-  of prim heartbeats. Add a daily sweep. [BP 31]
-- [ ] **14.** Dead legacy auth/registration: `Auth::requireHUD` (shared
-  `HUD_SECRET` HMAC, unused), `Player::register` (route removed),
-  `web_setup` + `setup.php` (setup tokens only came from it), and the HUD's
-  `gHttpAction == "register"` branch. Remove. [BP 12]
-- [ ] **15.** HUD `jsonGet` is a hand parser (breaks on escaped quotes;
-  slashes fixed 2026-11-19). Prefer `llJsonGetValue` for anything nested or
-  user-supplied. [BP 51]
-- [ ] **16.** Portal builds three snippets with `html:` + server values
-  (fish value, rod stats, journal). Numbers today; switch to text nodes. [BP 65]
-- [ ] **17.** Tournament schema mismatch (already in CLAUDE.md TODO).
+- [x] **10.** Session cookies are `Secure` everywhere.
+- [x] **11.** No CORS headers on the API.
+- [x] **12.** `check_account` returns only `exists`.
+- [x] **13.** `bin/sweep.php` daily at 03:41 (managed crontab block in
+  `deploy.sh`).
+- [x] **14.** Legacy auth/setup removed. The live nginx vhost still has the
+  `/setup` rewrite until it's reinstalled (it now 404s, harmless).
+- [x] **15.** `jsonGet` reads escaped strings; pushes send raw UTF-8.
+- [x] **16.** Portal snippets use text nodes.
+- [x] **17.** Tournaments: the code's design is canonical; migration 10
+  rebuilt the empty table. Five routes calling Leaderboard methods that don't
+  exist were removed. Tournaments still have no admin UI.
+- [x] **20.** (new) Bans didn't apply to existing portal sessions or paired
+  HUDs; `requireWeb`, `webLogin` and `requireHUD` now refuse them.
 
 ## Checked and fine
 

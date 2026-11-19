@@ -2382,9 +2382,7 @@ default {
             }
 
             hudInfo("Welcome back, " + gOwnerName + "! Lvl " + (string)gLevel);
-            llListen(CH_SPOT_TO_HUD, "", NULL_KEY, "");
-            llListen(CH_BOBBER_TO_HUD, "", NULL_KEY, "");
-            llListen(CH_GATHER_HUD, "", NULL_KEY, "");
+            // (Listens are all opened once in state_entry.)
             requestCallbackUrl();
             updateMainDisplay();
             saveDisplayCache();

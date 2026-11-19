@@ -143,7 +143,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 - **FishingSpot** — placed in regions where fish are. Has a setup wizard (water type, name, public/private), maintains state in LinksetData, registers callback URL with server for buff push notifications.
 - **BaitGatherPoint** — interactable in-world object that produces bait per gather attempt.
 - **LeaderboardDisplay** — shows top 10 by category, rotates every few seconds.
-- **TournamentBoard** — tracks tournament submissions (currently broken — schema mismatch).
+- **TournamentBoard** — shows a tournament's standings (schema fixed 2026-11-19, migration 10).
 - **PrepTable** — sit-to-use, prep fish for parts and craft special baits.
 - **BaitVendor** — buyable bait (system-supplied) with cooldowns, price tags.
 - **ShopRegister** — placed by players to register a "shop" location at their parcel.
@@ -314,7 +314,8 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
   `/api` replies to in-world scripts small (hud_status already caps queued pushes at 4).
 - **Admin alerts** (`AdminAlerts::send`) are for things an admin should act on.
   **Logic Log** (`LogicErrorLog::log`) is only for self-repairs and fail-closed
-  checks, never normal gameplay. Categories in use: `sim_origin_mismatch`.
+  checks, never normal gameplay. Categories in use: `sim_origin_mismatch`,
+  `inworld_unverified` (InWorldAuth header checks, log-only; audit item 1).
   Add a row here when adding a category. Neither helper ever throws.
 
 ## Repo layout
@@ -400,21 +401,12 @@ After making changes, always:
 
 - Camera revisit (move + set; or move-then-release; or chat command toggle)
 - Big Mouth Billy Bass (animatronic wall fish)
-- **Unauthenticated in-world endpoints trust a `uuid` param.** Many in-world
-  actions (`shop_buy`, `shop_sell`, `buff_activate`, `buff_buy`, `craft_item`,
-  `butcher_fish`, `spot_delete`, `spot_update`, `trophy_for_plaque`, …) take a
-  `uuid` and act as that player with no token, so a hand-made request can spend
-  another player's points or delete their spot. Fix: give in-world objects an
-  object token (like admin objects) or require the HUD's signed request, and at
-  minimum check `X-SecondLife-Owner-Key`/toucher against `uuid`. Found
-  2026-11-19, not fixed yet.
-- Tournament.php schema mismatch fix — `includes/Tournament.php` queries
-  `name, metric, spot_id, region_name, grid_name, start_time, end_time,
-  status, created_by`; the `tournaments` table built by
-  `tournament_migration.sql` has `title, scoring_type, target_species_id,
-  target_water_id, starts_at, ends_at, min_level, is_active`. Two different
-  designs that were never reconciled. Decide which is canonical, then fix the
-  other side. Every other table/column the PHP queries was verified present.
+- **Unauthenticated in-world endpoints trust a `uuid` param** (audit item 1).
+  Step 1 done: `InWorldAuth` header cross-checks, log-only (Logic Log
+  `inworld_unverified`); flip `InWorldAuth::ENFORCE` once no real object
+  fails. Steps 2–3 (player actions through the HUD, object tokens) are
+  designed in `docs/AUDIT.md` and need a decision + in-world testing.
+- Tournaments have no admin UI yet (API: `admin_tournament_create/end/delete`).
 - World events (admin-toggle double XP, rare spawns)
 - More quests (seasonal, chains, achievements)
 - Hover popup on map dots with hop links inline
