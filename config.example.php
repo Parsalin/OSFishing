@@ -31,9 +31,6 @@ define('HUD_SECRET', 'replace_with_a_random_64_char_hex_string');
 // Web session lifetime in seconds (default: 8 hours)
 define('SESSION_LIFETIME', 28800);
 
-// Setup token lifetime in seconds (default: 24 hours)
-define('SETUP_TOKEN_LIFETIME', 86400);
-
 // ── Game Tuning ───────────────────────────────────────────
 
 // Cast

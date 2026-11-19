@@ -1,42 +1,12 @@
 <?php
 /**
  * Fishing Game - Authentication
- * Handles HUD HMAC auth and web session auth.
+ * Web session auth. (HUD requests use PairingAuth::requireHUD.)
  */
 
 require_once __DIR__ . '/bootstrap.php';
 
 class Auth {
-
-    /**
-     * Authenticate an in-world HUD request.
-     * Expects POST params: uuid, timestamp, signature
-     * Signature = HMAC-SHA256 of "uuid:timestamp" with HUD_SECRET
-     *
-     * Returns the player row or dies with error.
-     */
-    public static function requireHUD(): array {
-        $uuid      = require_param('uuid');
-        $timestamp = require_param('timestamp');
-        $signature = require_param('signature');
-
-        // Reject requests older than 5 minutes (replay protection)
-        if (abs(time() - (int)$timestamp) > 300) {
-            json_error('Request expired', 401);
-        }
-
-        $expected = hash_hmac('sha256', "{$uuid}:{$timestamp}", HUD_SECRET);
-        if (!hash_equals($expected, $signature)) {
-            json_error('Invalid signature', 401);
-        }
-
-        $player = self::getPlayerByUUID($uuid);
-        if (!$player) {
-            json_error('Player not found. Attach HUD to register.', 404);
-        }
-
-        return $player;
-    }
 
     /**
      * Authenticate a web portal request via session token.

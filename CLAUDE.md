@@ -338,8 +338,7 @@ OSFishing/
         ├── admin/       — admin panel
         ├── pair.php     — auto-pair / link-avatar landing page
         ├── recover.php  — one-time recovery login link
-        ├── register.php — player registration
-        └── setup.php    — setup flow
+        └── register.php — sign-up (reached from the HUD's pair link)
 ```
 
 **Only `web/public/` is served.** `config.php`, `includes/` and `migrations/`

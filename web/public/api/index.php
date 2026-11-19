@@ -693,13 +693,6 @@ try {
             Auth::webLogout();
             json_success(['message' => 'Logged out']);
 
-        // ── Web: complete first-time setup ──
-        case 'web_setup':
-            $token    = require_param('token');
-            $username = require_param('username');
-            $password = require_param('password');
-            json_success(Player::completeSetup($token, $username, $password));
-
         // ── Web: dashboard ──
         case 'web_dashboard':
             $player = AuthEmbed::requireWeb();

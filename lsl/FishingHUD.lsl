@@ -2398,11 +2398,6 @@ default {
             return;
         }
 
-        if (gHttpAction == "register") {
-            // No longer used - registration happens on web portal
-            return;
-        }
-
         if (gHttpAction == "cast" || gHttpAction == "roll_minute") {
             // Both cast and roll_minute return the same schedule format
             // Only cast returns bait_remaining — don't overwrite from roll_minute
