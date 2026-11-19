@@ -990,7 +990,7 @@ function renderFishInventory() {
   const sortBtns = ['caught_at','weight','value'].map(s => h('button',{class:'btn btn-sm '+(sort===s?'btn-primary':'btn-secondary'),onClick:()=>{state.fishSort=s;render();}},s==='caught_at'?'Recent':s.charAt(0).toUpperCase()+s.slice(1)));
 
   return h('div',{class:'fade-in'},
-    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Fish Inventory'),h('span',{style:{fontSize:'13px',color:'var(--text-secondary)'},html:`Total value: <strong style="color:var(--accent)">${totalValue} pts</strong>`})),
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Fish Inventory'),h('span',{style:{fontSize:'13px',color:'var(--text-secondary)'}},'Total value: ',h('strong',{style:{color:'var(--accent)'}},totalValue+' pts'))),
     h('div',{class:'filter-bar'},...filterBtns,h('div',{style:{marginLeft:'auto',display:'flex',gap:'6px'}},...sortBtns)),
     h('div',{class:'card'},h('div',{class:'table-wrap'},h('table',null,
       h('thead',null,h('tr',null,...['Species','Weight','Rarity','Spot','Bait','Value','Actions'].map(hd=>h('th',null,hd)))),
@@ -1274,7 +1274,7 @@ function renderShop() {
           h('div',null,h('div',{style:{fontSize:'16px',fontWeight:700}},r.name),h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},`Tier ${r.tier} — Requires Lvl ${r.min_level}`)),
           owned ? h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 8px',borderRadius:'4px',background:'var(--success-soft)',color:'var(--success)'}},'Owned') : null
         ),
-        h('div',{class:'rod-stats'},h('div',{html:`Range: <strong>${r.cast_range}m</strong>`}),h('div',{html:`Reel: <strong>${r.reel_speed}x</strong>`}),h('div',{html:`Line: <strong>${r.line_strength} str</strong>`})),
+        h('div',{class:'rod-stats'},h('div',null,'Range: ',h('strong',null,r.cast_range+'m')),h('div',null,'Reel: ',h('strong',null,r.reel_speed+'x')),h('div',null,'Line: ',h('strong',null,r.line_strength+' str'))),
         !owned
           ? h('button',{class:'btn btn-primary btn-sm',style:{width:'100%'},onClick:()=>buyRod(r.id),...(locked?{disabled:'true'}:{})},locked?`Locked (Lvl ${r.min_level})`:`Buy — ${r.shop_price} pts`)
           : h('button',{class:'btn btn-secondary btn-sm',style:{width:'100%'},onClick:()=>equipRod(r.id)},'Equip')
@@ -1372,7 +1372,7 @@ function renderJournal() {
     h('div',{class:'card-grid',style:{gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))'}},
       ...sp.map(s=>h('div',{class:'card'},h('div',{class:'card-body',style:{padding:'16px'}},
         h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}},h('span',{style:{fontSize:'14px',fontWeight:700}},s.name),rarityBadge(s.rarity_name||'common')),
-        h('div',{style:{fontSize:'12px',color:'var(--text-secondary)'},html:`Caught: <strong>${s.times_caught}x</strong> — Best: <strong>${s.best_weight} lbs</strong>`})
+        h('div',{style:{fontSize:'12px',color:'var(--text-secondary)'}},'Caught: ',h('strong',null,s.times_caught+'x'),' — Best: ',h('strong',null,s.best_weight+' lbs'))
       ))),
       ...Array.from({length:unknownCount},()=>h('div',{class:'card journal-unknown'},h('div',{class:'card-body',style:{padding:'16px'}},h('div',{style:{fontSize:'14px',fontWeight:700,color:'var(--text-muted)'}},'???'),h('div',{style:{fontSize:'12px',color:'var(--text-muted)'}},'Undiscovered species'))))
     )
