@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-19-signup-from-hud', 'date' => '2026-11-19', 'type' => 'changed',
+         'text' => 'New accounts are created from the link your HUD gives you, and your HUD pairs as soon as the account is made. This stops anyone from signing up with someone else\'s avatar.'],
         ['id' => '2026-11-19-linked-avatars', 'date' => '2026-11-19', 'type' => 'new',
          'text' => 'Play one account from more than one avatar, for example your avatar on another grid. Wear the HUD on the new avatar, open its pairing link while logged in, and confirm. Manage them under Settings → Linked Avatars.'],
         ['id' => '2026-11-19-recovery-terminal', 'date' => '2026-11-19', 'type' => 'new',

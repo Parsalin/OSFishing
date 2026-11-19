@@ -62,7 +62,7 @@ try {
         $name = $stmt->fetchColumn();
         $hasAccount = PairingAuth::playerIdForUuid($uuid) !== null;
         $loginUrl = '/?pair_next=' . rawurlencode($back);
-        $regUrl = '/register.php?uuid=' . rawurlencode($uuid) . ($name ? '&name=' . rawurlencode($name) : '');
+        $regUrl = '/register.php?uuid=' . rawurlencode($uuid) . '&code=' . rawurlencode($code) . ($name ? '&name=' . rawurlencode($name) : '');
         pair_page('Pair your HUD',
             '<h1>Pair your HUD</h1>'
             . '<p>Log in to your OSFishing account to pair ' . ($name ? '<strong>' . $h($name) . '</strong>' : 'this avatar') . '.</p>'

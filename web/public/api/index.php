@@ -369,10 +369,11 @@ try {
 
         case 'web_register':
             $uuid = require_param('uuid');
+            $code = require_param('code');
             $username = require_param('username');
             $password = require_param('password');
             $displayName = optional_param('display_name', '');
-            json_success(PairingAuth::webRegister($uuid, $username, $password, $displayName));
+            json_success(PairingAuth::webRegister($uuid, $code, $username, $password, $displayName));
 
         case 'pair_request':
             $uuid = require_param('uuid');

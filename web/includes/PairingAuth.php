@@ -445,16 +445,33 @@ class PairingAuth {
     }
 
     /**
-     * Direct web registration - creates an account tied to a UUID.
-     * No setup token needed - player provides UUID + username + password.
+     * Create an account for the avatar whose HUD issued $code.
+     *
+     * The live, unclaimed pairing code is the proof that the person
+     * registering wears that avatar's HUD; a typed UUID alone would let
+     * anyone squat someone else's avatar before they sign up. On success the
+     * code is claimed for the new account, so the HUD pairs at once.
      */
-    public static function webRegister(string $uuid, string $username, string $password, string $displayName = ''): array {
+    public static function webRegister(string $uuid, string $code, string $username, string $password, string $displayName = ''): array {
         $pdo = db();
+        $uuid = strtolower(trim($uuid));
 
         // Validate UUID format
-        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $uuid)) {
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $uuid)) {
             json_error('Invalid avatar UUID format');
         }
+
+        $code = self::normalizeCode($code);
+        $stmt = $pdo->prepare('
+            SELECT grid_name FROM hud_pairing_codes
+            WHERE code = :c AND player_uuid = :u AND claimed = 0 AND expires_at > UTC_TIMESTAMP()
+        ');
+        $stmt->execute([':c' => $code, ':u' => $uuid]);
+        $codeRow = $stmt->fetch();
+        if (!$codeRow) {
+            json_error('This sign-up link has expired. Touch your HUD for a new one (links last 5 minutes).', 410);
+        }
+        $gridIdentity = $codeRow['grid_name'] ? Grid::identityOf($codeRow['grid_name']) : null;
 
         // Check if UUID already has an account
         $stmt = $pdo->prepare('SELECT id FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
@@ -486,19 +503,29 @@ class PairingAuth {
         $displayName = trim($displayName) ?: $username;
         $hash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
 
-        $stmt = $pdo->prepare('
-            INSERT INTO players (uuid, username, password_hash, display_name)
-            VALUES (:uuid, :u, :p, :d)
-        ');
-        $stmt->execute([
-            ':uuid' => strtolower($uuid),
-            ':u'    => $username,
-            ':p'    => $hash,
-            ':d'    => $displayName,
-        ]);
-        $playerId = (int)$pdo->lastInsertId();
-        $pdo->prepare('INSERT INTO player_uuids (player_id, uuid, avatar_name) VALUES (:pid, :u, :n)')
-            ->execute([':pid' => $playerId, ':u' => strtolower($uuid), ':n' => $displayName]);
+        // players + player_uuids together: player_uuids.uuid is UNIQUE, so a
+        // second sign-up racing this one fails there and leaves no orphan row.
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('
+                INSERT INTO players (uuid, username, password_hash, display_name)
+                VALUES (:uuid, :u, :p, :d)
+            ');
+            $stmt->execute([
+                ':uuid' => $uuid,
+                ':u'    => $username,
+                ':p'    => $hash,
+                ':d'    => $displayName,
+            ]);
+            $playerId = (int)$pdo->lastInsertId();
+            $pdo->prepare('INSERT INTO player_uuids (player_id, uuid, grid_identity, avatar_name) VALUES (:pid, :u, :gi, :n)')
+                ->execute([':pid' => $playerId, ':u' => $uuid, ':gi' => $gridIdentity, ':n' => $displayName]);
+            $pdo->commit();
+        } catch (\PDOException $e) {
+            $pdo->rollBack();
+            if ($e->getCode() === '23000') json_error('An account already exists for this avatar or username. Try logging in instead.', 409);
+            throw $e;
+        }
 
         // Grant starter rod, line, and bait
         $pdo->prepare('INSERT IGNORE INTO player_rods (player_id, rod_id) VALUES (:pid, 1)')
@@ -521,8 +548,11 @@ class PairingAuth {
         $pdo->prepare('UPDATE players SET equipped_bait_id = 9 WHERE id = :id')
             ->execute([':id' => $playerId]);
 
+        // Pair the HUD that issued the code; its next poll collects the token.
+        self::claimCode($playerId, $code, 'HUD');
+
         return [
-            'message'   => 'Account created! You can now log in.',
+            'message'   => 'Account created and your HUD is paired! You can now log in.',
             'player_id' => $playerId,
         ];
     }

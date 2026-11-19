@@ -828,7 +828,7 @@ function renderLogin() {
         h('span',{style:{fontWeight:700,color:'var(--warning,#f0a500)'}},'⚠️ New Account Required  '),
         'This is a separate fishing game account — ',
         h('strong',null,'do not use your grid login details.'),
-        ' Register below to create a new username and password just for OSFishing.'
+        ' Your HUD gives you a sign-up link to create a username and password just for OSFishing.'
       ),
       (state.recoveryTerminals||[]).length ? h('details',{style:{textAlign:'left',fontSize:'12px',color:'var(--text-secondary)',marginBottom:'12px'}},
         h('summary',{style:{cursor:'pointer'}},'Forgot your password?'),
@@ -842,9 +842,7 @@ function renderLogin() {
         h('div',{id:'login-error',style:{color:'var(--danger)',fontSize:'13px',display:'none'}}),
         h('button',{class:'btn btn-primary btn-lg',id:'login-btn',style:{width:'100%',justifyContent:'center',marginTop:'8px'},onClick:doLogin},'Sign In'),
         h('div',{style:{textAlign:'center',fontSize:'12px',color:'var(--text-muted)',marginTop:'4px'}},
-          'No account? ',
-          h('a',{href:'#',style:{color:'var(--accent)'},onClick:e=>{e.preventDefault();showPage('settings');}},'Register in Settings'),
-          ' after pairing your HUD.'
+          'No account? Wear the OSFishing HUD in-world. It gives you a link to create one.'
         )
       )
     )

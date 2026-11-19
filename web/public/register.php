@@ -1,9 +1,11 @@
 <?php
 /**
  * Fishing Game - Registration Page
- * Opened via llLoadURL from the HUD with ?uuid=XXX pre-filled.
+ * Reached from the HUD's pair link (pair.php) as ?uuid=X&code=Y. The live
+ * pairing code proves the avatar; without one there is nothing to sign up.
  */
 $uuid = $_GET['uuid'] ?? '';
+$code = $_GET['code'] ?? '';
 $name = $_GET['name'] ?? '';
 ?>
 <!DOCTYPE html>
@@ -45,17 +47,18 @@ label{display:block;font-size:12px;font-weight:600;color:#706860;margin-bottom:6
   <h1>Create Account</h1>
   <p class="sub">Register your fishing account</p>
 
-  <?php if ($uuid): ?>
+  <?php if ($uuid && $code): ?>
   <div class="info">
-    ✓ Your avatar UUID has been detected from your HUD. Just pick a username and password below.
+    ✓ Your avatar was detected from your HUD. Pick a username and password below and your HUD pairs automatically.
   </div>
   <?php else: ?>
   <div class="info" style="background:rgba(212,170,78,.1);border-color:rgba(212,170,78,.25);color:#d4aa4e">
-    ⚠ No UUID provided. Please click "Register" from your in-world HUD to ensure your account is linked to the correct avatar.
+    ⚠ Accounts are created from your HUD. Wear the OSFishing HUD in-world and open the link it gives you.
   </div>
   <?php endif; ?>
 
   <input type="hidden" id="uuid" value="<?= htmlspecialchars($uuid, ENT_QUOTES) ?>">
+  <input type="hidden" id="code" value="<?= htmlspecialchars($code, ENT_QUOTES) ?>">
   <input type="hidden" id="display_name" value="<?= htmlspecialchars($name, ENT_QUOTES) ?>">
 
   <label>Username</label>
@@ -76,6 +79,7 @@ label{display:block;font-size:12px;font-weight:600;color:#706860;margin-bottom:6
 <script>
 async function doRegister() {
   const uuid = document.getElementById('uuid').value.trim();
+  const code = document.getElementById('code').value.trim();
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   const password2 = document.getElementById('password2').value;
@@ -85,7 +89,7 @@ async function doRegister() {
 
   msg.className = 'msg';
 
-  if (!uuid) { msg.className = 'msg error'; msg.textContent = 'Missing avatar UUID. Please register via your HUD.'; return; }
+  if (!uuid || !code) { msg.className = 'msg error'; msg.textContent = 'Open the sign-up link your HUD gives you.'; return; }
   if (username.length < 3) { msg.className = 'msg error'; msg.textContent = 'Username must be at least 3 characters.'; return; }
   if (!/^[a-zA-Z0-9_]+$/.test(username)) { msg.className = 'msg error'; msg.textContent = 'Username can only contain letters, numbers, and underscores.'; return; }
   if (password.length < 6) { msg.className = 'msg error'; msg.textContent = 'Password must be at least 6 characters.'; return; }
@@ -95,13 +99,13 @@ async function doRegister() {
   btn.textContent = 'Creating...';
 
   try {
-    const body = new URLSearchParams({ action: 'web_register', uuid, username, password, display_name: displayName });
+    const body = new URLSearchParams({ action: 'web_register', uuid, code, username, password, display_name: displayName });
     const res = await fetch('/api/', { method: 'POST', body, credentials: 'include' });
     const data = await res.json();
 
     if (data.success) {
       msg.className = 'msg success';
-      msg.textContent = 'Account created! Redirecting to login...';
+      msg.textContent = 'Account created and HUD paired! Redirecting to login...';
       setTimeout(() => { window.location.href = '/'; }, 1500);
     } else {
       msg.className = 'msg error';
