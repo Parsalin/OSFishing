@@ -34,7 +34,14 @@ return function (PDO $pdo): void {
     $pdo->exec("ALTER TABLE hud_tokens ADD COLUMN IF NOT EXISTS avatar_uuid CHAR(36)
                 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL AFTER player_id");
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_avatar ON hud_tokens (avatar_uuid)");
-    $pdo->exec("ALTER TABLE hud_pairing_codes MODIFY player_id INT UNSIGNED NULL");
+    // player_id carries a foreign key; some MariaDB builds refuse to alter
+    // such a column while FK checks are on. Nullability only, no type change.
+    $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
+    try {
+        $pdo->exec("ALTER TABLE hud_pairing_codes MODIFY player_id INT UNSIGNED NULL");
+    } finally {
+        $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
+    }
     $pdo->exec("ALTER TABLE hud_pairing_codes ADD COLUMN IF NOT EXISTS avatar_name VARCHAR(128) DEFAULT NULL AFTER player_uuid");
 
     // Every existing account's avatar, with the grid it last used (if any).
