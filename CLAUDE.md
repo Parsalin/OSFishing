@@ -372,6 +372,8 @@ The ones that bite hardest:
   The loose `*_migration.sql` files are history and do not all replay cleanly;
   new schema changes go in `web/migrations/versioned/` only
 - config.php is gitignored — edit `config.example.php` to document new constants
+- Never read `~\Projects\Fertility\CLAUDE.md` whole (about 1,500 lines). Search
+  it with Grep, or Read only the line range you need.
 
 ## Git workflow
 
