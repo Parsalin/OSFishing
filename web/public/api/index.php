@@ -661,22 +661,6 @@ try {
         case 'leaderboard_rarest':
             json_success(['leaderboard' => Leaderboard::rarestCatchers()]);
 
-        case 'leaderboard_level':
-            json_success(['leaderboard' => Leaderboard::highestLevel()]);
-
-        case 'leaderboard_quests':
-            json_success(['leaderboard' => Leaderboard::mostQuests()]);
-
-        case 'leaderboard_records':
-            json_success(['records' => Leaderboard::speciesRecords()]);
-
-        case 'tournament_standings':
-            $tid = (int)require_param('tournament_id');
-            json_success(Leaderboard::tournamentStandings($tid));
-
-        case 'tournaments':
-            json_success(['tournaments' => Leaderboard::getTournaments()]);
-
 
         // ════════════════════════════════════════════════
         // WEB PORTAL ENDPOINTS (session cookie auth)

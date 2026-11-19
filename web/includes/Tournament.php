@@ -50,8 +50,14 @@ class Tournament
             $where .= ' AND cl.spot_id = :sid';
             $params[':sid'] = (int)$tournament['spot_id'];
         } elseif ($tournament['region_name']) {
+            // Region names repeat across grids: match the grid too.
             $where .= ' AND fs.region_name = :rn';
             $params[':rn'] = $tournament['region_name'];
+            if ($tournament['grid_name']) {
+                require_once __DIR__ . '/Grid.php';
+                $where .= ' AND ' . Grid::sameGridSql('fs.grid_name', ':gi');
+                $params[':gi'] = Grid::identityOf($tournament['grid_name']);
+            }
         }
 
         if ($tournament['metric'] === 'weight') {
