@@ -1461,6 +1461,14 @@ try {
             Admin::requireAdmin();
             json_success(Grid::setHopGateway((int)require_param('grid_id'), (string)optional_param('hop_gateway', '')));
 
+        case 'admin_grid_set':
+            Admin::requireAdmin();
+            json_success(Grid::setForIdentity(require_param('identity'), require_param('field'), (string)optional_param('value', '')));
+
+        case 'admin_grid_clear_no_http_in_all':
+            Admin::requireAdmin();
+            json_success(Grid::clearNoHttpInForIdentity(require_param('identity')));
+
         case 'admin_grid_status_all':
             Admin::requireAdmin();
             json_success(Grid::setStatusForIdentity(require_param('identity'), require_param('status')));

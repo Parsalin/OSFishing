@@ -256,8 +256,19 @@ async function nicknameGrid(gid, current) {
   const r = await api('admin_grid_nickname', { grid_id:String(gid), nickname:n });
   if (r.success) { toast('Nickname set'); loadGrids(); } else toast(r.error, true);
 }
+async function gridSet(identity, field, label, current, help) {
+  const v = prompt(label + (help ? '\n\n' + help : '') + '\n\nApplies to every sim of this grid. Blank to clear.', current || '');
+  if (v === null) return;
+  const r = await api('admin_grid_set', { identity, field, value: v });
+  if (r.success) { toast(r.message); loadGrids(); } else toast(r.error, true);
+}
+async function clearNoHttpInAll(identity) {
+  if (!confirm('Clear the No HTTP-in flag for ' + identity + '? The next HUD denied a push URL there will alert you again.')) return;
+  const r = await api('admin_grid_clear_no_http_in_all', { identity });
+  if (r.success) { toast('Cleared'); loadGrids(); } else toast(r.error, true);
+}
 async function gridStatusAll(identity, status) {
-  if (!confirm('Set every host of '+identity+' to '+status+'?')) return;
+  if (status === 'denied' && !confirm('Deny '+identity+'? Nobody on it can pair a HUD or set up spots.')) return;
   const r = await api('admin_grid_status_all', { identity, status });
   if (r.success) { toast(r.message); loadGrids(); } else toast(r.error, true);
 }
@@ -880,92 +891,71 @@ function renderGatherPoints() {
 }
 
 // ── RENDER: Grids ──
-// One group per grid (identity = base domain). Each row is one sim host.
+// One entry per grid (identity = base domain). Every setting applies to all
+// of the grid's sim hosts; the hosts themselves are listed folded away.
 function renderGrids() {
-  const statusColor = st => st==='approved'?'var(--success)':st==='denied'?'var(--danger)':'var(--accent)';
-  const statusBadge = st => h('span',{style:{color:statusColor(st),fontWeight:700,textTransform:'uppercase',fontSize:'11px'}},st);
-  const pill = (text, color, title) => h('span',{title:title||'',style:{display:'inline-block',marginLeft:'5px',fontSize:'10px',padding:'1px 7px',borderRadius:'99px',background:'rgba(230,168,23,.18)',color:color||'#e6a817',fontWeight:700,verticalAlign:'middle'}},text);
+  const statusColor = st => st==='approved'?'var(--success)':st==='denied'?'var(--danger)':st==='mixed'?'#e6a817':'var(--accent)';
+  const statusBadge = st => h('span',{style:{color:statusColor(st),fontWeight:700,textTransform:'uppercase',fontSize:'11px',marginLeft:'8px'}},st);
+  const pill = (text, color, title) => h('span',{title:title||'',style:{display:'inline-block',marginLeft:'6px',fontSize:'10px',padding:'1px 7px',borderRadius:'99px',background:'rgba(230,168,23,.18)',color:color||'#e6a817',fontWeight:700,verticalAlign:'middle'}},text);
+  const first = (rows, k) => (rows.find(r => r[k]) || {})[k] || '';
   const groups = {};
   state.grids.forEach(g => { const k = g.grid_identity || g.grid_name; (groups[k] = groups[k] || []).push(g); });
   const keys = Object.keys(groups);
   if (keys.length === 0) return h('div',{class:'empty'},'No grids have connected yet. A grid appears here the first time a HUD or prim reports from it.');
   return h('div',null,
     h('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'12px'}},
-      'A grid is its base domain; each row is one of its sim hosts. A new host of an approved grid is approved automatically. Pending/denied grids cannot pair HUDs or set up spots.'),
+      'One entry per grid. Every setting here applies to all of the grid\'s sims, and new sims of an approved grid join it automatically. Pending or denied grids cannot pair HUDs or set up spots.'),
     ...keys.map(identity => {
       const rows = groups[identity];
-      const nick = (rows.find(r=>r.nickname)||{}).nickname || '';
-      const counts = { approved:0, pending:0, denied:0 };
-      rows.forEach(r => counts[r.status] = (counts[r.status]||0)+1);
+      const statuses = [...new Set(rows.map(r => r.status))];
+      const status = statuses.length === 1 ? statuses[0] : 'mixed';
+      const nick = first(rows, 'nickname'), hop = first(rows, 'hop_gateway'), pub = first(rows, 'public_host'), notes = first(rows, 'notes');
+      const noHttp = rows.some(r => r.no_http_in == 1);
+      const unreachable = rows.some(r => r.push_problem === 'unreachable');
+      const priv = !pub && rows.some(r => r.is_private == 1 || r.push_problem === 'private');
+      const spots = rows.reduce((n, r) => n + Number(r.spot_count || 0), 0);
+      const huds = rows.reduce((n, r) => n + Number(r.token_count || 0), 0);
       return h('div',{class:'card',style:{marginBottom:'14px'}},
-        h('div',{class:'card-header',style:{flexWrap:'wrap',gap:'8px'}},
+        h('div',{class:'card-header',style:{flexWrap:'wrap',gap:'8px',alignItems:'flex-start'}},
           h('div',null,
-            h('h3',{style:{display:'inline'}},nick || identity),
-            nick ? h('span',{style:{fontSize:'12px',color:'var(--muted)',marginLeft:'8px'}},identity) : null,
-            h('span',{style:{fontSize:'11px',color:'var(--muted)',marginLeft:'10px'}},
-              rows.length+' host'+(rows.length===1?'':'s')+' — '+['approved','pending','denied'].filter(k=>counts[k]).map(k=>counts[k]+' '+k).join(', '))
+            h('div',null,
+              h('h3',{style:{display:'inline'}},nick || identity),
+              statusBadge(status),
+              noHttp ? pill('No HTTP-in','#e6a817','HUDs on this grid cannot be pushed to; they collect messages on their next status check.') : null,
+              unreachable ? pill('Push unreachable','#e6a817','The server cannot connect to push addresses here (rechecked every 6 h).') : null,
+              priv ? pill('Private address','#e6a817','Sims report a private address; set a push host.') : null,
+              pub ? pill('Push → '+pub,'var(--accent)','Pushes go to this host instead of the address the sims report.') : null
+            ),
+            h('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}},
+              identity + ' — ' + rows.length + ' sim' + (rows.length===1?'':'s') + ', ' + spots + ' spots, ' + huds + ' HUDs'
+              + (hop ? ' — hop ' + hop : ' — no hop gateway')),
+            notes ? h('div',{style:{fontSize:'12px',marginTop:'4px'}},notes) : null
           ),
           h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap'}},
-            counts.approved<rows.length ? h('button',{class:'btn btn-sm btn-success',onClick:()=>gridStatusAll(identity,'approved')},'Approve grid') : null,
-            counts.denied<rows.length ? h('button',{class:'btn btn-sm btn-danger',onClick:()=>gridStatusAll(identity,'denied')},'Deny grid') : null,
-            nick ? h('button',{class:'btn btn-sm btn-secondary',onClick:()=>renameGridNickname(nick)},'Rename') : null
+            status!=='approved' ? h('button',{class:'btn btn-sm btn-success',onClick:()=>gridStatusAll(identity,'approved')},'Approve') : null,
+            status!=='denied' ? h('button',{class:'btn btn-sm btn-danger',onClick:()=>gridStatusAll(identity,'denied')},'Deny') : null,
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>gridSet(identity,'nickname','Grid name:',nick)},'Name'),
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>gridSet(identity,'hop_gateway','Hop gateway (e.g. playground.darkheartsos.com:8002):',hop)},'Hop'),
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>gridSet(identity,'public_host','Push host:',pub,'Only for a grid whose sims report a private address (192.168.x etc.). The server pushes to this host instead; port and path are kept.')},'Push host'),
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>gridSet(identity,'notes','Notes:',notes)},'Notes'),
+            noHttp ? h('button',{class:'btn btn-sm btn-secondary',onClick:()=>clearNoHttpInAll(identity)},'Clear No HTTP-in') : null
           )
         ),
-        h('div',{style:{overflowX:'auto'}},h('table',null,
-          h('thead',null,h('tr',null,...['Status','Sim host','Nickname','Hop gateway','Use','Actions'].map(x=>h('th',null,x)))),
-          h('tbody',null,...rows.map(g=>h('tr',null,
-            h('td',null,statusBadge(g.status)),
-            h('td',{style:{fontWeight:600,fontSize:'12px'}},
-              g.grid_name,
-              g.no_http_in==1 ? [pill('No HTTP-in','#e6a817','HUDs here cannot be pushed to; they collect messages on their next status check.'),
-                                 h('button',{class:'btn btn-sm btn-secondary',style:{marginLeft:'4px',padding:'1px 6px',fontSize:'10px'},onClick:()=>clearNoHttpIn(g.id)},'Clear')] : null,
-              g.push_problem==='unreachable' ? pill('Push unreachable','#e6a817','The server cannot connect to push addresses here (checked automatically, rechecked every 6 h).') : null,
-              (g.is_private==1 || g.push_problem==='private') && !g.public_host ? pill('Private address','#e6a817','Sims report a private address; set a public push host.') : null,
-              g.public_host ? pill('Push → '+g.public_host,'var(--accent)','Pushes go to this host instead of the address the sims report.') : null,
-              g.notes ? h('div',{style:{fontSize:'11px',color:'var(--muted)',fontWeight:400,marginTop:'3px'}},g.notes) : null
-            ),
-            h('td',{style:{fontSize:'12px'}},g.nickname||'—'),
-            h('td',{style:{fontSize:'11px',color:'var(--muted)'}},g.hop_gateway||'—'),
-            h('td',{style:{fontSize:'11px',color:'var(--muted)'}},(g.spot_count||0)+' spots, '+(g.token_count||0)+' HUDs'),
-            h('td',null,h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap'}},
-              g.status!=='approved'?h('button',{class:'btn btn-sm btn-success',onClick:()=>approveGrid(g.id)},'Approve'):null,
-              g.status!=='denied'?h('button',{class:'btn btn-sm btn-danger',onClick:()=>denyGrid(g.id)},'Deny'):null,
-              h('button',{class:'btn btn-sm btn-secondary',onClick:()=>nicknameGrid(g.id, g.nickname)},'Nickname'),
-              h('button',{class:'btn btn-sm btn-secondary',onClick:()=>setHopGateway(g.id, g.hop_gateway||'')},'Hop'),
-              h('button',{class:'btn btn-sm btn-secondary',onClick:()=>setPublicHost(g.id, g.public_host||'')},'Push host'),
-              h('button',{class:'btn btn-sm btn-secondary',onClick:()=>setGridNotes(g.id, g.notes||'')},'Notes'),
-              h('button',{class:'btn btn-sm btn-danger',onClick:()=>deleteGrid(g.id)},'Delete')
-            ))
-          )))
-        ))
+        h('details',{style:{padding:'0 16px 12px'}},
+          h('summary',{style:{fontSize:'12px',color:'var(--muted)',cursor:'pointer'}},rows.length+' sim host'+(rows.length===1?'':'s')),
+          h('table',{style:{marginTop:'6px'}},
+            h('thead',null,h('tr',null,...['Sim host','Status','Use','First seen',''].map(x=>h('th',null,x)))),
+            h('tbody',null,...rows.map(g=>h('tr',null,
+              h('td',{style:{fontSize:'12px'}},g.grid_name),
+              h('td',null,h('span',{style:{color:statusColor(g.status),fontWeight:700,fontSize:'11px',textTransform:'uppercase'}},g.status)),
+              h('td',{style:{fontSize:'11px',color:'var(--muted)'}},(g.spot_count||0)+' spots, '+(g.token_count||0)+' HUDs'),
+              h('td',{style:{fontSize:'11px',color:'var(--muted)'}},fmtTime(g.created_at)),
+              h('td',null,h('button',{class:'btn btn-sm btn-danger',onClick:()=>deleteGrid(g.id)},'Delete'))
+            )))
+          )
+        )
       );
     })
-  );
-}
-
-// ── RENDER: Alerts ──
-function renderAlerts() {
-  return h('div',null,
-    h('div',{style:{display:'flex',gap:'8px',alignItems:'center',marginBottom:'12px',flexWrap:'wrap'}},
-      h('label',{style:{fontSize:'12px',display:'flex',gap:'6px',alignItems:'center'}},
-        h('input',{type:'checkbox',checked:state.alertsUnreadOnly,onChange:e=>{state.alertsUnreadOnly=e.target.checked;loadAlerts();}}),'Unread only'),
-      state.unreadAlerts>0?h('button',{class:'btn btn-sm btn-secondary',onClick:markAllAlertsRead},'Mark all read'):null,
-      h('span',{style:{fontSize:'12px',color:'var(--muted)'}},state.unreadAlerts+' unread')
-    ),
-    state.alerts.length===0?h('div',{class:'empty'},'No alerts.'):
-    h('div',{style:{display:'flex',flexDirection:'column',gap:'8px'}},...state.alerts.map(a=>
-      h('div',{class:'card',style:{padding:'12px 14px',borderLeft:'3px solid '+(a.read_at?'var(--border)':'var(--accent)'),opacity:a.read_at?'0.7':'1'}},
-        h('div',{style:{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start'}},
-          h('div',null,
-            h('div',{style:{fontSize:'11px',color:'var(--muted)',marginBottom:'4px'}},fmtTime(a.created_at)+' — '+a.category),
-            h('div',{style:{fontSize:'13px',whiteSpace:'pre-wrap'}},a.message),
-            a.link?h('a',{href:a.link,style:{fontSize:'12px'},onClick:e=>{const m=String(a.link).match(/[?&]tab=([a-z]+)/);if(m){e.preventDefault();setTab(m[1]);}}},'Open'):null,
-            a.read_at?h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'4px'}},'Read '+fmtTime(a.read_at)+(a.read_by_name?' by '+a.read_by_name:'')):null
-          ),
-          a.read_at?null:h('button',{class:'btn btn-sm btn-secondary',onClick:()=>markAlertRead(a.id)},'Mark read')
-        )
-      )
-    ))
   );
 }
 

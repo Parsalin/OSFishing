@@ -193,6 +193,34 @@ class Grid
         return ['message' => "All hosts of {$identity} set to {$status}"];
     }
 
+    /**
+     * Set one setting on every sim host of a grid, so the admin edits a grid
+     * once instead of per region server. New hosts inherit it on arrival.
+     */
+    public static function setForIdentity(string $identity, string $field, string $value): array {
+        $identity = trim($identity);
+        if ($identity === '') json_error('No grid given');
+        $v = trim($value);
+        if ($field === 'hop_gateway') {
+            $v = rtrim(preg_replace('#^(hop|https?)://#i', '', $v), '/');
+        } elseif ($field === 'public_host') {
+            $v = strtolower($v);
+            if ($v !== '' && strpos($v, '://') !== false) $v = (string)(parse_url($v, PHP_URL_HOST) ?? '');
+            $v = explode(':', explode('/', $v)[0])[0];
+            if ($v !== '' && !preg_match('/^[a-z0-9.-]+$/', $v)) json_error('That is not a host name');
+        } elseif (!in_array($field, ['nickname', 'notes'], true)) {
+            json_error('Unknown grid setting');
+        }
+        $stmt = db()->prepare("UPDATE grids SET `{$field}` = :v WHERE grid_identity = :gi");
+        $stmt->execute([':v' => $v === '' ? null : $v, ':gi' => $identity]);
+        return ['message' => 'Saved for all ' . $stmt->rowCount() . ' sim hosts of ' . $identity];
+    }
+
+    public static function clearNoHttpInForIdentity(string $identity): array {
+        db()->prepare('UPDATE grids SET no_http_in = 0 WHERE grid_identity = :gi')->execute([':gi' => trim($identity)]);
+        return ['message' => 'No HTTP-in flag cleared'];
+    }
+
     public static function setNickname(int $gridId, string $nickname): array {
         $n = trim($nickname);
         db()->prepare('UPDATE grids SET nickname = :n WHERE id = :id')->execute([':n' => $n === '' ? null : $n, ':id' => $gridId]);
