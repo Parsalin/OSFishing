@@ -1213,7 +1213,7 @@ setPanelMedia(string url) {
         PRIM_MEDIA_PERMS_INTERACT,       PRIM_MEDIA_PERM_OWNER,
         PRIM_MEDIA_PERMS_CONTROL,        PRIM_MEDIA_PERM_NONE
     ]);
-    if (status != STATUS_OK) {
+    if (status != 0) {   // 0 = OK (OpenSim doesn't define STATUS_OK)
         if (llGetInventoryType(TEX_MEDIA_UNAVAILABLE) == INVENTORY_TEXTURE)
             llSetLinkPrimitiveParamsFast(LINK_PANEL_MEDIA, [PRIM_TEXTURE, MEDIA_FACE, TEX_MEDIA_UNAVAILABLE,
                 <1.0, 1.0, 0.0>, ZERO_VECTOR, 0.0]);
