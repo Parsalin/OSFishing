@@ -99,6 +99,27 @@ string COL_BLUE   = "ff7ec8e3";
 
 string gLastRenderKey = "";  // Prevent redundant redraws
 
+// ── OSSL denial guard ──
+// A grid that denies osSetDynamicTextureData doesn't return an error: the
+// call HALTS the script, with no timer, touch or retry left. So the draw is
+// bracketed by a LinksetData mark. If the mark is still set when the script
+// next starts (the owner reset the halted vendor), the last draw killed us,
+// and from then on the vendor shows hover text instead.
+string  LD_OSSL_TRY = "vendor_ossl_try";
+integer gTextMode   = FALSE;
+
+renderText() {
+    if (!gSetupDone) {
+        llSetText("BAIT VENDOR\nTouch to set up", <1.0, 0.85, 0.4>, 1.0);
+        return;
+    }
+    string stock = (string)gStock + " / " + (string)gMaxStock;
+    if (gStock <= 0) stock = "SOLD OUT";
+    llSetText(gBaitName + "\n" + gShopName +
+              "\nBuy " + (string)gBuyPrice + " pts | Sell " + (string)gSellPrice + " pts" +
+              "\nStock: " + stock + "\nTouch to trade", <0.9, 0.95, 1.0>, 1.0);
+}
+
 renderDisplay() {
     // Build a key from current state — only redraw if something changed
     string renderKey = (string)gSetupDone + gBaitName + gShopName +
@@ -106,6 +127,7 @@ renderDisplay() {
                        (string)gStock + (string)gMaxStock;
     if (renderKey == gLastRenderKey) return;
     gLastRenderKey = renderKey;
+    if (gTextMode) { renderText(); return; }
     string d = "";
 
     // Background
@@ -164,8 +186,10 @@ renderDisplay() {
         d += "MoveTo 340,416;Text SELL;";
     }
 
+    llLinksetDataWrite(LD_OSSL_TRY, "1");
     osSetDynamicTextureData("", "vector", d,
         "width:512,height:512,distrib:0,alpha:255", 4);
+    llLinksetDataDelete(LD_OSSL_TRY);   // reached only if the grid allowed it
 }
 
 fetchStatus() {
@@ -220,18 +244,17 @@ showOwnerMenu(key who) {
 
 default {
     state_entry() {
-        if (loadData()) {
-            gSetupDone = TRUE;
-            // fetchStatus() first: renderDisplay() calls osSetDynamicTextureData
-            // and an OSSL denial halts the script, which would otherwise stop
-            // the vendor ever contacting the server.
-            fetchStatus();
-            renderDisplay();
-        } else {
-            gSetupDone = FALSE;
-            renderDisplay();
+        // A mark left by the last draw means it halted the script (see the
+        // OSSL denial guard): use hover text from now on.
+        if (llLinksetDataRead(LD_OSSL_TRY) == "1") {
+            gTextMode = TRUE;
+            llOwnerSay("This grid doesn't allow the vendor's drawn screen, so it shows its details as floating text instead.");
         }
-        llSetTimerEvent(300.0); // Redraw every 5 min // Refresh every 10 min
+        // Timer and fetch before the first draw, which may call OSSL.
+        llSetTimerEvent(300.0); // refresh stock + redraw every 5 min
+        gSetupDone = loadData();
+        if (gSetupDone) fetchStatus();
+        renderDisplay();
     }
 
     touch_start(integer n) {

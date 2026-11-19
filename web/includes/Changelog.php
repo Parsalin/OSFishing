@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-19-vendor-text-fallback', 'date' => '2026-11-19', 'type' => 'fixed',
+         'text' => 'Bait vendors on grids that don\'t allow their drawn screen stopped working. After a reset they now show their prices and stock as floating text instead. (Needs the updated vendor.)'],
         ['id' => '2026-11-19-hud-pairing-stall', 'date' => '2026-11-19', 'type' => 'fixed',
          'text' => 'HUD: pairing could stall and never notice you had entered the code if a message on the HUD faded at the wrong moment. (Needs the updated HUD.)'],
         ['id' => '2026-11-19-login-lockout', 'date' => '2026-11-19', 'type' => 'changed',
