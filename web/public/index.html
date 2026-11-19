@@ -655,7 +655,7 @@ async function restartTutorial() {
 }
 
 function loadPageData(page) {
-  const loaders = { dashboard:loadDashboard, fish:loadFishInventory, tackle:loadTackle, quests:loadQuests, myspots:loadMySpots, shop:loadShop, leaderboards:loadLeaderboards, map:loadMapGrids, trophy:loadTrophy, journal:loadJournal, log:loadCatchLog, settings:loadSettings, rods:loadRodGallery, help:loadHelp };
+  const loaders = { dashboard:loadDashboard, fish:loadFishInventory, tackle:loadTackle, quests:loadQuests, myspots:loadMySpots, shop:loadShop, leaderboards:loadLeaderboards, map:loadMapGrids, trophy:loadTrophy, journal:loadJournal, log:loadCatchLog, settings:loadSettings, rods:loadRodGallery, help:loadHelp, changelog:loadChangelog };
   if (loaders[page]) loaders[page]();
 }
 
@@ -671,6 +671,7 @@ async function doLogin() {
   if (r.success) {
     state.loggedIn = true;
     state.player = r.player;
+    loadChangelogUnseen();
 
     // Came from a HUD pairing link while logged out: go back to it now.
     const pairNext = sessionStorage.getItem('pairNext');
@@ -787,6 +788,23 @@ async function changePassword() {
   if (r.success) { state.recoveryMode = false; showToast('Password changed'); render(); }
   else showToast(r.error, true);
 }
+async function loadChangelog() {
+  const r = await api('changelog');
+  if (r.success) {
+    state.changelog = r.entries || [];
+    state.changelogAdmin = !!r.is_admin;
+    state.changelogUnseen = 0;
+  }
+  render();
+}
+async function loadChangelogUnseen() {
+  const r = await api('changelog_unseen');
+  if (r.success) { state.changelogUnseen = r.unseen || 0; render(); }
+}
+async function setChangelogPublished(id, on) {
+  const r = await api('admin_changelog_publish', { entry_id: id, published: on ? '1' : '0' });
+  if (r.success) { showToast(r.message); loadChangelog(); } else showToast(r.error, true);
+}
 async function loadRecoveryTerminals() {
   const r = await api('recovery_terminals');
   if (r.success) { state.recoveryTerminals = r.terminals || []; if (!state.loggedIn) render(); }
@@ -850,6 +868,7 @@ function renderSidebar(mobile) {
     {key:'map',label:'Grid Map',icon:'🗺️'},
     {key:'journal',label:'Journal',icon:icons.journal},{key:'log',label:'Catch Log',icon:icons.log},
     {key:'help',label:'Help',icon:icons.quest},
+    {key:'changelog',label:"What's New",icon:'📰'},
     {key:'settings',label:'Settings',icon:icons.settings},
   ];
 
@@ -869,7 +888,8 @@ function renderSidebar(mobile) {
     h('nav',{class:'sidebar-nav'},...navItems.map(item=>h('button',{class:'nav-item'+(state.page===item.key?' active':''),onClick:()=>setPage(item.key)},
       h('span',{class:'nav-icon',html:item.icon}),
       h('span',{class:'nav-label'},item.label),
-      item.key==='quests' && questBadge ? h('span',{style:{marginLeft:'auto',color:'#ffd700',fontWeight:900,fontSize:'14px',lineHeight:1}},questBadge) : null
+      item.key==='quests' && questBadge ? h('span',{style:{marginLeft:'auto',color:'#ffd700',fontWeight:900,fontSize:'14px',lineHeight:1}},questBadge) : null,
+      item.key==='changelog' && state.changelogUnseen > 0 ? h('span',{style:{marginLeft:'auto',width:'8px',height:'8px',borderRadius:'50%',background:'var(--accent)'}}) : null
     ))),
     h('div',{class:'sidebar-footer'},
       !mobile?h('button',{onClick:()=>{state.sidebarCollapsed=!state.sidebarCollapsed;render();}},h('span',{html:c?icons.expand:icons.collapse}),...(c?[]:[' Collapse'])):null,
@@ -1544,6 +1564,33 @@ function renderSettings() {
 }
 
 // ═══════════════════════════════════════════════
+// PAGE: WHAT'S NEW (changelog)
+// ═══════════════════════════════════════════════
+function renderChangelog() {
+  const entries = state.changelog;
+  if (!entries) return loadingMsg();
+  const typeStyle = { new:['New','var(--success)'], changed:['Changed','var(--accent)'], fixed:['Fixed','var(--text-muted)'] };
+  return h('div',{class:'fade-in'},
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},"What's New")),
+    state.changelogAdmin ? h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px',maxWidth:'680px'}},
+      'Admin view: entries start hidden. Tick Published to show one to players. Dimmed entries are hidden.') : null,
+    entries.length === 0 ? h('div',{class:'card'},h('div',{class:'card-body',style:{color:'var(--text-muted)',fontSize:'13px'}},'Nothing here yet.')) :
+    h('div',{style:{display:'flex',flexDirection:'column',gap:'10px',maxWidth:'680px'}},...entries.map(e=>{
+      const [label,color] = typeStyle[e.type] || [e.type,'var(--text-muted)'];
+      return h('div',{class:'card',style:{opacity:e.published?'1':'0.55'}},h('div',{class:'card-body'},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'6px'}},
+          h('div',{style:{fontSize:'11px',color:'var(--text-muted)'}},
+            h('span',{style:{color,fontWeight:700,textTransform:'uppercase',marginRight:'8px'}},label), fmtDay(e.date+' 12:00:00')),
+          state.changelogAdmin ? h('label',{style:{fontSize:'11px',display:'flex',gap:'5px',alignItems:'center'}},
+            h('input',{type:'checkbox',checked:e.published,onChange:ev=>setChangelogPublished(e.id, ev.target.checked)}),'Published') : null
+        ),
+        h('div',{style:{fontSize:'13px',lineHeight:'1.55',fontWeight:e.unseen?700:400}},e.text)
+      ));
+    }))
+  );
+}
+
+// ═══════════════════════════════════════════════
 // PAGE: HELP & TUTORIAL
 // ═══════════════════════════════════════════════
 function renderHelp() {
@@ -2184,7 +2231,7 @@ function renderTrophy() {
 // ═══════════════════════════════════════════════
 // MAIN RENDER
 // ═══════════════════════════════════════════════
-const pageRenderers = { dashboard:renderDashboard, fish:renderFishInventory, tackle:renderTackle, rods:renderRodGallery, quests:renderQuests, myspots:renderMySpots, shop:renderShop, leaderboards:renderLeaderboards, map:renderGridMap, trophy:renderTrophy, journal:renderJournal, log:renderCatchLog, help:renderHelp, settings:renderSettings };
+const pageRenderers = { dashboard:renderDashboard, fish:renderFishInventory, tackle:renderTackle, rods:renderRodGallery, quests:renderQuests, myspots:renderMySpots, shop:renderShop, leaderboards:renderLeaderboards, map:renderGridMap, trophy:renderTrophy, journal:renderJournal, log:renderCatchLog, help:renderHelp, settings:renderSettings, changelog:renderChangelog };
 
 function render() {
   setTheme(state.theme);
@@ -2299,7 +2346,7 @@ function render() {
   if (params.get('recovery') === '1') state.recoveryMode = true;
   const pageParam = params.get('page');
   if (pageParam) {
-    const validPages = ['dashboard','fish','tackle','rods','quests','shop','leaderboards','journal','log','settings'];
+    const validPages = ['dashboard','fish','tackle','rods','quests','shop','leaderboards','journal','log','settings','changelog'];
     if (validPages.includes(pageParam)) {
       state.page = pageParam;
     }
@@ -2317,6 +2364,7 @@ render();
     state.loggedIn = true; state.profile = r; state.player = r.player;
     render();
     loadPageData(state.page);
+    loadChangelogUnseen();
   }
 })();
 </script>

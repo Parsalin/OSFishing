@@ -41,6 +41,7 @@ require_once __DIR__ . '/../../includes/AdminAlerts.php';
 require_once __DIR__ . '/../../includes/LogicErrorLog.php';
 require_once __DIR__ . '/../../includes/SimOrigin.php';
 require_once __DIR__ . '/../../includes/AdminObjects.php';
+require_once __DIR__ . '/../../includes/Changelog.php';
 
 // ── Handle CORS for web portal ──
 header('Access-Control-Allow-Origin: *');
@@ -135,6 +136,25 @@ try {
             }
             [$reply, $status] = AdminObjects::handle($action, $owner, $objectKey, $ip, (string)optional_param('token', ''), $_POST);
             json_response($reply, $status);
+
+        // ── Changelog (public; admins also see hidden entries) ──
+        case 'changelog':
+            $viewer = null;
+            try { $viewer = Auth::currentWebPlayer(); } catch (\Throwable $e) {}
+            if (!$viewer && !empty($GLOBALS['_embed_player_id'])) {
+                $st = db()->prepare('SELECT * FROM players WHERE id = :id');
+                $st->execute([':id' => (int)$GLOBALS['_embed_player_id']]);
+                $viewer = $st->fetch() ?: null;
+            }
+            json_success(Changelog::forViewer($viewer));
+
+        case 'changelog_unseen':
+            $player = AuthEmbed::requireWeb();
+            json_success(['unseen' => Changelog::unseenCount((int)$player['id'])]);
+
+        case 'admin_changelog_publish':
+            $admin = Admin::requireAdmin();
+            json_success(Changelog::setPublished(require_param('entry_id'), optional_param('published', '0') === '1', (int)$admin['id']));
 
         case 'recovery_terminals':
             json_success(AdminObjects::recoveryTerminals());
