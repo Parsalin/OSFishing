@@ -157,7 +157,8 @@ class Auth {
         setcookie('fishing_session', $sessionId, [
             'expires'  => time() + SESSION_LIFETIME,
             'path'     => '/',
-            'httponly'  => true,
+            'secure'   => true,
+            'httponly' => true,
             'samesite' => 'Lax',
         ]);
 
@@ -175,7 +176,7 @@ class Auth {
         if ($sessionId) {
             $stmt = db()->prepare('DELETE FROM web_sessions WHERE id = :id');
             $stmt->execute([':id' => $sessionId]);
-            setcookie('fishing_session', '', ['expires' => 1, 'path' => '/']);
+            setcookie('fishing_session', '', ['expires' => 1, 'path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
         }
     }
 

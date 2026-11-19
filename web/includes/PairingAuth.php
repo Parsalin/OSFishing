@@ -1378,11 +1378,9 @@ class PairingAuth {
      * Check if a UUID has an account (no auth needed).
      */
     public static function checkAccount(string $uuid): array {
-        $stmt = db()->prepare('SELECT id, display_name FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
-        $stmt->execute([':uuid' => $uuid]);
-        $player = $stmt->fetch();
-        if (!$player) return ['exists' => false];
-        return ['exists' => true, 'display_name' => $player['display_name']];
+        // Exists or not, nothing more: it's unauthenticated, so returning the
+        // display name let anyone look up the account name for any UUID.
+        return ['exists' => self::playerIdForUuid($uuid) !== null];
     }
 
     /**

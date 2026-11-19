@@ -43,10 +43,9 @@ require_once __DIR__ . '/../../includes/SimOrigin.php';
 require_once __DIR__ . '/../../includes/AdminObjects.php';
 require_once __DIR__ . '/../../includes/Changelog.php';
 
-// ── Handle CORS for web portal ──
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+// No CORS headers: the portal, admin panel and HUD media panel are all
+// same-origin, and sims don't use CORS. Another site gets no cross-origin
+// read access to API replies.
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { exit; }
 
 // ── Accept JSON body or form POST ──
@@ -207,7 +206,8 @@ try {
             setcookie('fishing_session', $sessionId, [
                 'expires'  => time() + (defined('SESSION_LIFETIME') ? SESSION_LIFETIME : 86400),
                 'path'     => '/',
-                'httponly'  => true,
+                'secure'   => true,
+                'httponly' => true,
                 'samesite' => 'Lax',
             ]);
             json_success([
