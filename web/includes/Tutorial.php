@@ -52,27 +52,12 @@ class Tutorial
      * click through media prims.
      */
     public static function pushEvent(int $playerId, string $event, array $extra = []): void {
-        $stmt = db()->prepare('
-            SELECT callback_url FROM hud_tokens
-            WHERE player_id = :pid AND is_active = 1 AND revoked_at IS NULL
-              AND callback_url IS NOT NULL
-            ORDER BY last_used DESC
-            LIMIT 1
-        ');
-        $stmt->execute([':pid' => $playerId]);
-        $url = $stmt->fetchColumn();
-
-        $payload = array_merge([
+        // pushToPlayer queues on no URL or a failed POST, so an event is
+        // never dropped (that would strand the player mid-tutorial).
+        require_once __DIR__ . '/PairingAuth.php';
+        PairingAuth::pushToPlayer($playerId, array_merge([
             'type'  => 'tutorial_event',
             'event' => $event,
-        ], $extra);
-
-        require_once __DIR__ . '/PushQueue.php';
-
-        // Tutorial events are discrete steps — dropping one strands the player
-        // mid-tutorial with no way to advance, so queue rather than return.
-        if (!$url || !PrimCallback::pushUrl($url, $payload)) {
-            PushQueue::queueForPlayer($playerId, $payload);
-        }
+        ], $extra));
     }
 }

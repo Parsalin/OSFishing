@@ -114,6 +114,14 @@ class PushQueue {
 
     /** POST to exactly this URL, no host rewrite. */
     public static function postRaw(string $url, array $payload, int $timeout = 3): array {
+        $ch = self::handle($url, $payload, $timeout);
+        curl_exec($ch);
+        $res = self::result($ch);
+        curl_close($ch);
+        return $res;
+    }
+
+    private static function handle(string $url, array $payload, int $timeout) {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
@@ -124,11 +132,12 @@ class PushQueue {
             CURLOPT_CONNECTTIMEOUT => 2,
             CURLOPT_SSL_VERIFYPEER => false,
         ]);
-        curl_exec($ch);
+        return $ch;
+    }
+
+    private static function result($ch): array {
         $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err  = curl_error($ch);
-        curl_close($ch);
-
         return [
             'ok'   => ($code >= 200 && $code < 300),
             'code' => $code,
@@ -138,6 +147,86 @@ class PushQueue {
             'dead' => ($code === 404 || $code === 410),
             'err'  => $err !== '' ? substr($err, 0, 200) : ('HTTP ' . $code),
         ];
+    }
+
+    // ── Outbox: send after the reply ──────────────────────────
+    //
+    // A push made while handling a request (web equip, buff activation, ...)
+    // used to POST before the reply, one at a time, each with a 3–5 s
+    // timeout, so one sim in an offline region stalled the player's page.
+    // Now pushes collect here and go out after fastcgi_finish_request():
+    // different URLs in parallel (curl_multi), one URL's messages in order.
+
+    /** @var array<string, list<array{0: array, 1: ?callable}>> url => pending sends */
+    private static $outbox = [];
+    /** @var list<callable> */
+    private static $afterJobs = [];
+    private static $armed = false;
+
+    /**
+     * POST $payload to $url after the reply is sent. $onDone receives the
+     * same result array as post() and decides what a failure means.
+     */
+    public static function sendLater(string $url, array $payload, ?callable $onDone = null): void {
+        self::$outbox[$url][] = [$payload, $onDone];
+        self::arm();
+    }
+
+    /** Run $job after the reply is sent (after the outbox). Never throws. */
+    public static function later(callable $job): void {
+        self::$afterJobs[] = $job;
+        self::arm();
+    }
+
+    private static function arm(): void {
+        if (self::$armed) return;
+        self::$armed = true;
+        register_shutdown_function(static function () {
+            if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+            try {
+                self::drainOutbox();
+            } catch (Throwable $e) {
+                error_log('PushQueue outbox failed: ' . $e->getMessage());
+            }
+            foreach (self::$afterJobs as $job) {
+                try { $job(); } catch (Throwable $e) { error_log('PushQueue after-reply job failed: ' . $e->getMessage()); }
+            }
+        });
+    }
+
+    private static function drainOutbox(): void {
+        if (!self::$outbox) return;
+        require_once __DIR__ . '/Grid.php';
+        $mh = curl_multi_init();
+        $inFlight = [];   // spl_object_id(handle) => [url, onDone, handle]
+
+        $startNext = static function (string $url) use ($mh, &$inFlight) {
+            if (empty(self::$outbox[$url])) { unset(self::$outbox[$url]); return; }
+            [$payload, $onDone] = array_shift(self::$outbox[$url]);
+            $ch = self::handle(Grid::rewritePushUrl($url), $payload, 5);
+            curl_multi_add_handle($mh, $ch);
+            $inFlight[spl_object_id($ch)] = [$url, $onDone, $ch];
+        };
+
+        foreach (array_keys(self::$outbox) as $url) $startNext($url);
+
+        while ($inFlight) {
+            curl_multi_exec($mh, $running);
+            if ($running) curl_multi_select($mh, 1.0);
+            while ($info = curl_multi_info_read($mh)) {
+                $ch = $info['handle'];
+                [$url, $onDone] = $inFlight[spl_object_id($ch)];
+                unset($inFlight[spl_object_id($ch)]);
+                $res = self::result($ch);
+                curl_multi_remove_handle($mh, $ch);
+                curl_close($ch);
+                if ($onDone) {
+                    try { $onDone($res); } catch (Throwable $e) { error_log('PushQueue onDone failed: ' . $e->getMessage()); }
+                }
+                $startNext($url);   // that URL's next message, in order
+            }
+        }
+        curl_multi_close($mh);
     }
 
     // ── Flush ─────────────────────────────────────────────────

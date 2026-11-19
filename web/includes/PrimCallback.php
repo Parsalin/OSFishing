@@ -50,8 +50,9 @@ class PrimCallback
                 WHERE sb.spot_id = :sid AND sb.expires_at > UTC_TIMESTAMP()
             ');
             $stmt->execute([':sid' => $refId]);
+            require_once __DIR__ . '/PushQueue.php';
             foreach ($stmt->fetchAll() as $buff) {
-                self::pushUrl($callbackUrl, [
+                PushQueue::sendLater($callbackUrl, [
                     'event'      => 'buff_active',
                     'buff_type'  => $buff['buff_type'],
                     'buff_name'  => $buff['buff_name'],
@@ -94,7 +95,8 @@ class PrimCallback
         // The prim just proved it is alive and reachable, so this is the
         // moment to hand it anything that was queued while it was not.
         if ($row && !empty($row['callback_url'])) {
-            PushQueue::flushPrim($row['prim_type'], (int)$row['ref_id'], $row['callback_url']);
+            $pt = $row['prim_type']; $rid = (int)$row['ref_id']; $url = $row['callback_url'];
+            PushQueue::later(static fn() => PushQueue::flushPrim($pt, $rid, $url));
         }
     }
 
@@ -142,6 +144,10 @@ class PrimCallback
     /**
      * Push a payload to all prims of a given type for a ref_id.
      * Used by buff activation, spot updates, etc.
+     *
+     * Sent after the reply (PushQueue outbox). Returns how many prims it was
+     * sent to, not how many received it; if none did, it is queued for the
+     * next prim_heartbeat.
      */
     public static function pushToType(string $primType, int $refId, array $payload): int {
         require_once __DIR__ . '/PushQueue.php';
@@ -150,18 +156,29 @@ class PrimCallback
         $stmt->execute([':t' => $primType, ':r' => $refId]);
         $urls = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-        $count = 0;
-        foreach ($urls as $url) {
-            if (self::pushUrl($url, $payload)) $count++;
+        // No prim registered (region offline, prim returned to inventory).
+        if (!$urls) {
+            PushQueue::queueForPrim($primType, $refId, $payload);
+            return 0;
         }
 
-        // Nothing got it — either no prim is registered (region offline, prim
-        // returned to inventory) or every POST failed. Queue it so the next
-        // prim_heartbeat delivers it, instead of dropping it as before.
-        if ($count === 0) {
-            PushQueue::queueForPrim($primType, $refId, $payload);
+        $tally = (object)['left' => count($urls), 'ok' => 0];
+        foreach ($urls as $url) {
+            PushQueue::sendLater($url, $payload, static function (array $res) use ($tally, $url, $primType, $refId, $payload) {
+                if ($res['ok']) {
+                    $tally->ok++;
+                } elseif ($res['dead']) {
+                    // Only forget the URL when the sim says it is genuinely
+                    // gone; a timeout or 0 may just be a region restarting.
+                    db()->prepare('DELETE FROM prim_callbacks WHERE callback_url = :u')->execute([':u' => $url]);
+                }
+                // Every POST failed: queue it rather than drop it.
+                if (--$tally->left === 0 && $tally->ok === 0) {
+                    PushQueue::queueForPrim($primType, $refId, $payload);
+                }
+            });
         }
-        return $count;
+        return count($urls);
     }
 
     /**
@@ -169,24 +186,6 @@ class PrimCallback
      */
     public static function pushToSpot(int $spotId, array $payload): bool {
         return self::pushToType('fishing_spot', $spotId, $payload) > 0;
-    }
-
-    /**
-     * Push to a single URL. Returns true on success.
-     */
-    public static function pushUrl(string $url, array $payload): bool {
-        require_once __DIR__ . '/PushQueue.php';
-
-        $res = PushQueue::post($url, $payload, 5);
-
-        // Only forget the URL when the sim says it is genuinely gone.
-        // A code of 0 (connection refused / timeout) used to delete the
-        // callback too, so a region restarting or a momentary network blip
-        // permanently unregistered a live prim until it re-registered itself.
-        if ($res['dead']) {
-            db()->prepare('DELETE FROM prim_callbacks WHERE callback_url = :u')->execute([':u' => $url]);
-        }
-        return $res['ok'];
     }
 
 }

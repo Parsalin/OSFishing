@@ -1243,14 +1243,15 @@ class PairingAuth {
         $stmt->execute([':url' => $callbackUrl, ':id' => $tokenId]);
 
         // A HUD that just registered a URL is reachable right now, and may
-        // have missed pushes while detached. Deliver them immediately.
+        // have missed pushes while detached. Deliver them once this reply
+        // has gone out.
         $stmt = db()->prepare('SELECT player_id FROM hud_tokens WHERE id = :id');
         $stmt->execute([':id' => $tokenId]);
         $playerId = (int)$stmt->fetchColumn();
 
-        $flushed = $playerId ? PushQueue::flushPlayer($playerId, $callbackUrl) : 0;
+        if ($playerId) PushQueue::later(static fn() => PushQueue::flushPlayer($playerId, $callbackUrl));
 
-        return ['message' => 'Callback registered', 'queued_delivered' => $flushed];
+        return ['message' => 'Callback registered'];
     }
 
     /**
@@ -1277,7 +1278,8 @@ class PairingAuth {
 
         $stmt = db()->prepare('
             SELECT callback_url FROM hud_tokens
-            WHERE player_id = :pid AND is_active = 1 AND callback_url IS NOT NULL
+            WHERE player_id = :pid AND is_active = 1 AND revoked_at IS NULL
+              AND callback_url IS NOT NULL
             ORDER BY last_used DESC LIMIT 1
         ');
         $stmt->execute([':pid' => $playerId]);
@@ -1291,23 +1293,24 @@ class PairingAuth {
             return;
         }
 
-        $res = PushQueue::post($url, $data);
-        if ($res['ok']) return;
+        // Sent after the reply (PushQueue outbox), so a slow sim never
+        // delays the request that caused the push.
+        PushQueue::sendLater($url, $data, static function (array $res) use ($playerId, $data, $url) {
+            if ($res['ok']) return;
 
-        // Requeue rather than drop. This is the whole point: a transient
-        // failure used to lose the message silently.
-        PushQueue::queueForPlayer($playerId, $data);
+            // Requeue rather than drop: a transient failure used to lose the
+            // message silently.
+            PushQueue::queueForPlayer($playerId, $data);
 
-        // Only clear the URL when the sim says it is genuinely gone. A
-        // timeout or a 5xx means "not right now", not "never again" — the
-        // old code cleared on any failure, so one blip detached the HUD from
-        // pushes until it re-registered.
-        if ($res['dead']) {
-            db()->prepare('
-                UPDATE hud_tokens SET callback_url = NULL
-                WHERE player_id = :pid AND callback_url = :url
-            ')->execute([':pid' => $playerId, ':url' => $url]);
-        }
+            // Only clear the URL when the sim says it is genuinely gone. A
+            // timeout or a 5xx means "not right now", not "never again".
+            if ($res['dead']) {
+                db()->prepare('
+                    UPDATE hud_tokens SET callback_url = NULL
+                    WHERE player_id = :pid AND callback_url = :url
+                ')->execute([':pid' => $playerId, ':url' => $url]);
+            }
+        });
     }
 
     /**
