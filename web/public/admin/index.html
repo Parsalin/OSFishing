@@ -94,6 +94,7 @@ const state = {
   grids: [],
   alerts: [], unreadAlerts: 0, alertsUnreadOnly: false,
   logicEntries: [], logicCategories: [], logicFilter: '',
+  objects: [], pendingObject: null, approveCode: '',
 };
 
 // ── API ──
@@ -307,6 +308,20 @@ async function markAllAlertsRead() {
   const r = await api('admin_alert_read', { all: '1' });
   if (r.success) { state.unreadAlerts = 0; loadAlerts(); } else toast(r.error, true);
 }
+async function loadObjects() {
+  const r = await api('admin_objects_list');
+  if (r.success) state.objects = r.objects||[];
+  if (state.approveCode) {
+    const p = await api('admin_object_pending', { code: state.approveCode });
+    state.pendingObject = p.success ? p.object : { expired: true, error: p.error };
+  }
+  render();
+}
+async function objectAction(action, id, extra) {
+  const r = await api(action, { object_id: String(id), ...(extra||{}) });
+  if (r.success) { toast(r.message||'Done'); if (action==='admin_object_approve'||action==='admin_object_reject') { state.approveCode=''; state.pendingObject=null; history.replaceState({}, '', location.pathname+'?tab=objects'); } loadObjects(); }
+  else toast(r.error, true);
+}
 async function loadLogicErrors() {
   const r = await api('admin_logic_errors', { category: state.logicFilter });
   if (r.success) { state.logicEntries = r.entries||[]; state.logicCategories = r.categories||[]; }
@@ -383,7 +398,7 @@ function setTab(t) {
   state.tab = t;
   state.playerDetail = null;
   state.fishDetail = null;
-  const loaders = { stats:loadStats, players:loadPlayers, spots:loadSpots, fish:loadFish, lines:loadLines, bait:loadBaitTypes, announcements:loadAnnouncements, questions:loadQuestions, faq:loadAdminFaqs, gather:loadGatherPoints, grids:loadGrids, alerts:loadAlerts, logic:loadLogicErrors };
+  const loaders = { stats:loadStats, players:loadPlayers, spots:loadSpots, fish:loadFish, lines:loadLines, bait:loadBaitTypes, announcements:loadAnnouncements, questions:loadQuestions, faq:loadAdminFaqs, gather:loadGatherPoints, grids:loadGrids, alerts:loadAlerts, logic:loadLogicErrors, objects:loadObjects };
   if (loaders[t]) loaders[t]();
   else render();
 }
@@ -954,6 +969,57 @@ function renderAlerts() {
   );
 }
 
+// ── RENDER: Admin objects ──
+function renderObjects() {
+  const po = state.pendingObject;
+  const badge = st => h('span',{style:{fontWeight:700,fontSize:'11px',textTransform:'uppercase',color:st==='active'?'var(--success)':st==='pending'?'var(--accent)':'var(--danger)'}},st);
+  return h('div',null,
+    h('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'12px'}},
+      'In-world objects that act for the admins (the Account Recovery terminal). Each one is bound to its object, owner, grid and internet address; anything else using its token revokes it.'),
+    po ? h('div',{class:'card',style:{padding:'16px',marginBottom:'16px',borderLeft:'3px solid var(--accent)'}},
+      po.expired
+        ? h('div',null,h('strong',null,'Setup link expired. '),po.error||'Reset the object to try again.')
+        : h('div',null,
+            h('h3',{style:{marginBottom:'8px'}},'Approve this '+po.type_label+'?'),
+            h('div',{style:{fontSize:'13px',lineHeight:'1.7'}},
+              h('div',null,'Name: ',h('strong',null,po.display_name)),
+              h('div',null,'Owner: ',h('strong',null,po.owner_name)),
+              h('div',null,'Where: ',h('strong',null,(po.region||'?')+' '+(po.position||'')),' on ',h('strong',null,po.grid_identity||po.grid_host||'?')),
+              h('div',null,'Address: ',h('code',null,po.source_ip)),
+              h('div',{style:{fontSize:'11px',color:'var(--muted)'}},'Object key '+po.object_key+' — requested '+fmtTime(po.created_at))
+            ),
+            h('div',{style:{display:'flex',gap:'8px',marginTop:'12px'}},
+              h('button',{class:'btn btn-success',onClick:()=>objectAction('admin_object_approve',po.id)},'Approve'),
+              h('button',{class:'btn btn-danger',onClick:()=>objectAction('admin_object_reject',po.id)},'Reject')
+            )
+          )
+    ) : null,
+    state.objects.length===0 ? h('div',{class:'empty'},'No admin objects yet. Rez an Account Recovery terminal as an admin to set one up.') :
+    h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},...state.objects.map(o=>
+      h('div',{class:'card',style:{padding:'12px 14px'}},
+        h('div',{style:{display:'flex',justifyContent:'space-between',gap:'10px',flexWrap:'wrap'}},
+          h('div',null,
+            h('div',{style:{fontWeight:700}},o.display_name+'  ',badge(o.status)),
+            h('div',{style:{fontSize:'12px',color:'var(--muted)'}},o.type_label+' — owner '+o.owner_name+' — '+(o.region||'?')+' on '+(o.grid_identity||'?')),
+            h('div',{style:{fontSize:'11px',color:'var(--muted)'}},'Address '+o.source_ip+' — last seen '+(o.last_seen_at?fmtTime(o.last_seen_at):'never')),
+            o.pending_ip ? h('div',{style:{fontSize:'12px',color:'var(--danger)',marginTop:'4px'}},'Paused: calling from a new address '+o.pending_ip) : null,
+            o.revoke_reason ? h('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}},'Revoked: '+o.revoke_reason) : null
+          ),
+          h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap',alignItems:'flex-start'}},
+            o.pending_ip && o.status==='active' ? h('button',{class:'btn btn-sm btn-success',onClick:()=>objectAction('admin_object_accept_ip',o.id)},'Accept new address') : null,
+            o.status==='pending' ? h('button',{class:'btn btn-sm btn-success',onClick:()=>objectAction('admin_object_approve',o.id)},'Approve') : null,
+            h('button',{class:'btn btn-sm btn-secondary',onClick:()=>{const l=prompt('Label:',o.label||'');if(l!==null)objectAction('admin_object_rename',o.id,{label:l});}},'Rename'),
+            o.status==='active' ? h('button',{class:'btn btn-sm btn-danger',onClick:()=>{if(confirm('Revoke '+o.display_name+'? It stops working until set up again.'))objectAction('admin_object_revoke',o.id);}},'Revoke') : null,
+            (o.status==='revoked'||o.status==='rejected') ? h('button',{class:'btn btn-sm btn-danger',onClick:()=>objectAction('admin_object_delete',o.id)},'Delete') : null
+          )
+        ),
+        (o.log||[]).length ? h('details',{style:{marginTop:'8px'}},h('summary',{style:{fontSize:'11px',color:'var(--muted)',cursor:'pointer'}},'Activity'),
+          h('div',{style:{fontSize:'11px',marginTop:'6px'}},...o.log.map(l=>h('div',{style:{padding:'2px 0',color:l.result==='ok'?'inherit':'var(--danger)'}},fmtTime(l.created_at)+' — '+l.action+' ('+l.result+'): '+l.message)))) : null
+      )
+    ))
+  );
+}
+
 // ── RENDER: Logic error log ──
 function renderLogicErrors() {
   return h('div',null,
@@ -977,8 +1043,8 @@ function renderLogicErrors() {
   );
 }
 
-const tabRenderers = { stats:renderStats, players:renderPlayers, spots:renderSpots, fish:renderFish, lines:renderLines, bait:renderBait, gather:renderGatherPoints, grids:renderGrids, announcements:renderAnnouncements, questions:renderQuestions, faq:renderFAQManager, alerts:renderAlerts, logic:renderLogicErrors };
-const tabLabels = { stats:'Dashboard', players:'Players', spots:'Spots', fish:'Fish Balance', lines:'Line Types', bait:'Bait Types', gather:'Gather Points', grids:'Grids', questions:'Questions', faq:'FAQ', announcements:'Announcements', alerts:'Alerts', logic:'Logic Log' };
+const tabRenderers = { stats:renderStats, players:renderPlayers, spots:renderSpots, fish:renderFish, lines:renderLines, bait:renderBait, gather:renderGatherPoints, grids:renderGrids, announcements:renderAnnouncements, questions:renderQuestions, faq:renderFAQManager, alerts:renderAlerts, logic:renderLogicErrors, objects:renderObjects };
+const tabLabels = { stats:'Dashboard', players:'Players', spots:'Spots', fish:'Fish Balance', lines:'Line Types', bait:'Bait Types', gather:'Gather Points', grids:'Grids', questions:'Questions', faq:'FAQ', announcements:'Announcements', objects:'Objects', alerts:'Alerts', logic:'Logic Log' };
 
 function render() {
   const app = $('app');
@@ -1010,7 +1076,9 @@ function render() {
     state.stats = r;
     state.unreadAlerts = r.unread_alerts || 0;
     // Deep links from alerts, e.g. /admin/?tab=objects
-    const wantTab = new URLSearchParams(location.search).get('tab');
+    const qs = new URLSearchParams(location.search);
+    const wantTab = qs.get('tab');
+    if (/^[0-9a-f]{32}$/.test(qs.get('approve')||'')) state.approveCode = qs.get('approve');
     if (wantTab && tabLabels[wantTab]) { setTab(wantTab); return; }
     render();
   } else {

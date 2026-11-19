@@ -39,6 +39,8 @@ require_once __DIR__ . '/../../includes/PushQueue.php';
 require_once __DIR__ . '/../../includes/Tutorial.php';
 require_once __DIR__ . '/../../includes/AdminAlerts.php';
 require_once __DIR__ . '/../../includes/LogicErrorLog.php';
+require_once __DIR__ . '/../../includes/SimOrigin.php';
+require_once __DIR__ . '/../../includes/AdminObjects.php';
 
 // ── Handle CORS for web portal ──
 header('Access-Control-Allow-Origin: *');
@@ -111,22 +113,36 @@ try {
         // PAIRING ENDPOINTS (no auth required)
         // ════════════════════════════════════════════════
 
+        // ── Admin objects (Account Recovery terminal) ──
+        // Pairing is unauthenticated (owner must be an admin avatar); the
+        // rest carry the object's token. See includes/AdminObjects.php.
+        case 'aobj_pair_request':
+        case 'aobj_pair_status':
+        case 'aobj_hello':
+        case 'aobj_recovery':
+            $owner = strtolower(require_param('uuid'));
+            $ownerHeader = strtolower((string)($_SERVER['HTTP_X_SECONDLIFE_OWNER_KEY'] ?? ''));
+            if ($ownerHeader === '') json_response(['success' => false, 'ok' => false, 'error' => 'not_from_a_sim'], 401);
+            if ($ownerHeader !== $owner) json_response(['success' => false, 'ok' => false, 'error' => 'owner_mismatch'], 401);
+            $objectKey = strtolower((string)($_SERVER['HTTP_X_SECONDLIFE_OBJECT_KEY'] ?? ''));
+            $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+            if ($action === 'aobj_pair_request') {
+                SimOrigin::allow($action, $owner, (string)optional_param('grid_name', ''));
+                json_response(AdminObjects::pairRequest($owner, $objectKey, $ip, $_POST));
+            }
+            if ($action === 'aobj_pair_status') {
+                json_response(AdminObjects::pairStatus($owner, $objectKey, $ip, $_POST));
+            }
+            [$reply, $status] = AdminObjects::handle($action, $owner, $objectKey, $ip, (string)optional_param('token', ''), $_POST);
+            json_response($reply, $status);
+
+        case 'recovery_terminals':
+            json_success(AdminObjects::recoveryTerminals());
+
         case 'check_account':
             $uuid = require_param('uuid');
+            SimOrigin::allow($action, $uuid, (string)optional_param('grid_name', ''));
             json_success(PairingAuth::checkAccount($uuid));
-
-        case 'password_reset':
-            $uuid = require_param('uuid');
-            $newPassword = require_param('new_password');
-            if (strlen($newPassword) < 6) json_error('Password must be at least 6 characters');
-            $stmt = db()->prepare('SELECT id, display_name FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :u)');
-            $stmt->execute([':u' => $uuid]);
-            $player = $stmt->fetch();
-            if (!$player) json_error('Account not found');
-            $hash = password_hash($newPassword, PASSWORD_DEFAULT);
-            db()->prepare('UPDATE players SET password_hash = :h WHERE id = :id')
-                ->execute([':h' => $hash, ':id' => $player['id']]);
-            json_success(['message' => 'Password updated for ' . $player['display_name']]);
 
         case 'register_callback':
             $player = PairingAuth::requireHUD($action);
@@ -182,6 +198,7 @@ try {
         case 'spot_register':
             // Check grid approval
             $gridName = optional_param('grid_name', '');
+            SimOrigin::allow($action, (string)optional_param('owner_key', ''), (string)$gridName);
             if ($gridName !== '') Grid::requireApproved($gridName);
             json_success(PairingAuth::registerSpot($_POST));
 
@@ -277,6 +294,10 @@ try {
 
         // ── Gather point: self-register from in-world object ──
         case 'gather_register':
+            // BaitGatherPoint doesn't report its grid yet; check only when it does.
+            if (optional_param('grid_name', '') !== '') {
+                SimOrigin::allow($action, (string)optional_param('owner_key', ''), (string)optional_param('grid_name', ''));
+            }
             json_success(GatherPoint::registerPoint($_POST));
 
         // ── Gather point: check status (stock level, respawn) ──
@@ -336,6 +357,7 @@ try {
         case 'pair_request':
             $uuid = require_param('uuid');
             $gridName = optional_param('grid_name', '');
+            SimOrigin::allow($action, $uuid, (string)$gridName);
             if ($gridName !== '') Grid::requireApproved($gridName);
             json_success(PairingAuth::requestCode($uuid, $gridName));
 
@@ -820,16 +842,32 @@ try {
         // ── Web: change password ──
         case 'web_change_password':
             $player  = AuthEmbed::requireWeb();
-            $current = require_param('current_password');
             $newPass = require_param('new_password');
-            if (!password_verify($current, $player['password_hash'])) {
-                json_error('Current password incorrect');
+            $sid = (string)($_COOKIE['fishing_session'] ?? '');
+            $rec = db()->prepare('SELECT 1 FROM web_sessions WHERE id = :id AND player_id = :pid AND recovery_until > UTC_TIMESTAMP()');
+            $rec->execute([':id' => $sid, ':pid' => $player['id']]);
+            $recovery = (bool)$rec->fetchColumn();
+            if (!$recovery) {
+                $current = require_param('current_password');
+                if (!password_verify($current, $player['password_hash'])) {
+                    json_error('Current password incorrect');
+                }
             }
             if (strlen($newPass) < 6) json_error('New password must be at least 6 characters');
             $hash = password_hash($newPass, PASSWORD_BCRYPT, ['cost' => 12]);
             db()->prepare('UPDATE players SET password_hash = :h WHERE id = :id')
                 ->execute([':h' => $hash, ':id' => $player['id']]);
+            // A new password ends every other session, and recovery mode.
+            db()->prepare('DELETE FROM web_sessions WHERE player_id = :pid AND id <> :id')
+                ->execute([':pid' => $player['id'], ':id' => $sid]);
+            db()->prepare('UPDATE web_sessions SET recovery_until = NULL WHERE id = :id')->execute([':id' => $sid]);
             json_success(['message' => 'Password changed']);
+
+        case 'web_recovery_mode':
+            $player = AuthEmbed::requireWeb();
+            $rec = db()->prepare('SELECT recovery_until FROM web_sessions WHERE id = :id AND player_id = :pid AND recovery_until > UTC_TIMESTAMP()');
+            $rec->execute([':id' => (string)($_COOKIE['fishing_session'] ?? ''), ':pid' => $player['id']]);
+            json_success(['recovery_until' => $rec->fetchColumn() ?: null]);
 
 
         // ════════════════════════════════════════════════
@@ -1295,6 +1333,7 @@ try {
 
         // ── Physical Shops ──
         case 'shop_register':
+            SimOrigin::allow($action, (string)optional_param('owner_key', ''), (string)optional_param('grid_name', ''));
             json_success(ShopSystem::registerShop($_POST));
 
         case 'shops_in_region':
@@ -1426,6 +1465,41 @@ try {
             Admin::requireAdmin();
             json_success(Grid::deleteGrid((int)require_param('grid_id')));
 
+
+        // ── Admin objects ──
+        case 'admin_objects_list':
+            Admin::requireAdmin();
+            json_success(AdminObjects::listForAdmin());
+
+        case 'admin_object_pending':
+            Admin::requireAdmin();
+            $obj = AdminObjects::pendingForCode(require_param('code'));
+            if (!$obj) json_error('That setup request has expired or was already handled. Reset the object to try again.', 410);
+            json_success(['object' => $obj]);
+
+        case 'admin_object_approve':
+            $admin = Admin::requireAdmin();
+            json_success(AdminObjects::approve((int)require_param('object_id'), $admin));
+
+        case 'admin_object_reject':
+            $admin = Admin::requireAdmin();
+            json_success(AdminObjects::reject((int)require_param('object_id'), $admin));
+
+        case 'admin_object_revoke':
+            $admin = Admin::requireAdmin();
+            json_success(AdminObjects::adminRevoke((int)require_param('object_id'), $admin));
+
+        case 'admin_object_accept_ip':
+            $admin = Admin::requireAdmin();
+            json_success(AdminObjects::adminAcceptIp((int)require_param('object_id'), $admin));
+
+        case 'admin_object_rename':
+            Admin::requireAdmin();
+            json_success(AdminObjects::adminRename((int)require_param('object_id'), (string)optional_param('label', '')));
+
+        case 'admin_object_delete':
+            Admin::requireAdmin();
+            json_success(AdminObjects::adminDelete((int)require_param('object_id')));
 
         // ── Admin alerts inbox + logic error log ──
         case 'admin_alerts_list':

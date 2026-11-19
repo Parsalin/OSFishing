@@ -542,7 +542,7 @@ startupCheck() {
         return;
     }
     // No saved token — start fresh: check if account exists
-    gHttpReq = apiCallPublic("check_account", "uuid=" + llEscapeURL((string)gOwner));
+    gHttpReq = apiCallPublic("check_account", "uuid=" + llEscapeURL((string)gOwner) + "&grid_name=" + llEscapeURL(detectGrid()));
 }
 requestPairing() {
     gHttpReq = apiCallPublic("pair_request", "uuid=" + llEscapeURL((string)gOwner) + "&grid_name=" + llEscapeURL(detectGrid()));
@@ -2172,7 +2172,7 @@ default {
                 llOwnerSay("Saved pairing is no longer valid. Starting fresh pairing...");
                 clearToken();
                 showStatus("Re-pairing required...");
-                gHttpReq = apiCallPublic("check_account", "uuid=" + llEscapeURL((string)gOwner));
+                gHttpReq = apiCallPublic("check_account", "uuid=" + llEscapeURL((string)gOwner) + "&grid_name=" + llEscapeURL(detectGrid()));
                 return;
             }
 

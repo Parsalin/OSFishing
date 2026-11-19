@@ -407,11 +407,6 @@ async function loadDashboard() {
       sessionStorage.removeItem('flashPaired');
       showToast('HUD paired successfully!');
     }
-    if (sessionStorage.getItem('flashPairPending') === '1') {
-      sessionStorage.removeItem('flashPairPending');
-      const claim = await api('web_claim_pending_pair');
-      if (claim.success) showToast('HUD paired automatically!');
-    }
   }
   const q = await api('web_quest_active');
   if (q.success) state.quests.active = q.quests || [];
@@ -780,11 +775,21 @@ async function activateTitle(titleId) {
 }
 
 async function changePassword() {
-  const cur = prompt('Current password:'); if (!cur) return;
-  const np = prompt('New password (min 6 chars):'); if (!np) return;
+  // Opened from a recovery terminal's link: no current password needed, once.
+  const m = await api('web_recovery_mode');
+  const recovery = m.success && m.recovery_until;
+  let cur = '';
+  if (!recovery) { cur = prompt('Current password:'); if (!cur) return; }
+  const np = prompt(recovery ? 'Choose a new password (min 6 chars):' : 'New password (min 6 chars):'); if (!np) return;
+  const np2 = prompt('Type the new password again:'); if (np2 === null) return;
+  if (np !== np2) { showToast('The two passwords did not match', true); return; }
   const r = await api('web_change_password', { current_password: cur, new_password: np });
-  if (r.success) showToast('Password changed');
+  if (r.success) { state.recoveryMode = false; showToast('Password changed'); render(); }
   else showToast(r.error, true);
+}
+async function loadRecoveryTerminals() {
+  const r = await api('recovery_terminals');
+  if (r.success) { state.recoveryTerminals = r.terminals || []; if (!state.loggedIn) render(); }
 }
 
 function showLoginError(msg) { const el=$('login-error'); if(el){el.textContent=msg; el.style.display='block';} }
@@ -793,6 +798,7 @@ function showLoginError(msg) { const el=$('login-error'); if(el){el.textContent=
 // RENDER: LOGIN
 // ═══════════════════════════════════════════════
 function renderLogin() {
+  if (state.recoveryTerminals === undefined) { state.recoveryTerminals = []; loadRecoveryTerminals(); }
   const app=$('app'); app.innerHTML='';
   app.appendChild(h('div',{class:'login-wrap'},
     h('div',{class:'theme-btn-corner'},h('button',{class:'btn btn-secondary btn-sm',onClick:toggleTheme,html:(state.theme==='dark'?icons.sun:icons.moon)+' '+(state.theme==='dark'?'Light':'Dark')})),
@@ -806,6 +812,12 @@ function renderLogin() {
         h('strong',null,'do not use your grid login details.'),
         ' Register below to create a new username and password just for OSFishing.'
       ),
+      (state.recoveryTerminals||[]).length ? h('details',{style:{textAlign:'left',fontSize:'12px',color:'var(--text-secondary)',marginBottom:'12px'}},
+        h('summary',{style:{cursor:'pointer'}},'Forgot your password?'),
+        h('div',{style:{marginTop:'6px',lineHeight:'1.5'}},'Touch an Account Recovery terminal in-world with the avatar on your account. It gives you a one-time link to set a new password.'),
+        ...state.recoveryTerminals.map(t=>h('div',{style:{marginTop:'4px'}},
+          t.hop ? h('a',{href:t.hop,style:{color:'var(--accent)'}},t.region) : t.region, ' — ', t.grid))
+      ) : null,
       h('div',{style:{display:'flex',flexDirection:'column',gap:'14px',textAlign:'left',marginTop:'8px'}},
         h('div',null,h('label',{class:'input-label'},'Username'),h('input',{class:'input',id:'login-user',placeholder:'Your username',type:'text'})),
         h('div',null,h('label',{class:'input-label'},'Password'),h('input',{class:'input',id:'login-pass',placeholder:'Your password',type:'password'})),
@@ -1423,6 +1435,11 @@ function renderSettings() {
   const titles = state.titles || [];
   return h('div',{class:'fade-in'},
     h('div',{class:'section-header'},h('h2',{class:'section-title'},'Settings')),
+    state.recoveryMode ? h('div',{class:'card',style:{maxWidth:'500px',marginBottom:'18px',borderLeft:'3px solid var(--accent)'}},h('div',{class:'card-body'},
+      h('div',{style:{fontWeight:700,marginBottom:'6px'}},'You logged in with a recovery link'),
+      h('div',{style:{fontSize:'12px',color:'var(--text-muted)',marginBottom:'10px'}},'Set a new password now. For the next 15 minutes you can do it without the old one.'),
+      h('button',{class:'btn btn-primary btn-sm',onClick:changePassword},'Set a new password')
+    )) : null,
     h('div',{style:{display:'grid',gap:'18px',maxWidth:'500px'}},
       h('div',{class:'card'},h('div',{class:'card-body'},
         h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'14px'}},'Appearance'),
@@ -2279,6 +2296,7 @@ function render() {
     sessionStorage.setItem('pairNext', pairNext);
     history.replaceState({}, '', window.location.pathname);
   }
+  if (params.get('recovery') === '1') state.recoveryMode = true;
   const pageParam = params.get('page');
   if (pageParam) {
     const validPages = ['dashboard','fish','tackle','rods','quests','shop','leaderboards','journal','log','settings'];
@@ -2290,6 +2308,17 @@ function render() {
 })();
 
 render();
+// Restore a logged-in session from the cookie, e.g. after /pair or a
+// recovery link, instead of asking for the password again.
+(async function() {
+  if (state.loggedIn || state.loading) return;
+  const r = await api('web_dashboard');
+  if (r.success && !state.loggedIn) {
+    state.loggedIn = true; state.profile = r; state.player = r.player;
+    render();
+    loadPageData(state.page);
+  }
+})();
 </script>
 </body>
 </html>

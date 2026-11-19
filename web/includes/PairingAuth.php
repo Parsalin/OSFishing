@@ -418,8 +418,12 @@ class PairingAuth {
             ':ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
             ':tid' => $tokenId,
         ]);
-        $pdo->prepare('UPDATE player_uuids SET last_used_at = UTC_TIMESTAMP() WHERE uuid = :u')
-            ->execute([':u' => $tokenAvatar]);
+        // Record the grid an avatar plays from, the first time it's known.
+        // Account recovery only trusts an avatar on the grid it's linked on.
+        $pdo->prepare('UPDATE player_uuids SET last_used_at = UTC_TIMESTAMP(),
+                              grid_identity = COALESCE(grid_identity, :gi)
+                        WHERE uuid = :u')
+            ->execute([':u' => $tokenAvatar, ':gi' => !empty($row['grid_name']) ? Grid::identityOf($row['grid_name']) : null]);
 
         // Return the player record. 'uuid' is the avatar making this request
         // (an account can have several); 'account_uuid' is its primary one.
