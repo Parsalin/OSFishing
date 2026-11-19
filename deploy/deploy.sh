@@ -74,6 +74,7 @@ echo "==> Installing scheduled jobs"
 install -d -m 700 "${HOME}/logs"
 CRON_BLOCK="# BEGIN osfishing-managed (deploy/deploy.sh — edit there, not here)
 23 3 * * * bash ${REPO_DIR}/deploy/backup.sh >> ${HOME}/logs/backup.log 2>&1
+41 3 * * * php ${WEB_DST}/bin/sweep.php >> ${HOME}/logs/sweep.log 2>&1
 # END osfishing-managed"
 { { crontab -l 2>/dev/null || true; } | sed '/^# BEGIN osfishing-managed/,/^# END osfishing-managed/d'; echo "${CRON_BLOCK}"; } | crontab -
 
