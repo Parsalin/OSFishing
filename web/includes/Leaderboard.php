@@ -8,6 +8,8 @@
  *   Filter: water type (pond/river/lake/ocean or all)
  */
 
+require_once __DIR__ . '/Grid.php';
+
 class Leaderboard
 {
     /**
@@ -52,8 +54,8 @@ class Leaderboard
             $where[] = 'cl.spot_id = :spot_id';
             $params[':spot_id'] = $spotId;
         } elseif ($scope === 'grid' && $scopeValue) {
-            $where[] = 'fs.grid_name = :scope_val';
-            $params[':scope_val'] = $scopeValue;
+            $where[] = Grid::sameGridSql('fs.grid_name', ':scope_val');
+            $params[':scope_val'] = Grid::identityOf($scopeValue);
         } elseif ($scope === 'sim' && $scopeValue) {
             $where[] = 'fs.region_name = :scope_val';
             $params[':scope_val'] = $scopeValue;
@@ -107,7 +109,7 @@ class Leaderboard
         if ($spotId) {
             $where[] = 'cl2.spot_id = :sub_spot_id';
         } elseif ($scope === 'grid' && $scopeValue) {
-            $where[] = 'fs2.grid_name = :sub_scope_val';
+            $where[] = Grid::sameGridSql('fs2.grid_name', ':sub_scope_val');
         } elseif ($scope === 'sim' && $scopeValue) {
             $where[] = 'fs2.region_name = :sub_scope_val';
         }
@@ -121,7 +123,9 @@ class Leaderboard
         $params = [];
         if ($spotId) {
             $params[':sub_spot_id'] = $spotId;
-        } elseif (($scope === 'grid' || $scope === 'sim') && $scopeValue) {
+        } elseif ($scope === 'grid' && $scopeValue) {
+            $params[':sub_scope_val'] = Grid::identityOf($scopeValue);
+        } elseif ($scope === 'sim' && $scopeValue) {
             $params[':sub_scope_val'] = $scopeValue;
         }
         if ($waterTypeId) {
@@ -144,8 +148,8 @@ class Leaderboard
             $where[] = 'cl.spot_id = :spot_id';
             $params[':spot_id'] = $spotId;
         } elseif ($scope === 'grid' && $scopeValue) {
-            $where[] = 'fs.grid_name = :scope_val';
-            $params[':scope_val'] = $scopeValue;
+            $where[] = Grid::sameGridSql('fs.grid_name', ':scope_val');
+            $params[':scope_val'] = Grid::identityOf($scopeValue);
         } elseif ($scope === 'sim' && $scopeValue) {
             $where[] = 'fs.region_name = :scope_val';
             $params[':scope_val'] = $scopeValue;

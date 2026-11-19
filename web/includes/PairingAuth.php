@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/Grid.php';
 
 class PairingAuth {
 
@@ -482,8 +483,8 @@ class PairingAuth {
         $params     = [':pid' => $pid, ':rn' => $region];
         $gridClause = '';
         if ($gridName !== '') {
-            $gridClause    = ' AND fs.grid_name = :gn';
-            $params[':gn'] = $gridName;
+            $gridClause    = ' AND ' . Grid::sameGridSql('fs.grid_name', ':gi');
+            $params[':gi'] = Grid::identityOf($gridName);
         }
 
         $stmtA = $pdo->prepare($baseSelect . ' AND fs.archived = 1' . $gridClause . ' ORDER BY fs.archived_at DESC');
@@ -510,8 +511,8 @@ class PairingAuth {
             $sysParams = [':rn' => $region];
             $sysWhere  = 'fs.is_system = 1 AND fs.region_name = :rn AND (fs.archived = 1 OR fs.is_active = 0)';
             if ($gridName !== '') {
-                $sysWhere      .= ' AND fs.grid_name = :gn';
-                $sysParams[':gn'] = $gridName;
+                $sysWhere      .= ' AND ' . Grid::sameGridSql('fs.grid_name', ':gi');
+                $sysParams[':gi'] = Grid::identityOf($gridName);
             }
             $stmtS = $pdo->prepare('
                 SELECT fs.id, fs.name, fs.archived,
@@ -627,13 +628,21 @@ class PairingAuth {
         }
 
         // Check for existing active (non-archived) spot at this position
+        // Same region means same region name AND same grid: region names
+        // repeat across grids.
+        $posParams = [':r' => $region, ':x' => $posX, ':y' => $posY, ':z' => $posZ];
+        $gridCond  = '';
+        if ($gridName !== '') {
+            $gridCond = ' AND ' . Grid::sameGridSql('grid_name', ':gi');
+            $posParams[':gi'] = Grid::identityOf($gridName);
+        }
         $stmt = $pdo->prepare('
             SELECT id, archived, player_id FROM fishing_spots
-            WHERE region_name = :r AND ABS(pos_x - :x) < 3 AND ABS(pos_y - :y) < 3 AND ABS(pos_z - :z) < 3
+            WHERE region_name = :r AND ABS(pos_x - :x) < 3 AND ABS(pos_y - :y) < 3 AND ABS(pos_z - :z) < 3' . $gridCond . '
             ORDER BY archived ASC
             LIMIT 1
         ');
-        $stmt->execute([':r' => $region, ':x' => $posX, ':y' => $posY, ':z' => $posZ]);
+        $stmt->execute($posParams);
         $existing = $stmt->fetch();
 
         if ($existing && (int)$existing['archived']) {
@@ -861,7 +870,8 @@ class PairingAuth {
         $pdo = db();
         $where = 'fs.is_public = 1 AND fs.setup_complete = 1 AND fs.archived = 0';
         $params = [];
-        if ($gridName !== '') { $where .= ' AND fs.grid_name = :gn'; $params[':gn'] = $gridName; }
+        $identity = $gridName !== '' ? Grid::identityOf($gridName) : '';
+        if ($identity !== '') { $where .= ' AND ' . Grid::sameGridSql('fs.grid_name', ':gi'); $params[':gi'] = $identity; }
 
         $stmt = $pdo->prepare("
             SELECT fs.id, fs.name, fs.region_name, fs.grid_name,
@@ -880,16 +890,12 @@ class PairingAuth {
         $spots = $stmt->fetchAll();
 
         // Look up hop_gateway for the requested grid
-        $hopGateway = null;
-        if ($gridName !== '') {
-            $g = $pdo->prepare('SELECT hop_gateway FROM grids WHERE grid_name = :gn');
-            $g->execute([':gn' => $gridName]);
-            $hopGateway = $g->fetchColumn() ?: null;
-        }
+        $hopGateway = $identity !== '' ? Grid::hopGatewayFor($identity) : null;
 
         $regions = [];
         foreach ($spots as $spot) {
-            $key = $spot['region_name'];
+            // Region names repeat across grids: key on grid + region.
+            $key = Grid::identityOf((string)$spot['grid_name']) . '|' . $spot['region_name'];
             if (!isset($regions[$key])) {
                 $regions[$key] = ['region_name' => $spot['region_name'], 'grid_name' => $spot['grid_name'],
                                   'region_x' => $spot['region_x'], 'region_y' => $spot['region_y'], 'spots' => []];
@@ -1116,6 +1122,10 @@ class PairingAuth {
     public static function registerCallback(int $tokenId, string $callbackUrl): array {
         require_once __DIR__ . '/PushQueue.php';
 
+        $g = db()->prepare('SELECT grid_name FROM hud_tokens WHERE id = :id');
+        $g->execute([':id' => $tokenId]);
+        Grid::checkPushLater((string)$g->fetchColumn(), $callbackUrl);
+
         $stmt = db()->prepare('
             UPDATE hud_tokens SET callback_url = :url, no_http_in = 0 WHERE id = :id
         ');
@@ -1136,10 +1146,14 @@ class PairingAuth {
      * Record that this HUD cannot receive pushes at all — the grid denied
      * llRequestURL(), so delivery for it is pull-based only.
      */
-    public static function markNoHttpIn(int $tokenId): array {
+    public static function markNoHttpIn(int $tokenId, string $who = '', string $region = ''): array {
         db()->prepare('
             UPDATE hud_tokens SET no_http_in = 1, callback_url = NULL WHERE id = :id
         ')->execute([':id' => $tokenId]);
+        $g = db()->prepare('SELECT grid_name FROM hud_tokens WHERE id = :id');
+        $g->execute([':id' => $tokenId]);
+        $gridName = (string)$g->fetchColumn();
+        if ($gridName !== '') Grid::markNoHttpIn($gridName, $who, $region);
         return ['message' => 'Recorded: no HTTP-in on this grid'];
     }
 

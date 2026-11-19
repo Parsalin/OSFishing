@@ -17,6 +17,12 @@ class PrimCallback
             json_error('Invalid callback URL');
         }
 
+        require_once __DIR__ . '/Grid.php';
+        if ($gridName !== '') {
+            Grid::findOrRegister($gridName);
+            Grid::checkPushLater($gridName, $callbackUrl);
+        }
+
         $pdo = db();
         $pdo->prepare('
             INSERT INTO prim_callbacks (prim_uuid, prim_type, ref_id, callback_url, region_name, grid_name, last_seen)

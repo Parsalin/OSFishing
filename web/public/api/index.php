@@ -395,8 +395,9 @@ try {
         // HUD reports that its grid denied llRequestURL(), so it can never
         // receive a server-initiated push. Delivery becomes pull-only.
         case 'hud_no_http_in':
-            PairingAuth::requireHUD($action);
-            json_success(PairingAuth::markNoHttpIn((int)($_POST['token_id'] ?? 0)));
+            $player = PairingAuth::requireHUD($action);
+            json_success(PairingAuth::markNoHttpIn((int)($_POST['token_id'] ?? 0),
+                (string)($player['display_name'] ?? ''), (string)($_SERVER['HTTP_X_SECONDLIFE_REGION'] ?? '')));
 
         // ── Cast ──
         case 'cast':
@@ -1396,15 +1397,31 @@ try {
 
         case 'admin_grid_nickname':
             Admin::requireAdmin();
-            json_success(Grid::setNickname((int)require_param('grid_id'), require_param('nickname')));
+            json_success(Grid::setNickname((int)require_param('grid_id'), (string)optional_param('nickname', '')));
 
         case 'admin_grid_hop_gateway':
             Admin::requireAdmin();
-            $gridId = (int)require_param('grid_id');
-            $gw = trim(optional_param('hop_gateway', ''));
-            db()->prepare('UPDATE grids SET hop_gateway = :g WHERE id = :id')
-                ->execute([':g' => $gw ?: null, ':id' => $gridId]);
-            json_success(['message' => 'Hop gateway updated']);
+            json_success(Grid::setHopGateway((int)require_param('grid_id'), (string)optional_param('hop_gateway', '')));
+
+        case 'admin_grid_status_all':
+            Admin::requireAdmin();
+            json_success(Grid::setStatusForIdentity(require_param('identity'), require_param('status')));
+
+        case 'admin_grid_rename_nickname':
+            Admin::requireAdmin();
+            json_success(Grid::renameNickname(require_param('old_nickname'), (string)optional_param('new_nickname', '')));
+
+        case 'admin_grid_public_host':
+            Admin::requireAdmin();
+            json_success(Grid::setPublicHost((int)require_param('grid_id'), (string)optional_param('public_host', '')));
+
+        case 'admin_grid_notes':
+            Admin::requireAdmin();
+            json_success(Grid::setNotes((int)require_param('grid_id'), (string)optional_param('notes', '')));
+
+        case 'admin_grid_clear_no_http_in':
+            Admin::requireAdmin();
+            json_success(Grid::clearNoHttpIn((int)require_param('grid_id')));
 
         case 'admin_grid_delete':
             Admin::requireAdmin();

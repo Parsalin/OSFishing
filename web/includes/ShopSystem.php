@@ -9,6 +9,8 @@
  * Web portal: 20 bait purchases per day per player
  */
 
+require_once __DIR__ . '/Grid.php';
+
 class ShopSystem
 {
     const RESTOCK_RATE = 10;       // Units per hour for system shops
@@ -23,6 +25,7 @@ class ShopSystem
         $name     = trim($data['name'] ?? '');
         $region   = trim($data['region'] ?? '');
         $gridName = trim($data['grid_name'] ?? '');
+        if ($gridName !== '') Grid::findOrRegister($gridName);   // so identity lookups find this host
         $posX     = (float)($data['pos_x'] ?? 0);
         $posY     = (float)($data['pos_y'] ?? 0);
         $posZ     = (float)($data['pos_z'] ?? 0);
@@ -357,7 +360,7 @@ class ShopSystem
         $pdo = db();
         $where = 's.is_active = 1 AND s.region_name = :r';
         $params = [':r' => $region];
-        if ($gridName !== '') { $where .= ' AND s.grid_name = :gn'; $params[':gn'] = $gridName; }
+        if ($gridName !== '') { $where .= ' AND ' . Grid::sameGridSql('s.grid_name', ':gi'); $params[':gi'] = Grid::identityOf($gridName); }
         $stmt = $pdo->prepare("SELECT s.id, s.name, s.is_system FROM shops s WHERE $where ORDER BY s.name");
         $stmt->execute($params);
         return ['shops' => $stmt->fetchAll()];
@@ -421,8 +424,8 @@ class ShopSystem
         $where = 's.is_active = 1';
         $params = [];
         if ($gridName !== '') {
-            $where .= ' AND s.grid_name = :gn';
-            $params[':gn'] = $gridName;
+            $where .= ' AND ' . Grid::sameGridSql('s.grid_name', ':gi');
+            $params[':gi'] = Grid::identityOf($gridName);
         }
 
         $stmt = $pdo->prepare("

@@ -106,6 +106,14 @@ class PushQueue {
      * failure means.
      */
     public static function post(string $url, array $payload, int $timeout = 3): array {
+        // A grid whose sims report a private address gets its pushes sent to
+        // the public host an admin (or Grid::checkPush) set for it.
+        require_once __DIR__ . '/Grid.php';
+        return self::postRaw(Grid::rewritePushUrl($url), $payload, $timeout);
+    }
+
+    /** POST to exactly this URL, no host rewrite. */
+    public static function postRaw(string $url, array $payload, int $timeout = 3): array {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
