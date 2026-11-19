@@ -213,8 +213,8 @@ class Leaderboard
 
     public static function mostCatches(string $period = 'alltime'): array {
         $where = '';
-        if ($period === 'weekly') $where = 'WHERE cl.caught_at > DATE_SUB(NOW(), INTERVAL 7 DAY)';
-        elseif ($period === 'monthly') $where = 'WHERE cl.caught_at > DATE_SUB(NOW(), INTERVAL 30 DAY)';
+        if ($period === 'weekly') $where = 'WHERE cl.caught_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)';
+        elseif ($period === 'monthly') $where = 'WHERE cl.caught_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)';
 
         $stmt = db()->prepare("
             SELECT p.display_name, COUNT(*) AS total_catches,

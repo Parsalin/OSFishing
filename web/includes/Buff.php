@@ -63,18 +63,18 @@ class Buff
         $pdo = db();
 
         // Clean expired buffs
-        $pdo->prepare('DELETE FROM spot_buffs WHERE expires_at <= NOW()')->execute();
+        $pdo->prepare('DELETE FROM spot_buffs WHERE expires_at <= UTC_TIMESTAMP()')->execute();
 
         $stmt = $pdo->prepare('
             SELECT sb.id, sb.buff_type, sb.buff_value, sb.activated_at, sb.expires_at,
                    bi.name AS buff_name, bi.description,
                    p.display_name AS activated_by_name,
-                   TIMESTAMPDIFF(MINUTE, NOW(), sb.expires_at) AS mins_remaining,
-                   TIMESTAMPDIFF(SECOND, NOW(), sb.expires_at) AS secs_remaining
+                   TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), sb.expires_at) AS mins_remaining,
+                   TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), sb.expires_at) AS secs_remaining
             FROM spot_buffs sb
             JOIN buff_items bi ON bi.buff_type = sb.buff_type AND bi.is_active = 1
             LEFT JOIN players p ON p.id = sb.activated_by
-            WHERE sb.spot_id = :sid AND sb.expires_at > NOW()
+            WHERE sb.spot_id = :sid AND sb.expires_at > UTC_TIMESTAMP()
             GROUP BY sb.buff_type
             ORDER BY sb.expires_at ASC
         ');
@@ -144,9 +144,9 @@ class Buff
 
         // Check current duration of this buff type on this spot
         $stmt = $pdo->prepare('
-            SELECT TIMESTAMPDIFF(MINUTE, NOW(), expires_at) AS mins_left
+            SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), expires_at) AS mins_left
             FROM spot_buffs
-            WHERE spot_id = :sid AND buff_type = :bt AND expires_at > NOW()
+            WHERE spot_id = :sid AND buff_type = :bt AND expires_at > UTC_TIMESTAMP()
         ');
         $stmt->execute([':sid' => $spotId, ':bt' => $buffType]);
         $existing = $stmt->fetch();
@@ -173,13 +173,13 @@ class Buff
             $pdo->prepare('
                 UPDATE spot_buffs
                 SET expires_at = DATE_ADD(expires_at, INTERVAL :mins MINUTE)
-                WHERE spot_id = :sid AND buff_type = :bt AND expires_at > NOW()
+                WHERE spot_id = :sid AND buff_type = :bt AND expires_at > UTC_TIMESTAMP()
             ')->execute([':mins' => $durationMins, ':sid' => $spotId, ':bt' => $buffType]);
         } else {
             // New buff
             $pdo->prepare('
                 INSERT INTO spot_buffs (spot_id, buff_type, buff_value, activated_by, expires_at)
-                VALUES (:sid, :bt, :val, :pid, DATE_ADD(NOW(), INTERVAL :mins MINUTE))
+                VALUES (:sid, :bt, :val, :pid, DATE_ADD(UTC_TIMESTAMP(), INTERVAL :mins MINUTE))
             ')->execute([
                 ':sid' => $spotId, ':bt' => $buffType,
                 ':val' => (float)$item['effect_value'],
@@ -200,7 +200,7 @@ class Buff
         // Get final expires_at timestamp
         $stmt = $pdo->prepare('
             SELECT UNIX_TIMESTAMP(expires_at) AS expires_at
-            FROM spot_buffs WHERE spot_id = :sid AND buff_type = :bt AND expires_at > NOW()
+            FROM spot_buffs WHERE spot_id = :sid AND buff_type = :bt AND expires_at > UTC_TIMESTAMP()
         ');
         $stmt->execute([':sid' => $spotId, ':bt' => $buffType]);
         $expiresAt = (int)($stmt->fetchColumn() ?: 0);
@@ -261,14 +261,14 @@ class Buff
             FROM spot_buffs sb
             LEFT JOIN buff_items bi ON bi.buff_type = sb.buff_type
             LEFT JOIN fishing_spots fs ON fs.id = sb.spot_id
-            WHERE sb.spot_id = :sid AND sb.expires_at <= NOW()
+            WHERE sb.spot_id = :sid AND sb.expires_at <= UTC_TIMESTAMP()
             GROUP BY sb.buff_type
         ');
         $stmt->execute([':sid' => $spotId]);
         $expired = $stmt->fetchAll();
 
         // Delete expired
-        $pdo->prepare('DELETE FROM spot_buffs WHERE expires_at <= NOW()')->execute();
+        $pdo->prepare('DELETE FROM spot_buffs WHERE expires_at <= UTC_TIMESTAMP()')->execute();
 
         // Push expiration notifications
         if (!empty($expired) && class_exists('PrimCallback')) {
@@ -284,7 +284,7 @@ class Buff
 
         $stmt = $pdo->prepare('
             SELECT buff_type, buff_value FROM spot_buffs
-            WHERE spot_id = :sid AND expires_at > NOW()
+            WHERE spot_id = :sid AND expires_at > UTC_TIMESTAMP()
         ');
         $stmt->execute([':sid' => $spotId]);
 

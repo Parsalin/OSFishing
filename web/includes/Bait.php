@@ -4,7 +4,7 @@
  * Handles bait gathering, equipping, and inventory queries.
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class Bait {
 
@@ -108,8 +108,8 @@ class Bait {
         // Update cooldown
         $stmt = $pdo->prepare('
             INSERT INTO gather_cooldowns (player_id, bait_id, spot_key, last_gathered)
-            VALUES (:pid, :bid, :sk, NOW())
-            ON DUPLICATE KEY UPDATE last_gathered = NOW()
+            VALUES (:pid, :bid, :sk, UTC_TIMESTAMP())
+            ON DUPLICATE KEY UPDATE last_gathered = UTC_TIMESTAMP()
         ');
         $stmt->execute([':pid' => $playerId, ':bid' => $baitId, ':sk' => $spotKey]);
 
@@ -155,7 +155,7 @@ class Bait {
 
         // Remove fish from inventory
         $stmt = $pdo->prepare('
-            UPDATE player_fish SET status = \'sold\', sold_at = NOW()
+            UPDATE player_fish SET status = \'sold\', sold_at = UTC_TIMESTAMP()
             WHERE id = :id
         ');
         $stmt->execute([':id' => $playerFishId]);

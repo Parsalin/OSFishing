@@ -120,8 +120,8 @@ class Tournament
         if ($hours < 0.25 || $hours > 168) json_error('Duration must be 0.25 to 168 hours');
         if (!in_array($metric, ['weight', 'catches'])) json_error('Metric must be weight or catches');
 
-        $startTime = date('Y-m-d H:i:s');
-        $endTime = date('Y-m-d H:i:s', time() + (int)($hours * 3600));
+        $startTime = gmdate('Y-m-d H:i:s');
+        $endTime = gmdate('Y-m-d H:i:s', time() + (int)($hours * 3600));
 
         $stmt = db()->prepare('
             INSERT INTO tournaments (name, metric, spot_id, region_name, grid_name, start_time, end_time, status, created_by)
@@ -159,7 +159,7 @@ class Tournament
      * End a tournament early.
      */
     public static function endTournament(int $id): array {
-        $stmt = db()->prepare('UPDATE tournaments SET end_time = NOW(), status = \'ended\' WHERE id = :id');
+        $stmt = db()->prepare('UPDATE tournaments SET end_time = UTC_TIMESTAMP(), status = \'ended\' WHERE id = :id');
         $stmt->execute([':id' => $id]);
         return ['message' => 'Tournament ended'];
     }

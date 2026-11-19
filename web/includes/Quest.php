@@ -4,7 +4,7 @@
  * Accept quests, track progress, turn in fish, claim rewards.
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class Quest {
 
@@ -95,10 +95,10 @@ class Quest {
             $canAccept = true;
             if ($lastDone) {
                 if ($rq['repeat_type'] === 'daily') {
-                    $canAccept = date('Y-m-d', strtotime($lastDone)) !== date('Y-m-d');
+                    $canAccept = gmdate('Y-m-d', strtotime($lastDone)) !== gmdate('Y-m-d');
                 } elseif ($rq['repeat_type'] === 'weekly') {
-                    $thisMonday = date('Y-m-d', strtotime('monday this week'));
-                    $canAccept = date('Y-m-d', strtotime($lastDone)) < $thisMonday;
+                    $thisMonday = gmdate('Y-m-d', strtotime('monday this week'));
+                    $canAccept = gmdate('Y-m-d', strtotime($lastDone)) < $thisMonday;
                 }
             }
 
@@ -213,7 +213,7 @@ class Quest {
         // Calculate expiry for timed quests
         $expiresAt = null;
         if ($quest['time_limit']) {
-            $expiresAt = date('Y-m-d H:i:s', time() + ((int)$quest['time_limit'] * 60));
+            $expiresAt = gmdate('Y-m-d H:i:s', time() + ((int)$quest['time_limit'] * 60));
         }
 
         // Create player quest entry
@@ -594,7 +594,7 @@ class Quest {
 
         // Mark complete
         $stmt = $pdo->prepare('
-            UPDATE player_quests SET status = \'completed\', completed_at = NOW()
+            UPDATE player_quests SET status = \'completed\', completed_at = UTC_TIMESTAMP()
             WHERE id = :id
         ');
         $stmt->execute([':id' => $playerQuestId]);

@@ -107,8 +107,8 @@ class ShopSystem
         // Upsert listing
         $stmt = $pdo->prepare('
             INSERT INTO shop_listings (shop_id, item_type, item_id, stock, max_stock, last_restock)
-            VALUES (:sid, :it, :iid, :stock, :max, NOW())
-            ON DUPLICATE KEY UPDATE max_stock = :max2, is_active = 1, last_restock = NOW()
+            VALUES (:sid, :it, :iid, :stock, :max, UTC_TIMESTAMP())
+            ON DUPLICATE KEY UPDATE max_stock = :max2, is_active = 1, last_restock = UTC_TIMESTAMP()
         ');
         $stmt->execute([':sid' => $shopId, ':it' => $itemType, ':iid' => $itemId,
                         ':stock' => $maxStock, ':max' => $maxStock, ':max2' => $maxStock]);
@@ -170,10 +170,10 @@ class ShopSystem
 
         if ($restock > 0) {
             $newStock = min((int)$listing['stock'] + $restock, (int)$listing['max_stock']);
-            $pdo->prepare('UPDATE shop_listings SET stock = :s, last_restock = NOW() WHERE id = :id')
+            $pdo->prepare('UPDATE shop_listings SET stock = :s, last_restock = UTC_TIMESTAMP() WHERE id = :id')
                 ->execute([':s' => $newStock, ':id' => $listing['id']]);
             $listing['stock'] = $newStock;
-            $listing['last_restock'] = date('Y-m-d H:i:s');
+            $listing['last_restock'] = gmdate('Y-m-d H:i:s');
         }
 
         return $listing;
@@ -333,7 +333,7 @@ class ShopSystem
 
     public static function checkWebDailyLimit(int $playerId): array {
         $pdo = db();
-        $today = date('Y-m-d');
+        $today = gmdate('Y-m-d');
 
         $stmt = $pdo->prepare('SELECT web_purchases FROM daily_purchase_limits WHERE player_id = :pid AND purchase_date = :d');
         $stmt->execute([':pid' => $playerId, ':d' => $today]);
@@ -345,7 +345,7 @@ class ShopSystem
 
     public static function incrementWebPurchase(int $playerId): void {
         $pdo = db();
-        $today = date('Y-m-d');
+        $today = gmdate('Y-m-d');
         $pdo->prepare('
             INSERT INTO daily_purchase_limits (player_id, purchase_date, web_purchases)
             VALUES (:pid, :d, 1)
@@ -407,7 +407,7 @@ class ShopSystem
         $player = $stmt->fetch();
         if (!$player || !(int)$player['is_admin']) json_error('Admin only');
 
-        $pdo->prepare('UPDATE shop_listings SET stock = max_stock, last_restock = NOW() WHERE id = :id')
+        $pdo->prepare('UPDATE shop_listings SET stock = max_stock, last_restock = UTC_TIMESTAMP() WHERE id = :id')
             ->execute([':id' => $listingId]);
         return ['message' => 'Restocked to maximum'];
     }

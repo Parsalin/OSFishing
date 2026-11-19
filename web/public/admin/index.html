@@ -74,6 +74,9 @@ tr:hover td{background:var(--card-hover)}
 <script>
 const API = '../api/';
 const $ = id => document.getElementById(id);
+// Server times are UTC; show them in the admin's local zone.
+function utcDate(s) { if (!s) return null; const d = new Date(String(s).replace(' ', 'T') + 'Z'); return isNaN(d) ? null : d; }
+function fmtTime(s) { const d = utcDate(s); return d ? d.toLocaleString([], {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : (s || ''); }
 
 const state = {
   loggedIn: false, tab: 'stats', toast: null,
@@ -398,7 +401,7 @@ function renderPlayerDetail() {
         editField('Spot Limit', p.spot_limit_override||'auto', v=>updatePlayer(p.id,{spot_limit_override:v==='auto'?'null':v}))
       ),
       h('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}},'UUID: '+p.uuid),
-      h('div',{style:{fontSize:'11px',color:'var(--muted)'}},'Last fished: '+(p.last_fished||'never')+' — Created: '+p.created_at),
+      h('div',{style:{fontSize:'11px',color:'var(--muted)'}},'Last fished: '+(p.last_fished ? fmtTime(p.last_fished) : 'never')+' — Created: '+fmtTime(p.created_at)),
       h('div',{style:{
         marginTop:'10px',padding:'8px 10px',borderRadius:'6px',
         background: (p.exclusion_triggers && p.exclusion_triggers > 0) ? 'rgba(220,80,60,0.15)' : 'var(--bg-input)',
@@ -411,7 +414,7 @@ function renderPlayerDetail() {
                 h('div',{style:{padding:'4px 0',borderTop:'1px solid var(--border)'}},
                   (b.triggered_name || b.triggered_username || b.triggered_uuid.substring(0,8)+'…') +
                   ' — ' + b.trigger_count + ' time' + (b.trigger_count == 1 ? '' : 's') +
-                  ' (last: ' + b.last_triggered + ')'
+                  ' (last: ' + fmtTime(b.last_triggered) + ')'
                 )
               )
             )
@@ -473,7 +476,7 @@ function renderPlayerDetail() {
         h('thead',null,h('tr',null,h('th',null,'Fish'),h('th',null,'Weight'),h('th',null,'Rarity'),h('th',null,'When'))),
         h('tbody',null,...d.catches.map(c=>h('tr',null,
           h('td',null,c.species_name),h('td',null,c.weight+' lbs'),h('td',null,c.rarity_name),
-          h('td',{style:{color:'var(--muted)',fontSize:'11px'}},c.caught_at)
+          h('td',{style:{color:'var(--muted)',fontSize:'11px'}},fmtTime(c.caught_at))
         )))
       )
     ):null
@@ -518,7 +521,7 @@ function renderSpots() {
         h('td',{style:{fontSize:'12px',color:'var(--muted)'}},s.region_name||'—'),
         h('td',{style:{fontSize:'12px'}},s.is_system==1?h('span',{class:'badge-system'},'SYSTEM'):(s.owner_name||'—')),
         isArchived
-          ? h('td',{style:{fontSize:'11px',color:'var(--muted)'}},s.archived_at||'—')
+          ? h('td',{style:{fontSize:'11px',color:'var(--muted)'}},s.archived_at ? fmtTime(s.archived_at) : '—')
           : h('td',null,s.is_active==1?h('span',{class:'badge-active'},'Active'):h('span',{class:'badge-inactive'},'Inactive')),
         h('td',null,
           isArchived
@@ -669,7 +672,7 @@ function renderAnnouncements() {
           h('div',null,
             h('div',{style:{fontSize:'15px',fontWeight:700}},a.title),
             h('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}},a.body),
-            h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'6px'}},'by '+(a.author||'System')+' — '+a.created_at+' — '+a.priority)
+            h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'6px'}},'by '+(a.author||'System')+' — '+fmtTime(a.created_at)+' — '+a.priority)
           ),
           h('div',{style:{display:'flex',gap:'6px',flexShrink:0}},
             h('button',{class:'btn btn-sm '+(a.is_active==1?'btn-secondary':'btn-success'),onClick:()=>toggleAnnouncement(a.id,a.is_active!=1)},a.is_active==1?'Deactivate':'Activate'),
@@ -696,7 +699,7 @@ function renderQuestions() {
         h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}},
           h('div',null,
             h('div',{style:{fontSize:'13px',fontWeight:700}},q.question),
-            h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'4px'}},(q.display_name||q.player_name||'Anonymous')+' — '+q.created_at)
+            h('div',{style:{fontSize:'10px',color:'var(--muted)',marginTop:'4px'}},(q.display_name||q.player_name||'Anonymous')+' — '+fmtTime(q.created_at))
           ),
           h('span',{style:{fontSize:'10px',fontWeight:700,padding:'2px 8px',borderRadius:'4px',
             background:q.status==='new'?'var(--accent-soft)':q.status==='answered'?'var(--success-soft)':'var(--bg2)',

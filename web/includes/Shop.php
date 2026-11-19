@@ -4,7 +4,7 @@
  * Purchase bait, rods, and other items with Fishing Points.
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class Shop {
 

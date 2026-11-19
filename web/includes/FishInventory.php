@@ -4,7 +4,7 @@
  * View, sell, and manage caught fish.
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class FishInventory {
 
@@ -108,7 +108,7 @@ class FishInventory {
                 // Mark as sold
                 $stmt = $pdo->prepare('
                     UPDATE player_fish
-                    SET status = \'sold\', sold_at = NOW(), points_received = :pts
+                    SET status = \'sold\', sold_at = UTC_TIMESTAMP(), points_received = :pts
                     WHERE id = :id
                 ');
                 $stmt->execute([':pts' => $points, ':id' => $fish['id']]);

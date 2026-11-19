@@ -48,7 +48,7 @@ install -d -o osfishing -g osfishing -m 2775 "${APP_ROOT}/storage"
 
 # Fail the deploy before bad PHP goes live, not after.
 echo "==> Syntax check on deployed tree"
-for d in public includes; do
+for d in public includes bin migrations; do
     [ -d "${WEB_DST}/${d}" ] || continue
     find "${WEB_DST}/${d}" -name '*.php' -print0 \
         | xargs -0 -r -n1 -P4 php -l > /dev/null
@@ -61,6 +61,11 @@ if [ -f "${WEB_DST}/config.php" ]; then
 else
     echo "    WARNING: ${WEB_DST}/config.php is missing — the site will not work."
 fi
+
+# Schema and data migrations (web/migrations/versioned). A failure stops the
+# deploy here, before FPM reloads, so OPcache keeps serving the old code.
+echo "==> Applying migrations"
+php "${WEB_DST}/bin/migrate.php"
 
 echo "==> Reloading PHP-FPM (clears OPcache)"
 sudo /usr/bin/systemctl reload php8.4-fpm

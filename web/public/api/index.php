@@ -14,7 +14,7 @@
  *   POST /api/ { action: "web_dashboard" }  (with fishing_session cookie)
  */
 
-require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/Auth.php';
 require_once __DIR__ . '/../../includes/Player.php';
 require_once __DIR__ . '/../../includes/Fishing.php';
@@ -155,7 +155,7 @@ try {
             if (!hash_equals($expected, $sig)) json_error('Invalid signature', 403);
             // Create a real web session (same as webLogin does)
             $sessionId = bin2hex(random_bytes(64));
-            $expires = date('Y-m-d H:i:s', time() + (defined('SESSION_LIFETIME') ? SESSION_LIFETIME : 86400));
+            $expires = gmdate('Y-m-d H:i:s', time() + (defined('SESSION_LIFETIME') ? SESSION_LIFETIME : 86400));
             $stmt = db()->prepare('
                 INSERT INTO web_sessions (id, player_id, ip_address, expires_at)
                 VALUES (:id, :pid, :ip, :exp)
@@ -898,7 +898,7 @@ try {
         case 'announcements':
             $stmt = db()->prepare('
                 SELECT message, priority FROM announcements
-                WHERE starts_at <= NOW() AND (expires_at IS NULL OR expires_at > NOW())
+                WHERE starts_at <= UTC_TIMESTAMP() AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())
                 ORDER BY priority DESC, id DESC LIMIT 5
             ');
             $stmt->execute();

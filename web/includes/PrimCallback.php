@@ -20,13 +20,13 @@ class PrimCallback
         $pdo = db();
         $pdo->prepare('
             INSERT INTO prim_callbacks (prim_uuid, prim_type, ref_id, callback_url, region_name, grid_name, last_seen)
-            VALUES (:uuid, :type, :ref, :url, :rn, :gn, NOW())
+            VALUES (:uuid, :type, :ref, :url, :rn, :gn, UTC_TIMESTAMP())
             ON DUPLICATE KEY UPDATE
                 callback_url = :url2,
                 ref_id = :ref2,
                 region_name = :rn2,
                 grid_name = :gn2,
-                last_seen = NOW()
+                last_seen = UTC_TIMESTAMP()
         ')->execute([
             ':uuid' => $primUuid, ':type' => $primType, ':ref' => $refId, ':url' => $callbackUrl,
             ':rn' => $regionName, ':gn' => $gridName,
@@ -41,7 +41,7 @@ class PrimCallback
                        UNIX_TIMESTAMP(sb.expires_at) AS expires_at_unix
                 FROM spot_buffs sb
                 JOIN buff_items bi ON bi.buff_type = sb.buff_type
-                WHERE sb.spot_id = :sid AND sb.expires_at > NOW()
+                WHERE sb.spot_id = :sid AND sb.expires_at > UTC_TIMESTAMP()
             ');
             $stmt->execute([':sid' => $refId]);
             foreach ($stmt->fetchAll() as $buff) {
@@ -82,7 +82,7 @@ class PrimCallback
         $stmt->execute([':u' => $primUuid]);
         $row = $stmt->fetch();
 
-        $pdo->prepare('UPDATE prim_callbacks SET last_seen = NOW() WHERE prim_uuid = :u')
+        $pdo->prepare('UPDATE prim_callbacks SET last_seen = UTC_TIMESTAMP() WHERE prim_uuid = :u')
             ->execute([':u' => $primUuid]);
 
         // The prim just proved it is alive and reachable, so this is the
@@ -106,7 +106,7 @@ class PrimCallback
         // Find stale fishing_spot callbacks first
         $stmt = $pdo->prepare('
             SELECT ref_id FROM prim_callbacks
-            WHERE prim_type = :t AND last_seen < DATE_SUB(NOW(), INTERVAL :s SECOND)
+            WHERE prim_type = :t AND last_seen < DATE_SUB(UTC_TIMESTAMP(), INTERVAL :s SECOND)
         ');
         $stmt->execute([':t' => 'fishing_spot', ':s' => $thresholdSeconds]);
         $deadSpotIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -123,7 +123,7 @@ class PrimCallback
         // Delete the stale callback rows
         $del = $pdo->prepare('
             DELETE FROM prim_callbacks
-            WHERE last_seen < DATE_SUB(NOW(), INTERVAL :s SECOND)
+            WHERE last_seen < DATE_SUB(UTC_TIMESTAMP(), INTERVAL :s SECOND)
         ');
         $del->execute([':s' => $thresholdSeconds]);
 

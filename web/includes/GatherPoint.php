@@ -135,7 +135,7 @@ class GatherPoint
 
             if ($elapsed >= $restoreTime) {
                 $currentStock = $maxStock;
-                $pdo->prepare('UPDATE bait_gather_points SET current_stock = :s, last_depleted = NULL, last_regen = NOW() WHERE id = :id')
+                $pdo->prepare('UPDATE bait_gather_points SET current_stock = :s, last_depleted = NULL, last_regen = UTC_TIMESTAMP() WHERE id = :id')
                     ->execute([':s' => $maxStock, ':id' => $pointId]);
                 return self::buildStatus($point, $currentStock, 600);
             }
@@ -149,7 +149,7 @@ class GatherPoint
         if ($elapsed >= 600) {
             $gain = mt_rand(1, 5);
             $currentStock = min($currentStock + $gain, $maxStock);
-            $pdo->prepare('UPDATE bait_gather_points SET current_stock = :s, last_regen = NOW() WHERE id = :id')
+            $pdo->prepare('UPDATE bait_gather_points SET current_stock = :s, last_regen = UTC_TIMESTAMP() WHERE id = :id')
                 ->execute([':s' => $currentStock, ':id' => $pointId]);
             return self::buildStatus($point, $currentStock, 600);
         }
@@ -201,7 +201,7 @@ class GatherPoint
         if ($amount > $currentStock) $amount = $currentStock;
         $newStock = $currentStock - $amount;
 
-        $sql = 'UPDATE bait_gather_points SET current_stock = :s' . ($newStock <= 0 ? ', last_depleted = NOW()' : '') . ' WHERE id = :id';
+        $sql = 'UPDATE bait_gather_points SET current_stock = :s' . ($newStock <= 0 ? ', last_depleted = UTC_TIMESTAMP()' : '') . ' WHERE id = :id';
         $pdo->prepare($sql)->execute([':s' => $newStock, ':id' => $pointId]);
 
         $baitId = (int)$point['bait_id'];
@@ -275,7 +275,7 @@ class GatherPoint
     }
 
     public static function adminRefill(int $id): array {
-        db()->prepare('UPDATE bait_gather_points SET current_stock = max_stock, last_depleted = NULL, last_regen = NOW() WHERE id = :id')->execute([':id' => $id]);
+        db()->prepare('UPDATE bait_gather_points SET current_stock = max_stock, last_depleted = NULL, last_regen = UTC_TIMESTAMP() WHERE id = :id')->execute([':id' => $id]);
         return ['message' => 'Gather point refilled'];
     }
 }

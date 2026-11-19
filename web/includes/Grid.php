@@ -97,7 +97,7 @@ class Grid
     }
 
     public static function approve(int $gridId): array {
-        db()->prepare('UPDATE grids SET status = \'approved\', approved_at = NOW() WHERE id = :id')
+        db()->prepare('UPDATE grids SET status = \'approved\', approved_at = UTC_TIMESTAMP() WHERE id = :id')
             ->execute([':id' => $gridId]);
         return ['message' => 'Grid approved'];
     }

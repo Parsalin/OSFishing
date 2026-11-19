@@ -5,7 +5,7 @@
  * All randomization happens here server-side.
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class Fishing {
 
@@ -1241,7 +1241,7 @@ class Fishing {
         }
 
         $baseXp = self::SPOT_XP_BY_RARITY[$rarityId] ?? 1;
-        $today  = date('Y-m-d');
+        $today  = gmdate('Y-m-d');
 
         // Fetch current totals for this fisher today and for the spot today
         $stmt = $pdo->prepare('
@@ -1319,7 +1319,7 @@ class Fishing {
 
         $stmt = $pdo->prepare('
             SELECT * FROM tournaments
-            WHERE is_active = 1 AND starts_at <= NOW() AND ends_at > NOW()
+            WHERE is_active = 1 AND starts_at <= UTC_TIMESTAMP() AND ends_at > UTC_TIMESTAMP()
         ');
         $stmt->execute();
         $tournaments = $stmt->fetchAll();
@@ -1349,7 +1349,7 @@ class Fishing {
                         ELSE score
                     END,
                     total_catches = total_catches + 1,
-                    last_updated = NOW()
+                    last_updated = UTC_TIMESTAMP()
             ');
 
             $scoreVal = ($scoring === 'most_catches') ? 1 : $weight;

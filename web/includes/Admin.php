@@ -259,7 +259,7 @@ class Admin
         // Archive instead of delete — catch history and leaderboards stay intact
         $pdo->prepare('
             UPDATE fishing_spots
-            SET archived = 1, archived_at = NOW(), is_active = 0
+            SET archived = 1, archived_at = UTC_TIMESTAMP(), is_active = 0
             WHERE id = :id
         ')->execute([':id' => $spotId]);
         return ['message' => 'Spot archived', 'deleted' => true];
@@ -378,7 +378,7 @@ class Admin
         $pdo = db();
         return [
             'total_players'  => (int)$pdo->query('SELECT COUNT(*) FROM players')->fetchColumn(),
-            'active_players' => (int)$pdo->query('SELECT COUNT(*) FROM players WHERE last_fished > DATE_SUB(NOW(), INTERVAL 7 DAY)')->fetchColumn(),
+            'active_players' => (int)$pdo->query('SELECT COUNT(*) FROM players WHERE last_fished > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)')->fetchColumn(),
             'total_catches'  => (int)$pdo->query('SELECT COALESCE(SUM(total_catches),0) FROM players')->fetchColumn(),
             'total_casts'    => (int)$pdo->query('SELECT COALESCE(SUM(total_casts),0) FROM players')->fetchColumn(),
             'total_spots'    => (int)$pdo->query('SELECT COUNT(*) FROM fishing_spots WHERE is_active=1')->fetchColumn(),

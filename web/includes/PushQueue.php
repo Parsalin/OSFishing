@@ -21,7 +21,7 @@
  *     events. Every one must be delivered, in creation order.
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class PushQueue {
 
@@ -156,7 +156,7 @@ class PushQueue {
         $stmt = db()->prepare('
             SELECT * FROM push_queue
             WHERE target_kind = "player" AND player_id = :pid
-              AND next_retry_at <= NOW()
+              AND next_retry_at <= UTC_TIMESTAMP()
             ORDER BY created_at ASC, id ASC
             LIMIT ' . self::FLUSH_BATCH
         );
@@ -214,7 +214,7 @@ class PushQueue {
         $stmt = db()->prepare('
             SELECT * FROM push_queue
             WHERE target_kind = "prim" AND prim_type = :pt AND ref_id = :rid
-              AND next_retry_at <= NOW()
+              AND next_retry_at <= UTC_TIMESTAMP()
             ORDER BY created_at ASC, id ASC
             LIMIT ' . self::FLUSH_BATCH
         );
@@ -234,7 +234,7 @@ class PushQueue {
             UPDATE push_queue
                SET attempts = attempts + 1,
                    last_error = :err,
-                   next_retry_at = DATE_ADD(NOW(), INTERVAL :backoff SECOND)
+                   next_retry_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL :backoff SECOND)
              WHERE id = :id
         ');
 
@@ -287,7 +287,7 @@ class PushQueue {
     public static function sweep(): int {
         $stmt = db()->prepare('
             DELETE FROM push_queue
-            WHERE created_at < DATE_SUB(NOW(), INTERVAL :h HOUR)
+            WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL :h HOUR)
         ');
         $stmt->execute([':h' => self::MAX_AGE_HOURS]);
         return $stmt->rowCount();

@@ -10,7 +10,7 @@
  *   4. HUD uses token + nonce + HMAC for all future requests
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class PairingAuth {
 
@@ -45,8 +45,8 @@ class PairingAuth {
         // Invalidate any older unclaimed codes for this UUID (any grid)
         $stmt = $pdo->prepare('
             UPDATE hud_pairing_codes
-            SET expires_at = NOW()
-            WHERE player_uuid = :uuid AND claimed = 0 AND expires_at > NOW()
+            SET expires_at = UTC_TIMESTAMP()
+            WHERE player_uuid = :uuid AND claimed = 0 AND expires_at > UTC_TIMESTAMP()
         ');
         $stmt->execute([':uuid' => $uuid]);
 
@@ -58,14 +58,14 @@ class PairingAuth {
 
             $stmt = $pdo->prepare('
                 SELECT id FROM hud_pairing_codes
-                WHERE code = :c AND expires_at > NOW() AND claimed = 0
+                WHERE code = :c AND expires_at > UTC_TIMESTAMP() AND claimed = 0
             ');
             $stmt->execute([':c' => $code]);
             $exists = $stmt->fetch();
             $tries++;
         } while ($exists && $tries < 10);
 
-        $expires = date('Y-m-d H:i:s', time() + 300); // 5 minute expiry
+        $expires = gmdate('Y-m-d H:i:s', time() + 300); // 5 minute expiry
 
         $stmt = $pdo->prepare('
             INSERT INTO hud_pairing_codes (code, player_uuid, grid_name, player_id, expires_at)
@@ -166,7 +166,7 @@ class PairingAuth {
         // Find the code (must be unclaimed, not expired, and belong to this player)
         $stmt = $pdo->prepare('
             SELECT * FROM hud_pairing_codes
-            WHERE code = :c AND player_id = :pid AND claimed = 0 AND expires_at > NOW()
+            WHERE code = :c AND player_id = :pid AND claimed = 0 AND expires_at > UTC_TIMESTAMP()
         ');
         $stmt->execute([':c' => $code, ':pid' => $playerId]);
         $row = $stmt->fetch();
@@ -187,12 +187,12 @@ class PairingAuth {
             // Other grids stay alive (hypergrid travelers re-visiting paired grids).
             if ($gridName !== null && $gridName !== '') {
                 $pdo->prepare('UPDATE hud_tokens
-                               SET is_active = 0, revoked_at = NOW()
+                               SET is_active = 0, revoked_at = UTC_TIMESTAMP()
                                WHERE player_id = :pid AND grid_name = :gn AND revoked_at IS NULL')
                     ->execute([':pid' => $playerId, ':gn' => $gridName]);
             } else {
                 $pdo->prepare('UPDATE hud_tokens
-                               SET is_active = 0, revoked_at = NOW()
+                               SET is_active = 0, revoked_at = UTC_TIMESTAMP()
                                WHERE player_id = :pid AND grid_name IS NULL AND revoked_at IS NULL')
                     ->execute([':pid' => $playerId]);
             }
@@ -208,7 +208,7 @@ class PairingAuth {
             // Insert the token with grid scope
             $stmt = $pdo->prepare('
                 INSERT INTO hud_tokens (player_id, token, device_name, grid_name, last_used, last_ip)
-                VALUES (:pid, :tok, :dn, :gn, NOW(), :ip)
+                VALUES (:pid, :tok, :dn, :gn, UTC_TIMESTAMP(), :ip)
             ');
             $stmt->execute([
                 ':pid' => $playerId,
@@ -222,7 +222,7 @@ class PairingAuth {
             // Mark the pairing code as claimed
             $stmt = $pdo->prepare('
                 UPDATE hud_pairing_codes
-                SET claimed = 1, claimed_at = NOW(), issued_token_id = :tid
+                SET claimed = 1, claimed_at = UTC_TIMESTAMP(), issued_token_id = :tid
                 WHERE id = :id
             ');
             $stmt->execute([':tid' => $tokenId, ':id' => $row['id']]);
@@ -308,7 +308,7 @@ class PairingAuth {
             SELECT id, last_used FROM hud_tokens
             WHERE player_id = :pid AND id != :tid
               AND revoked_at IS NULL AND is_active = 1
-              AND last_used > DATE_SUB(NOW(), INTERVAL 60 SECOND)
+              AND last_used > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 SECOND)
             LIMIT 1
         ');
         $stmt->execute([':pid' => $playerId, ':tid' => $tokenId]);
@@ -338,7 +338,7 @@ class PairingAuth {
 
         // Update this token: active, last nonce, last used
         $stmt = $pdo->prepare('
-            UPDATE hud_tokens SET is_active = 1, last_nonce = :n, last_used = NOW(), last_ip = :ip
+            UPDATE hud_tokens SET is_active = 1, last_nonce = :n, last_used = UTC_TIMESTAMP(), last_ip = :ip
             WHERE id = :tid
         ');
         $stmt->execute([
@@ -847,7 +847,7 @@ class PairingAuth {
         $stmt = db()->prepare('
             SELECT sb.*, p.display_name AS activated_by_name
             FROM spot_buffs sb LEFT JOIN players p ON p.id = sb.activated_by
-            WHERE sb.spot_id = :sid AND sb.expires_at > NOW()
+            WHERE sb.spot_id = :sid AND sb.expires_at > UTC_TIMESTAMP()
             ORDER BY sb.expires_at ASC
         ');
         $stmt->execute([':sid' => $spotId]);
@@ -869,7 +869,7 @@ class PairingAuth {
                    fs.is_active, fs.player_id, fs.spot_level,
                    wt.name AS water_type, p.display_name AS owner_name,
                    (SELECT COUNT(*) FROM spot_junk_items sji WHERE sji.spot_id = fs.id) AS junk_count,
-                   (SELECT COUNT(*) FROM spot_buffs sb WHERE sb.spot_id = fs.id AND sb.expires_at > NOW()) AS active_buffs
+                   (SELECT COUNT(*) FROM spot_buffs sb WHERE sb.spot_id = fs.id AND sb.expires_at > UTC_TIMESTAMP()) AS active_buffs
             FROM fishing_spots fs
             JOIN water_types wt ON wt.id = fs.water_type_id
             LEFT JOIN players p ON p.id = fs.player_id
@@ -1104,7 +1104,7 @@ class PairingAuth {
         // Archive instead of delete so catch_log and leaderboards keep their references
         $pdo->prepare('
             UPDATE fishing_spots
-            SET archived = 1, archived_at = NOW(), is_active = 0
+            SET archived = 1, archived_at = UTC_TIMESTAMP(), is_active = 0
             WHERE id = :id
         ')->execute([':id' => $spotId]);
         return ['message' => 'Spot archived. Catch history is preserved.'];
@@ -1327,7 +1327,7 @@ class PairingAuth {
      */
     public static function revokeDevice(int $playerId, int $deviceId): array {
         $stmt = db()->prepare('
-            UPDATE hud_tokens SET is_active = 0, revoked_at = NOW()
+            UPDATE hud_tokens SET is_active = 0, revoked_at = UTC_TIMESTAMP()
             WHERE id = :id AND player_id = :pid
         ');
         $stmt->execute([':id' => $deviceId, ':pid' => $playerId]);

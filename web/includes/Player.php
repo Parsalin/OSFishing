@@ -4,7 +4,7 @@
  * Handles registration, leveling, XP, and profile management.
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class Player {
 
@@ -24,7 +24,7 @@ class Player {
 
         // Generate setup token for web portal registration
         $setupToken = bin2hex(random_bytes(32));
-        $tokenExpires = date('Y-m-d H:i:s', time() + SETUP_TOKEN_LIFETIME);
+        $tokenExpires = gmdate('Y-m-d H:i:s', time() + SETUP_TOKEN_LIFETIME);
 
         // Temporary username from display name until web setup
         $tempUsername = preg_replace('/[^a-zA-Z0-9_]/', '', $displayName) . '_' . substr(md5($uuid), 0, 6);
@@ -89,7 +89,7 @@ class Player {
         // Validate token
         $stmt = $pdo->prepare('
             SELECT * FROM players
-            WHERE setup_token = :token AND token_expires > NOW()
+            WHERE setup_token = :token AND token_expires > UTC_TIMESTAMP()
         ');
         $stmt->execute([':token' => $token]);
         $player = $stmt->fetch();
@@ -298,7 +298,7 @@ class Player {
      */
     public static function incrementCasts(int $playerId): void {
         $stmt = db()->prepare('
-            UPDATE players SET total_casts = total_casts + 1, last_fished = NOW()
+            UPDATE players SET total_casts = total_casts + 1, last_fished = UTC_TIMESTAMP()
             WHERE id = :id
         ');
         $stmt->execute([':id' => $playerId]);

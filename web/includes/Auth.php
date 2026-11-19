@@ -4,7 +4,7 @@
  * Handles HUD HMAC auth and web session auth.
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/bootstrap.php';
 
 class Auth {
 
@@ -57,7 +57,7 @@ class Auth {
         $stmt = db()->prepare('
             SELECT p.* FROM web_sessions s
             JOIN players p ON p.id = s.player_id
-            WHERE s.id = :sid AND s.expires_at > NOW()
+            WHERE s.id = :sid AND s.expires_at > UTC_TIMESTAMP()
         ');
         $stmt->execute([':sid' => $sessionId]);
         $player = $stmt->fetch();
@@ -92,7 +92,7 @@ class Auth {
 
         // Create session
         $sessionId = bin2hex(random_bytes(64));
-        $expires   = date('Y-m-d H:i:s', time() + SESSION_LIFETIME);
+        $expires   = gmdate('Y-m-d H:i:s', time() + SESSION_LIFETIME);
 
         $stmt = db()->prepare('
             INSERT INTO web_sessions (id, player_id, ip_address, expires_at)
@@ -106,7 +106,7 @@ class Auth {
         ]);
 
         // Update last login
-        $stmt = db()->prepare('UPDATE players SET last_login = NOW() WHERE id = :id');
+        $stmt = db()->prepare('UPDATE players SET last_login = UTC_TIMESTAMP() WHERE id = :id');
         $stmt->execute([':id' => $player['id']]);
 
         // Set cookie

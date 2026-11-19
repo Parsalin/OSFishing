@@ -56,7 +56,7 @@ class FAQ
     public static function replyQuestion(int $questionId, string $reply, string $status = 'answered'): array {
         $stmt = db()->prepare('
             UPDATE player_questions
-            SET admin_reply = :r, status = :s, replied_at = NOW()
+            SET admin_reply = :r, status = :s, replied_at = UTC_TIMESTAMP()
             WHERE id = :id
         ');
         $stmt->execute([':r' => $reply, ':s' => $status, ':id' => $questionId]);
