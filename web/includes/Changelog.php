@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-20-inventory-tab', 'date' => '2026-11-20', 'type' => 'changed',
+         'text' => 'Your fish, tackle, rods, trophies and fishing spots are now together under one Inventory tab, with a button for each along the top. My Spots is now in the panel on your HUD too, so you can open and edit your spots from there.'],
         ['id' => '2026-11-19-bigger-text', 'date' => '2026-11-19', 'type' => 'changed',
          'text' => 'All text on the website, and in the panel on your HUD, is 10% bigger and easier to read.'],
         ['id' => '2026-11-19-spot-page', 'date' => '2026-11-19', 'type' => 'new',

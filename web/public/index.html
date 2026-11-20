@@ -374,7 +374,16 @@ function showToast(msg, isError) {
   setTimeout(() => { state.toast = null; render(); }, 3000);
 }
 
-function setPage(page) { state.page = page; state.mobileOpen = false; render(); loadPageData(page); }
+// Inventory groups these pages as sub-tabs. They keep their own page keys so
+// links already compiled into HUDs (?page=tackle etc.) still land correctly.
+const INV_TABS = [['fish','Fish'],['tackle','Tackle'],['rods','Rods'],['trophy','Trophies'],['myspots','My Spots']];
+const isInvPage = p => INV_TABS.some(([k]) => k === p);
+function normPage(p) { return p === 'inventory' ? (state.invTab || 'fish') : p; }
+function setPage(page) {
+  page = normPage(page);
+  if (isInvPage(page)) state.invTab = page;
+  state.page = page; state.mobileOpen = false; render(); loadPageData(page);
+}
 
 // ═══════════════════════════════════════════════
 // API
@@ -905,11 +914,9 @@ function renderLogin() {
 function renderSidebar(mobile) {
   const c = state.sidebarCollapsed && !mobile;
   const navItems = [
-    {key:'dashboard',label:'Dashboard',icon:icons.dashboard},{key:'fish',label:'Fish Inventory',icon:icons.fish},
-    {key:'tackle',label:'Tackle',icon:icons.bait},{key:'rods',label:'Rods',icon:icons.fish},
+    {key:'dashboard',label:'Dashboard',icon:icons.dashboard},
+    {key:'inventory',label:'Inventory',icon:'🎒'},
     {key:'quests',label:'Quests',icon:icons.quest},
-    {key:'myspots',label:'My Spots',icon:icons.spot},
-    {key:'trophy',label:'Trophy',icon:'🏆'},
     {key:'shop',label:'Shop',icon:icons.shop},{key:'leaderboards',label:'Leaderboards',icon:icons.trophy},
     {key:'map',label:'Grid Map',icon:'🗺️'},
     {key:'journal',label:'Journal',icon:icons.journal},{key:'log',label:'Catch Log',icon:icons.log},
@@ -931,7 +938,7 @@ function renderSidebar(mobile) {
 
   return h('div',{class:'sidebar'+(c?' collapsed':'')},
     h('div',{class:'sidebar-brand'},h('div',{class:'brand-icon'},'🎣'),h('div',{class:'brand-text'},h('h2',null,'OSFishing'),h('span',null,'Web Portal'))),
-    h('nav',{class:'sidebar-nav'},...navItems.map(item=>h('button',{class:'nav-item'+(state.page===item.key?' active':''),onClick:()=>setPage(item.key)},
+    h('nav',{class:'sidebar-nav'},...navItems.map(item=>h('button',{class:'nav-item'+((state.page===item.key || (item.key==='inventory' && isInvPage(state.page)))?' active':''),onClick:()=>setPage(item.key)},
       h('span',{class:'nav-icon',html:item.icon}),
       h('span',{class:'nav-label'},item.label),
       item.key==='quests' && questBadge ? h('span',{style:{marginLeft:'auto',color:'#ffd700',fontWeight:900,fontSize:'15.4px',lineHeight:1}},questBadge) : null,
@@ -2480,6 +2487,13 @@ function renderTrophy() {
 // ═══════════════════════════════════════════════
 const pageRenderers = { dashboard:renderDashboard, fish:renderFishInventory, tackle:renderTackle, rods:renderRodGallery, quests:renderQuests, myspots:renderMySpots, spot:renderSpot, shop:renderShop, leaderboards:renderLeaderboards, map:renderGridMap, trophy:renderTrophy, journal:renderJournal, log:renderCatchLog, help:renderHelp, settings:renderSettings, changelog:renderChangelog };
 
+function renderInventory(inner) {
+  return h('div',null,
+    h('div',{class:'tab-bar',style:{flexWrap:'wrap'}},...INV_TABS.map(([k,l]) =>
+      h('button',{class:'tab-btn'+(state.page===k?' active':''),onClick:()=>setPage(k)},l))),
+    inner);
+}
+
 function render() {
   setTheme(state.theme);
   const app = $('app');
@@ -2487,18 +2501,19 @@ function render() {
   app.innerHTML = '';
 
   const isEmbed = document.documentElement.classList.contains('embed');
-  const pageRenderer = pageRenderers[state.page] || renderDashboard;
+  const baseRenderer = pageRenderers[state.page] || renderDashboard;
+  const pageRenderer = isInvPage(state.page) ? () => renderInventory(baseRenderer()) : baseRenderer;
 
   if (isEmbed) {
     // Embed mode: inline nav bar at top, no sidebar
     const embedNav = h('div',{class:'nav-embed'},
-      ...[ ['dashboard','Home'], ['fish','Fish'], ['tackle','Tackle'], ['rods','Rods'],
-           ['quests','Quests'], ['trophy','Trophy'], ['shop','Shop'],
+      ...[ ['dashboard','Home'], ['inventory','Inventory'],
+           ['quests','Quests'], ['shop','Shop'],
            ['leaderboards','Ranks'], ['map','Map'], ['journal','Journal'],
            ['log','Log'], ['help','Help'], ['settings','Settings']
       ].map(([k,l]) => h('button',{
-        class:'nav-embed-btn'+(state.page===k?' active':''),
-        onClick:()=>{ state.page=k; render(); loadPageData(k); }
+        class:'nav-embed-btn'+((state.page===k || (k==='inventory' && isInvPage(state.page)))?' active':''),
+        onClick:()=>setPage(k)
       },l))
     );
     const content = h('div',{class:'main-content'}, embedNav, pageRenderer());
@@ -2559,7 +2574,8 @@ function render() {
         state.player = r.player;
         state.loading = false;
         const pageParam = params.get('page');
-        if (pageParam) state.page = pageParam;
+        if (pageParam) state.page = normPage(pageParam);
+        if (isInvPage(state.page)) state.invTab = state.page;
         if (params.get('spot_id')) state.spotId = parseInt(params.get('spot_id'), 10) || 0;
         render();
         loadPageData(state.page);
@@ -2594,9 +2610,10 @@ function render() {
   if (params.get('recovery') === '1') state.recoveryMode = true;
   const pageParam = params.get('page');
   if (pageParam) {
-    const validPages = ['dashboard','fish','tackle','rods','quests','shop','leaderboards','journal','log','settings','changelog','myspots','spot'];
+    const validPages = ['dashboard','inventory','fish','tackle','rods','trophy','myspots','quests','shop','leaderboards','map','journal','log','help','settings','changelog','spot'];
     if (validPages.includes(pageParam)) {
-      state.page = pageParam;
+      state.page = normPage(pageParam);
+      if (isInvPage(state.page)) state.invTab = state.page;
     }
     if (params.get('spot_id')) state.spotId = parseInt(params.get('spot_id'), 10) || 0;
     history.replaceState({}, '', window.location.pathname);
