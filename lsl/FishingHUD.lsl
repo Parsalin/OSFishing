@@ -32,7 +32,7 @@ string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 // Script version, "YYYY.MM.DD.NN". Bumped automatically on every edit by
 // .claude/bump_version.ps1 (PostToolUse hook); never edit it by hand.
 // Sent with every hud_status and shown under Settings > devices.
-string  HUD_VERSION = "2026.11.19.03";
+string  HUD_VERSION = "2026.11.19.05";
 
 // ── Pairing State (lives only in script memory) ──
 integer gTokenId      = 0;
@@ -3007,6 +3007,13 @@ default {
         if (ch == CH_SPOT_TO_HUD) {
             list parts = llParseString2List(msg, ["|"], []);
             if (llList2String(parts, 0) == "SPOT") {
+                // Mid-cast, stay on the spot we cast at: the catch is
+                // reported against gCurrentSpotId.
+                integer newSpot = (integer)llList2String(parts, 1);
+                if (gState != STATE_IDLE && gState != STATE_MENU && gCurrentSpotId != 0 && newSpot != gCurrentSpotId) {
+                    hudInfo("Reel in first, then click the other spot.");
+                    return;
+                }
                 integer wasNoSpot = (gCurrentSpotId == 0);
                 gCurrentSpotId   = (integer)llList2String(parts, 1);
                 gCurrentSpotName = llList2String(parts, 2);
@@ -3021,9 +3028,9 @@ default {
                 string slvl = llList2String(parts, 8);
                 if (slvl != "") gCurrentSpotLevel = (integer)slvl;
                 updateMainDisplay();
-                if (wasNoSpot) {
-                    hudInfo("Spot: " + gCurrentSpotName + " (" + gCurrentWaterType + " Lvl " + (string)gCurrentSpotLevel + ")");
-                }
+                // Comes on walking in range and on clicking a spot (targeting
+                // it), so always say which spot we're on now.
+                hudInfo("🎯 " + gCurrentSpotName + " (" + gCurrentWaterType + " Lvl " + (string)gCurrentSpotLevel + ")\nHold-click the spot for its details.");
                 // Tutorial: advance from "find a spot" step when first detected
                 if (wasNoSpot && gTutorialActive && gTutorialStep == 5) {
                     advanceTutorial();

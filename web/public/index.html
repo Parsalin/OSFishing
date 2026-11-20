@@ -668,6 +668,11 @@ async function spotRemoveJunk(junkId) {
   if (r.success) { showToast('Junk item removed'); loadSpot(); }
   else showToast(r.error || 'Could not remove it', true);
 }
+async function spotJunkPrompt() {
+  const r = await api('web_spot_junk_prompt', { spot_id: String(state.spotId) });
+  if (r.success) showToast(r.message || 'Sent to the spot');
+  else showToast(r.error || 'Could not reach the spot', true);
+}
 async function spotUseBuff(buffItemId) {
   const r = await api('web_buff_activate', { spot_id: String(state.spotId), buff_item_id: String(buffItemId) });
   if (r.success) { showToast(r.message || 'Buff activated!'); loadSpot(); }
@@ -1609,6 +1614,22 @@ function renderSpot() {
       : null
   );
 
+  // ── Your fish here: every fish this water holds, ?? until you catch it ──
+  const mine = d.my_fish || [];
+  const caughtN = mine.filter(f => f.caught).length;
+  const myFishCard = spotCard(`You have caught these fish here (${caughtN} of ${mine.length})`,
+    mine.length
+      ? h('div',{style:{display:'flex',flexDirection:'column',gap:'6px'}},
+          ...mine.map(f => h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',fontSize:'13px',
+              padding:'6px 0',borderBottom:'1px solid var(--border-light)',opacity:f.caught?'1':'.55'}},
+            h('span',{style:{display:'flex',alignItems:'center',gap:'8px'}},
+              h('span',{style:{fontWeight:600}}, f.caught ? f.name : '??'),
+              f.caught ? rarityBadge(String(f.rarity_name||'common').toLowerCase()) : null),
+            h('span',{style:f.caught?{fontWeight:700}:muted},
+              f.caught ? `${f.best_weight} lb${f.times > 1 ? ` · best of ${f.times}` : ''}` : '??'))))
+      : h('div',{style:muted},'No fish live here yet.')
+  );
+
   // ── Recent catches ──
   const recent = d.recent || [];
   const recentCard = spotCard('Recent catches',
@@ -1632,7 +1653,9 @@ function renderSpot() {
             d.can_manage && !archived ? h('button',{class:'btn btn-secondary btn-sm',onClick:()=>spotRemoveJunk(j.id)},'Remove') : null)))
       : h('div',{style:muted},'No junk items here.'),
     d.can_manage && !archived
-      ? h('div',{style:Object.assign({marginTop:'10px'},muted)},'To add junk, drop the object into the spot, then hold-click the spot for 3 seconds and pick Add Junk.')
+      ? h('div',{style:{marginTop:'12px'}},
+          h('button',{class:'btn btn-secondary btn-sm',onClick:spotJunkPrompt},'Add junk'),
+          h('div',{style:Object.assign({marginTop:'6px'},muted)},'Drop the object into the spot first. Add junk makes the spot ask you, in-world, which of its objects to add.'))
       : null
   );
 
@@ -1666,7 +1689,7 @@ function renderSpot() {
   }
 
   return h('div',{class:'fade-in'},
-    header, h('div',{class:'two-col'}, location, level), stats, buffCard, settings, recentCard, junkCard
+    header, h('div',{class:'two-col'}, location, level), stats, myFishCard, buffCard, settings, recentCard, junkCard
   );
 }
 

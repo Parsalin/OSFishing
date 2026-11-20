@@ -1160,8 +1160,38 @@ class PairingAuth {
         ');
         $recent->execute([':id' => $spotId]);
 
+        // Every fish this water can give, with what the viewer has caught
+        // HERE. Fish they haven't caught come back nameless ("??" on the
+        // page): never spoil a discovery.
+        $mf = $pdo->prepare('
+            SELECT fsp.id, fsp.name, rt.name AS rarity_name,
+                   MAX(cl.weight) AS best_weight, COUNT(cl.id) AS times
+            FROM fish_species fsp
+            JOIN fish_water_types fwt ON fwt.fish_id = fsp.id
+            JOIN fishing_spots s ON s.id = :sid AND s.water_type_id = fwt.water_type_id
+            JOIN rarity_tiers rt ON rt.id = fsp.rarity_id
+            LEFT JOIN catch_log cl ON cl.fish_species_id = fsp.id
+                 AND cl.spot_id = :sid2 AND cl.player_id = :pid
+            WHERE fsp.is_active = 1
+            GROUP BY fsp.id, fsp.name, rt.id, rt.name
+            ORDER BY (COUNT(cl.id) = 0), rt.id, fsp.id
+        ');
+        $mf->execute([':sid' => $spotId, ':sid2' => $spotId, ':pid' => (int)$player['id']]);
+        $myFish = [];
+        foreach ($mf->fetchAll() as $f) {
+            $caught = (int)$f['times'] > 0;
+            $myFish[] = [
+                'caught'      => $caught,
+                'name'        => $caught ? $f['name'] : null,
+                'rarity_name' => $caught ? $f['rarity_name'] : null,
+                'best_weight' => $caught ? round((float)$f['best_weight'], 2) : null,
+                'times'       => (int)$f['times'],
+            ];
+        }
+
         $out = [
             'spot'       => $spot,
+            'my_fish'    => $myFish,
             'can_manage' => $canManage,
             'is_owner'   => $isOwner,
             'stats'      => [
@@ -1192,6 +1222,30 @@ class PairingAuth {
     public static function pushSpotRefresh(int $spotId, bool $removed = false): void {
         require_once __DIR__ . '/PrimCallback.php';
         PrimCallback::pushToSpot($spotId, ['type' => $removed ? 'spot_removed' : 'spot_refresh']);
+    }
+
+    /**
+     * Owner pressed "Add junk" on the spot page: ask the in-world spot to
+     * show its add-junk box (it needs objects from its own inventory).
+     * Sent live only, never queued: a prompt popping up hours later would
+     * be confusing. The spot shows it only if its owner is in the region.
+     */
+    public static function spotJunkPrompt(array $player, int $spotId): array {
+        require_once __DIR__ . '/PushQueue.php';
+        $stmt = db()->prepare('SELECT player_id, is_system, archived FROM fishing_spots WHERE id = :id');
+        $stmt->execute([':id' => $spotId]);
+        $spot = $stmt->fetch();
+        if (!$spot) json_error('Spot not found', 404);
+        $isOwner = (int)$spot['player_id'] === (int)$player['id'] && !(int)$spot['is_system'];
+        if (!$isOwner && !(int)$player['is_admin']) json_error('Not authorized', 403);
+        if ((int)$spot['archived']) json_error('This spot was deleted', 403);
+
+        $u = db()->prepare("SELECT callback_url FROM prim_callbacks WHERE prim_type = 'fishing_spot' AND ref_id = :id");
+        $u->execute([':id' => $spotId]);
+        $urls = $u->fetchAll(PDO::FETCH_COLUMN);
+        if (!$urls) json_error('The spot isn\'t online right now. Go to it in-world and try again.');
+        foreach ($urls as $url) PushQueue::sendLater($url, ['type' => 'junk_prompt']);
+        return ['message' => 'Sent. A box from the spot will ask which object to add (you need to be in its region).'];
     }
 
     /**

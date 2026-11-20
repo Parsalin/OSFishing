@@ -411,6 +411,10 @@ try {
             PairingAuth::pushSpotRefresh($spotId);
             json_success($res);
 
+        case 'web_spot_junk_prompt':
+            $player = AuthEmbed::requireWeb();
+            json_success(PairingAuth::spotJunkPrompt($player, (int)require_param('spot_id')));
+
         case 'web_spot_remove_junk':
             $player = AuthEmbed::requireWeb();
             json_success(PairingAuth::removeJunkItemFor($player, (int)require_param('junk_id')));

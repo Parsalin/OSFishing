@@ -23,7 +23,7 @@ class Changelog
 {
     const ENTRIES = [
         ['id' => '2026-11-19-spot-page', 'date' => '2026-11-19', 'type' => 'new',
-         'text' => 'Click a fishing spot to open its page on your HUD: where it is (with a teleport link), its level and XP, active buffs, catch stats, recent catches and junk loot. You can use your buff items on the spot right from that page. If the spot is yours, the same page lets you rename it, turn it on or off, make it public or private, level it up, remove junk items or delete it, and the spot in-world updates straight away. My Spots has an Open button for the same page. (Needs the new HUD and updated fishing spots.)'],
+         'text' => 'Fishing spots: click one to pick it as the spot you fish at, or hold the click for a second to open its page on your HUD: where it is (with a teleport link), its level and XP, active buffs, catch stats, recent catches and junk loot, plus every fish that lives there. The ones you have caught at that spot show your best weight; the rest stay ?? until you catch them. You can use your buff items on the spot right from that page. If the spot is yours, the same page lets you rename it, turn it on or off, make it public or private, level it up, add or remove junk items or delete it, and the spot in-world updates straight away. My Spots has an Open button for the same page. (Needs the new HUD and updated fishing spots.)'],
         ['id' => '2026-11-19-spot-buff-show', 'date' => '2026-11-19', 'type' => 'fixed',
          'text' => 'A buff used on a fishing spot now shows on the spot right away, instead of up to five minutes later. (Needs updated fishing spots.)'],
         ['id' => '2026-11-19-hud-version', 'date' => '2026-11-19', 'type' => 'new',

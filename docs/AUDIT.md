@@ -33,7 +33,7 @@ In-world (LSL) fixes only reach players once the updated objects are handed out.
       its media panel on a portal page (`web_buff_*`, `web_butcher_*` exist;
       add `web_craft_*`). The click on a page the player is logged into is the
       consent.
-      **Spots: done in script (2026-11-19).** A click sends `SPOT_OPEN` and
+      **Spots: done in script (2026-11-19).** A long press sends `SPOT_OPEN` and
       the HUD opens the `spot` page; buffs go through `web_buff_activate`. The
       new FishingSpot no longer calls `buff_inventory` / `buff_activate`, but
       spots already rezzed still do, so those uuid branches stay until

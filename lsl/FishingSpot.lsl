@@ -5,11 +5,12 @@
 // Buff delivery: server push via llRequestURL (primary)
 //               + poll fallback every BUFF_POLL_INTERVAL seconds
 //
-// Click (set-up spot): tells the toucher's HUD to open this spot's page in
-//   its panel (SPOT_OPEN). Details, buffs and, for the owner, settings live
-//   there. Settings changed on the website reach us as a spot_refresh push.
-// Owner hold (3s+): the in-prim menu. Still the only way to add junk, since
-//   that needs this prim's inventory, and a fallback without a HUD.
+// Click (set-up spot): targets it — the toucher's HUD fishes here (SPOT).
+// Long press (LONG_PRESS s+), anyone: the toucher's HUD opens this spot's
+//   page in its panel (SPOT_OPEN): details, buffs, their fish here, and for
+//   the owner the settings. Website changes reach us as a spot_refresh push;
+//   the page's Add junk button sends junk_prompt (needs our inventory).
+// Owner chat "/spot menu": the old in-prim menu, a fallback without a HUD.
 // ============================================================
 
 string  gApiUrl = "https://osfishing.flamesfall.net/api/";
@@ -56,7 +57,8 @@ list  gInRange  = [];
 integer CH_SPOT_TO_HUD = -7710005;
 
 // ── Touch hold detection ──
-integer gTouchStartTime = 0;
+float   LONG_PRESS      = 1.0;   // seconds held = open the spot page
+float   gTouchStartTime = 0.0;
 key     gTouchKey       = NULL_KEY;
 
 // ── Text cache ──
@@ -448,7 +450,7 @@ showManageMenu(key who) {
         " | " + (gIsPublic ? "Public" : "Private") +
         (gIsSystem ? " | System" : "") +
         "\nID: " + (string)gSpotId +
-        "\n\nDetails, buffs and settings: click the spot (or Open on HUD).",
+        "\n\nDetails, buffs and settings: hold-click the spot (or Open on HUD).",
         ["Open on HUD", "Add Junk", "Edit", "Close"], gDialogCh);
 }
 
@@ -534,7 +536,7 @@ default {
     }
 
     touch_start(integer n) {
-        gTouchStartTime = llGetUnixTime();
+        gTouchStartTime = llGetTime();
         gTouchKey       = llDetectedKey(0);
     }
 
@@ -543,7 +545,7 @@ default {
         gTouchKey = NULL_KEY;
         if (who == NULL_KEY) return;
 
-        integer holdTime = llGetUnixTime() - gTouchStartTime;
+        float holdTime = llGetTime() - gTouchStartTime;
 
         if (!gSetupDone) {
             if (who != llGetOwner()) {
@@ -562,16 +564,18 @@ default {
             return;
         }
 
-        if (holdTime >= 3 && who == llGetOwner()) {
-            showManageMenu(who);
+        setTextLabel();
+
+        // Long press: the toucher's HUD opens this spot's page (details,
+        // buffs, their fish here; settings too if it's theirs).
+        if (holdTime >= LONG_PRESS) {
+            if (gRegistered) openOnHud(who);
             return;
         }
 
-        // A click: the toucher's HUD opens this spot's page (details,
-        // buffs, and settings if it's theirs).
-        setTextLabel();
+        // Click: target this spot (the HUD fishes here).
         if (gRegistered && gIsActive) notifyPlayer(who);
-        if (gRegistered) openOnHud(who);
+        else llRegionSayTo(who, 0, gSpotName + " is switched off right now. Hold-click it to see its details.");
     }
 
     sensor(integer num) {
@@ -647,6 +651,15 @@ default {
         if (ptype == "buff_expired") { expireBuffPush(bname); return; }
         // Settings changed on the website: re-read them.
         if (ptype == "spot_refresh" && gSpotId > 0) { requestStatus("refresh"); return; }
+        // Owner pressed Add junk on the spot page: ask them here, if they're
+        // in the region (a dialog can't reach them anywhere else).
+        if (ptype == "junk_prompt" && gSetupDone) {
+            key own = llGetOwner();
+            if (llGetAgentSize(own) == ZERO_VECTOR) return;
+            gSetupPlayer = own;
+            showJunkPrompt();
+            return;
+        }
         if (ptype == "spot_removed" && gSpotId > 0) {
             gIsActive = FALSE;
             applyActiveState();   // tells HUDs in range the spot is gone
@@ -961,6 +974,12 @@ default {
                 clearSpotData();
                 resetToUnsetup();
                 llOwnerSay("Spot data wiped. Touch to begin setup.");
+            }
+            else if (msg == "/spot menu" && gSetupDone) {
+                // Only the spot(s) near the owner answer, not every spot
+                // they own in the region.
+                if (llVecDist(llGetPos(), llList2Vector(llGetObjectDetails(id, [OBJECT_POS]), 0)) <= 20.0)
+                    showManageMenu(id);
             }
             return;
         }
