@@ -147,6 +147,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 - **FishingRod** — held attachment, plays cast/idle animations. Has `Line_Emitter` child for future particle line.
 - **FishingBobber** — temp-rezzed object, sits in water during cast/landing/fight.
 - **FishingSpot** — placed in regions where fish are. Has a setup wizard (water type, name, public/private), maintains state in LinksetData, registers callback URL with server for buff push notifications.
+  **Click** = `llRegionSay(-7710005, "SPOT_OPEN|<spot id>|<toucher>")`; the toucher's HUD opens the portal `spot` page (`web_spot_detail`) in its panel: location + hop link, level/XP, buffs (use one via `web_buff_activate`), stats, recent catches, junk; owner/admin also get settings (`web_spot_settings`, level up, remove junk, delete). Every web change pushes `spot_refresh` (or `spot_removed`) to the prim, which re-reads `spot_status`. **Owner hold 3s** = the old in-prim menu (Add Junk needs the prim's inventory; also the no-HUD fallback). Spot pushes are `{"type": …, "buff_label": …}`.
 - **BaitGatherPoint** — interactable in-world object that produces bait per gather attempt.
 - **LeaderboardDisplay** — shows top 10 by category, rotates every few seconds.
 - **TournamentBoard** — shows a tournament's standings (schema fixed 2026-11-19, migration 10).

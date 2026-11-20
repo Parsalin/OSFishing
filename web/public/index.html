@@ -308,6 +308,7 @@ const state = {
   fishFilter: 'all', fishSort: 'caught_at', questTab: 'active', shopTab: 'bait', leaderboardTab: 'biggest',
   pairedDevices: [], pairingCode: '',
   mySpots: [], spotStats: { used: 0, limit: 3 }, spotLeaderboard: [],
+  spotId: 0, spotDetail: null, spotError: '', spotNameDraft: null, spotDeleteArmed: false,
   myLines: [], rodGallery: [], buffInventory: [], trophyFish: [], pairAttempts: [],
   faqs: [], questionSent: false,
 };
@@ -631,6 +632,48 @@ async function levelUpSpot(spotId) {
   if (r.success) { showToast(r.message || 'Spot leveled up!'); loadMySpots(); }
   else showToast(r.error || 'Failed to level up spot', true);
 }
+// ── Spot page (the HUD opens it when you click a spot in-world) ──
+function openSpot(spotId) { state.spotId = parseInt(spotId, 10) || 0; state.spotDetail = null; state.spotError = ''; setPage('spot'); }
+async function loadSpot() {
+  if (!state.spotId) { state.spotError = 'No spot selected.'; render(); return; }
+  const r = await api('web_spot_detail', { spot_id: String(state.spotId) });
+  if (r.success) { state.spotDetail = r; state.spotError = ''; state.spotNameDraft = null; }
+  else { state.spotDetail = null; state.spotError = r.error || 'Could not load this spot.'; }
+  render();
+  if (r.success) loadBuffInventory();
+}
+async function loadBuffInventory() {
+  const r = await api('web_buff_inventory');
+  if (r.success) { state.buffInventory = r.buff_inventory || []; render(); }
+}
+async function spotSettings(fields, okMsg) {
+  const r = await api('web_spot_settings', Object.assign({ spot_id: String(state.spotId) }, fields));
+  if (r.success) { showToast(okMsg || 'Spot updated'); loadSpot(); }
+  else showToast(r.error || 'Could not update the spot', true);
+}
+async function spotLevelUp() {
+  const r = await api('web_spot_level_up', { spot_id: String(state.spotId) });
+  if (r.success) { showToast(r.message || 'Spot leveled up!'); loadSpot(); }
+  else showToast(r.error || 'Could not level up', true);
+}
+async function spotDelete() {
+  if (!state.spotDeleteArmed) { state.spotDeleteArmed = true; render(); setTimeout(()=>{ state.spotDeleteArmed = false; render(); }, 5000); return; }
+  state.spotDeleteArmed = false;
+  const r = await api('web_spot_delete', { spot_id: String(state.spotId) });
+  if (r.success) { showToast(r.message || 'Spot deleted'); loadSpot(); }
+  else showToast(r.error || 'Could not delete the spot', true);
+}
+async function spotRemoveJunk(junkId) {
+  const r = await api('web_spot_remove_junk', { junk_id: String(junkId) });
+  if (r.success) { showToast('Junk item removed'); loadSpot(); }
+  else showToast(r.error || 'Could not remove it', true);
+}
+async function spotUseBuff(buffItemId) {
+  const r = await api('web_buff_activate', { spot_id: String(state.spotId), buff_item_id: String(buffItemId) });
+  if (r.success) { showToast(r.message || 'Buff activated!'); loadSpot(); }
+  else showToast(r.error || 'Could not use that buff', true);
+}
+
 async function loadSettings() {
   const r = await api('web_titles');
   if (r.success) state.titles = r.titles || [];
@@ -655,7 +698,7 @@ async function restartTutorial() {
 }
 
 function loadPageData(page) {
-  const loaders = { dashboard:loadDashboard, fish:loadFishInventory, tackle:loadTackle, quests:loadQuests, myspots:loadMySpots, shop:loadShop, leaderboards:loadLeaderboards, map:loadMapGrids, trophy:loadTrophy, journal:loadJournal, log:loadCatchLog, settings:loadSettings, rods:loadRodGallery, help:loadHelp, changelog:loadChangelog };
+  const loaders = { dashboard:loadDashboard, fish:loadFishInventory, tackle:loadTackle, quests:loadQuests, myspots:loadMySpots, spot:loadSpot, shop:loadShop, leaderboards:loadLeaderboards, map:loadMapGrids, trophy:loadTrophy, journal:loadJournal, log:loadCatchLog, settings:loadSettings, rods:loadRodGallery, help:loadHelp, changelog:loadChangelog };
   if (loaders[page]) loaders[page]();
 }
 
@@ -1442,6 +1485,7 @@ function renderMySpots() {
                     )
                   : null,
                 h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}},
+                  h('button',{class:'btn btn-primary btn-sm',onClick:()=>openSpot(s.id)},'Open'),
                   h('button',{class:'btn btn-secondary btn-sm',onClick:()=>renameSpot(s.id,s.name)},'Rename'),
                   h('button',{class:'btn btn-secondary btn-sm',onClick:()=>toggleSpot(s.id,s.is_active!=1)},s.is_active==1?'Deactivate':'Activate'),
                   lvlReady && !s.is_system ? h('button',{class:'btn btn-primary btn-sm',onClick:()=>levelUpSpot(s.id)},'Level Up!') : null,
@@ -1451,6 +1495,178 @@ function renderMySpots() {
             );
           })
         )
+  );
+}
+
+// ═══════════════════════════════════════════════
+// PAGE: ONE FISHING SPOT (opened by clicking the spot in-world)
+// ═══════════════════════════════════════════════
+function spotBadge(text, fg, bg) {
+  return h('span',{style:{fontSize:'11px',fontWeight:700,padding:'3px 9px',borderRadius:'5px',background:bg,color:fg}},text);
+}
+function spotCard(title, ...body) {
+  return h('div',{class:'card',style:{marginTop:'14px'}},h('div',{class:'card-body'},
+    h('div',{style:{fontSize:'14px',fontWeight:700,marginBottom:'12px'}},title), ...body));
+}
+function minsLeft(m) { m = Math.max(0, parseInt(m,10)||0); return m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`; }
+
+function renderSpot() {
+  if (state.spotError) return h('div',{class:'fade-in'},
+    h('div',{class:'card'},h('div',{class:'card-body'},
+      h('div',{style:{fontSize:'15px',fontWeight:700,marginBottom:'6px'}},'Fishing spot'),
+      h('div',{style:{fontSize:'13px',color:'var(--text-muted)'}},state.spotError))));
+  const d = state.spotDetail;
+  if (!d) return loadingMsg();
+  const s = d.spot, st = d.stats || {};
+  const isSys = s.is_system == 1, archived = s.archived == 1, active = s.is_active == 1, pub = s.is_public == 1;
+  const lvlReady = s.spot_level_ready == 1;
+  const xp = parseInt(s.spot_xp,10)||0, xpNext = parseInt(s.spot_xp_to_next,10)||100;
+  const muted = {fontSize:'12px',color:'var(--text-muted)'};
+  const pos = `${Math.round(s.pos_x)}, ${Math.round(s.pos_y)}, ${Math.round(s.pos_z)}`;
+  const hop = s.hop_gateway && s.region_name
+    ? `hop://${s.hop_gateway}/${encodeURIComponent(s.region_name)}/${Math.round(s.pos_x)}/${Math.round(s.pos_y)}/${Math.round(s.pos_z)}` : null;
+  const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+
+  // ── Header ──
+  const header = h('div',{class:'section-header',style:{flexWrap:'wrap',gap:'10px'}},
+    h('div',null,
+      h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}},
+        h('h2',{class:'section-title'},s.name),
+        h('span',{style:{fontSize:'11px',fontWeight:700,padding:'2px 8px',borderRadius:'4px',background:'var(--accent-soft)',color:'var(--accent)'}},`Lvl ${s.spot_level||1}`)
+      ),
+      h('div',{style:Object.assign({marginTop:'3px'},muted)},
+        `${cap(s.water_type)} · ${isSys ? 'System spot' : 'Owned by ' + (s.owner_name || 'someone')}${d.is_owner ? ' (you)' : ''}`)
+    ),
+    h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}},
+      archived ? spotBadge('DELETED','var(--danger)','var(--danger-soft)')
+               : spotBadge(active ? 'ACTIVE' : 'INACTIVE', active ? 'var(--success)' : 'var(--danger)', active ? 'var(--success-soft)' : 'var(--danger-soft)'),
+      spotBadge(pub ? 'PUBLIC' : 'PRIVATE','var(--text-secondary)','var(--bg-input)'),
+      isSys ? spotBadge('SYSTEM','var(--accent)','var(--accent-soft)') : null
+    )
+  );
+
+  // ── Location ──
+  const location = spotCard('Location',
+    equipRow('Region', s.region_name || 'unknown'),
+    equipRow('Grid', s.grid_label || s.grid_name || 'unknown'),
+    equipRow('Position', `<${pos}>`),
+    s.region_x != null ? equipRow('Map square', `${s.region_x}, ${s.region_y}`) : null,
+    equipRow('Spot object', s.prim_last_seen ? 'last checked in ' + fmtTime(s.prim_last_seen) : 'not checked in recently'),
+    hop ? h('div',{style:{marginTop:'10px'}},h('a',{class:'btn btn-secondary btn-sm',href:hop},'Teleport here')) : null
+  );
+
+  // ── Level ──
+  const level = spotCard('Level',
+    isSys
+      ? h('div',{style:muted},'System spots don\'t level up.')
+      : h('div',null,
+          h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'5px'}},
+            h('span',lvlReady ? {style:{color:'var(--accent)',fontWeight:700}} : {style:{color:'var(--text-secondary)'}},
+              lvlReady ? 'Ready to level up!' : `XP ${xp.toLocaleString()} / ${xpNext.toLocaleString()}`),
+            h('span',{style:muted},`${Math.min(100,Math.round(xp/Math.max(1,xpNext)*100))}%`)
+          ),
+          progressBar(xp, xpNext, 8, lvlReady ? 'var(--accent)' : 'var(--success)')
+        ),
+    h('div',{style:Object.assign({marginTop:'10px'},muted)},
+      `Anglers need level ${s.spot_level||1} to fish here. Catch bonus ×${(parseFloat(s.loot_modifier)||1).toFixed(2)}.`),
+    d.can_manage && lvlReady && !isSys && !archived
+      ? h('div',{style:{marginTop:'10px'}},
+          h('button',{class:'btn btn-primary btn-sm',onClick:spotLevelUp},`Level up to ${(parseInt(s.spot_level,10)||1)+1}`),
+          h('div',{style:Object.assign({marginTop:'6px'},muted)},'Levelling up raises the level anglers need to fish here.'))
+      : null
+  );
+
+  // ── Stats ──
+  const best = st.best;
+  const stats = h('div',{class:'stat-grid',style:{marginTop:'14px'}},
+    statCard('Catches', (st.catches||0).toLocaleString()),
+    statCard('Anglers', st.anglers||0),
+    statCard('Last 24h', st.today||0),
+    statCard('Biggest', best ? `${best.weight} lb` : '—', best ? `${best.fish_name} · ${best.angler}` : null)
+  );
+
+  // ── Buffs ──
+  const buffs = d.buffs || [];
+  const inv = state.buffInventory || [];
+  const buffCard = spotCard('Buffs',
+    buffs.length
+      ? h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+          ...buffs.map(b => h('div',null,
+            h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'13px'}},
+              h('span',{style:{fontWeight:600}},b.buff_name),
+              h('span',{style:muted},`${minsLeft(b.mins_remaining)} left`)),
+            progressBar(b.mins_remaining, b.max_mins||120, 5, 'var(--info)'),
+            b.activated_by ? h('div',{style:Object.assign({marginTop:'2px',fontSize:'11px'},muted)},`by ${b.activated_by}`) : null
+          )))
+      : h('div',{style:muted},'No buffs active.'),
+    !archived && active
+      ? h('div',{style:{marginTop:'14px'}},
+          h('div',{style:Object.assign({marginBottom:'6px'},muted)},'Use one of yours on this spot:'),
+          inv.length
+            ? h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}},
+                ...inv.map(b => h('button',{class:'btn btn-secondary btn-sm',title:b.description||'',onClick:()=>spotUseBuff(b.buff_item_id)},`${b.name} ×${b.quantity}`)))
+            : h('div',{style:muted},'You have no buff items. Craft them at a prep table or buy them in the Shop.'))
+      : null
+  );
+
+  // ── Recent catches ──
+  const recent = d.recent || [];
+  const recentCard = spotCard('Recent catches',
+    recent.length
+      ? h('div',{class:'table-wrap'},h('table',null,
+          h('thead',null,h('tr',null,h('th',null,'Fish'),h('th',null,'Weight'),h('th',null,'Rarity'),h('th',null,'Angler'),h('th',null,'When'))),
+          h('tbody',null,...recent.map(c => h('tr',null,
+            h('td',{style:{fontWeight:600}},c.fish_name), h('td',null,c.weight+' lb'),
+            h('td',null,rarityBadge(String(c.rarity_name||'common').toLowerCase())),
+            h('td',null,c.angler), h('td',{style:muted},fmtTime(c.caught_at)))))))
+      : h('div',{style:muted},'Nothing caught here yet.')
+  );
+
+  // ── Junk loot ──
+  const junk = d.junk_items || [];
+  const junkCard = spotCard('Junk loot',
+    junk.length
+      ? h('div',{style:{display:'flex',flexDirection:'column',gap:'6px'}},
+          ...junk.map(j => h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}},
+            h('span',{style:{fontSize:'13px'}},j.item_name,' ',rarityBadge(String(j.rarity_label||'common').toLowerCase())),
+            d.can_manage && !archived ? h('button',{class:'btn btn-secondary btn-sm',onClick:()=>spotRemoveJunk(j.id)},'Remove') : null)))
+      : h('div',{style:muted},'No junk items here.'),
+    d.can_manage && !archived
+      ? h('div',{style:Object.assign({marginTop:'10px'},muted)},'To add junk, drop the object into the spot, then hold-click the spot for 3 seconds and pick Add Junk.')
+      : null
+  );
+
+  // ── Settings (owner / admin) ──
+  let settings = null;
+  if (d.can_manage && archived) {
+    settings = spotCard('Settings', h('div',{style:muted},'This spot was deleted. Its catch history is kept. To bring it back, rez a fishing spot in the same region and pick it from the list.'));
+  } else if (d.can_manage) {
+    const draft = state.spotNameDraft != null ? state.spotNameDraft : s.name;
+    const ss = d.spot_stats;
+    settings = spotCard('Settings',
+      h('label',{class:'input-label'},'Name'),
+      h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px'}},
+        h('input',{class:'input',style:{flex:'1'},maxlength:'128',value:draft,onInput:e=>{state.spotNameDraft=e.target.value;}}),
+        h('button',{class:'btn btn-primary btn-sm',onClick:()=>{
+          const n = (state.spotNameDraft != null ? state.spotNameDraft : s.name).trim();
+          if (!n || n === s.name) return;
+          spotSettings({ name: n }, 'Spot renamed');
+        }},'Save')
+      ),
+      h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}},
+        h('button',{class:'btn btn-secondary btn-sm',onClick:()=>spotSettings({ is_active: active ? '0' : '1' }, active ? 'Spot deactivated' : 'Spot activated')}, active ? 'Deactivate' : 'Activate'),
+        h('button',{class:'btn btn-secondary btn-sm',onClick:()=>spotSettings({ is_public: pub ? '0' : '1' }, pub ? 'Spot is now private' : 'Spot is now public')}, pub ? 'Make private' : 'Make public'),
+        d.is_owner ? h('button',{class:'btn btn-danger btn-sm',onClick:spotDelete}, state.spotDeleteArmed ? 'Tap again to delete' : 'Delete') : null
+      ),
+      h('div',{style:Object.assign({marginTop:'10px'},muted)},
+        (pub ? 'Public: shown on the map.' : 'Private: works, but isn\'t shown on the map.') +
+        (ss ? ` You have ${ss.used} of ${ss.limit} active spots.` : '') +
+        (d.is_owner ? ' Deleting keeps the catch history; you can restore it later.' : ''))
+    );
+  }
+
+  return h('div',{class:'fade-in'},
+    header, h('div',{class:'two-col'}, location, level), stats, buffCard, settings, recentCard, junkCard
   );
 }
 
@@ -2239,7 +2455,7 @@ function renderTrophy() {
 // ═══════════════════════════════════════════════
 // MAIN RENDER
 // ═══════════════════════════════════════════════
-const pageRenderers = { dashboard:renderDashboard, fish:renderFishInventory, tackle:renderTackle, rods:renderRodGallery, quests:renderQuests, myspots:renderMySpots, shop:renderShop, leaderboards:renderLeaderboards, map:renderGridMap, trophy:renderTrophy, journal:renderJournal, log:renderCatchLog, help:renderHelp, settings:renderSettings, changelog:renderChangelog };
+const pageRenderers = { dashboard:renderDashboard, fish:renderFishInventory, tackle:renderTackle, rods:renderRodGallery, quests:renderQuests, myspots:renderMySpots, spot:renderSpot, shop:renderShop, leaderboards:renderLeaderboards, map:renderGridMap, trophy:renderTrophy, journal:renderJournal, log:renderCatchLog, help:renderHelp, settings:renderSettings, changelog:renderChangelog };
 
 function render() {
   setTheme(state.theme);
@@ -2321,6 +2537,7 @@ function render() {
         state.loading = false;
         const pageParam = params.get('page');
         if (pageParam) state.page = pageParam;
+        if (params.get('spot_id')) state.spotId = parseInt(params.get('spot_id'), 10) || 0;
         render();
         loadPageData(state.page);
       } else {
@@ -2354,10 +2571,11 @@ function render() {
   if (params.get('recovery') === '1') state.recoveryMode = true;
   const pageParam = params.get('page');
   if (pageParam) {
-    const validPages = ['dashboard','fish','tackle','rods','quests','shop','leaderboards','journal','log','settings','changelog'];
+    const validPages = ['dashboard','fish','tackle','rods','quests','shop','leaderboards','journal','log','settings','changelog','myspots','spot'];
     if (validPages.includes(pageParam)) {
       state.page = pageParam;
     }
+    if (params.get('spot_id')) state.spotId = parseInt(params.get('spot_id'), 10) || 0;
     history.replaceState({}, '', window.location.pathname);
   }
 })();

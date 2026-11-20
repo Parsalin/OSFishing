@@ -32,7 +32,7 @@ string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 // Script version, "YYYY.MM.DD.NN". Bumped automatically on every edit by
 // .claude/bump_version.ps1 (PostToolUse hook); never edit it by hand.
 // Sent with every hud_status and shown under Settings > devices.
-string  HUD_VERSION = "2026.11.19.02";
+string  HUD_VERSION = "2026.11.19.03";
 
 // ── Pairing State (lives only in script memory) ──
 integer gTokenId      = 0;
@@ -273,6 +273,7 @@ integer MEDIA_H_PX      = 724;
 integer gPanelOpen      = FALSE;
 integer gPanelFishView  = FALSE;    // TRUE = live fishing view, FALSE = website
 string  gPanelPage      = "dashboard";
+integer gPanelSpotId    = 0;        // spot shown by the "spot" page
 // ── Text state (one hover text: message on top, status under it) ──
 string  gStatusText     = "";
 vector  gStatusColor    = <1.0, 1.0, 1.0>;
@@ -1147,10 +1148,16 @@ string portalBase() {
     return u;   // ends in "/"
 }
 
+// Extra query for a page: the spot page needs to know which spot.
+string pageQuery(string page) {
+    if (page == "spot") return "&spot_id=" + (string)gPanelSpotId;
+    return "";
+}
+
 string portalEmbedUrl(string page) {
     string ts = (string)llGetUnixTime();
     string authSig = llSHA256String((string)gTokenId + ":" + ts + ":" + gToken);
-    return portalBase() + "?embed=1&page=" + page +
+    return portalBase() + "?embed=1&page=" + page + pageQuery(page) +
            "&token_id=" + (string)gTokenId +
            "&sig=" + llEscapeURL(authSig) +
            "&ts=" + ts;
@@ -1229,7 +1236,7 @@ setPanelMedia(string url) {
 openPanel(integer fishView, string page) {
     if (LINK_PANEL_MEDIA == -1) {
         // No panel prims: the website in the viewer's browser instead
-        if (!fishView) llLoadURL(gOwner, "Open OSFishing", portalBase() + "?page=" + page);
+        if (!fishView) llLoadURL(gOwner, "Open OSFishing", portalBase() + "?page=" + page + pageQuery(page));
         return;
     }
     if (!gPanelOpen) {
@@ -1747,7 +1754,7 @@ default {
             closePanel();
         }
         else if (link == LINK_PANEL_OPEN) {
-            llLoadURL(gOwner, "Open OSFishing in your web browser.", portalBase() + "?page=" + gPanelPage);
+            llLoadURL(gOwner, "Open OSFishing in your web browser.", portalBase() + "?page=" + gPanelPage + pageQuery(gPanelPage));
         }
         else if (link == LINK_PANEL_SWAP) {
             if (gPanelFishView) {
@@ -3021,6 +3028,19 @@ default {
                 if (wasNoSpot && gTutorialActive && gTutorialStep == 5) {
                     advanceTutorial();
                 }
+            }
+            else if (llList2String(parts, 0) == "SPOT_OPEN") {
+                // Someone clicked a fishing spot: SPOT_OPEN|<spot id>|<toucher>.
+                // Sent region-wide (llRegionSayTo an avatar may not reach a
+                // HUD), so only act when the toucher is our wearer. A fake
+                // one can only open a page; the server decides what it shows.
+                if ((key)llList2String(parts, 2) != gOwner) return;
+                integer openId = (integer)llList2String(parts, 1);
+                if (openId <= 0) return;
+                if (gToken == "") { llOwnerSay("Pair your HUD first, then click the spot again."); return; }
+                if (fightBusy()) { hudInfo("Finish this cast first, then click the spot again."); return; }
+                gPanelSpotId = openId;
+                openPanel(FALSE, "spot");
             }
             else if (llList2String(parts, 0) == "UNSPOT") {
                 integer unspotId = (integer)llList2String(parts, 1);

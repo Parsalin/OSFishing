@@ -53,9 +53,9 @@ class PrimCallback
             require_once __DIR__ . '/PushQueue.php';
             foreach ($stmt->fetchAll() as $buff) {
                 PushQueue::sendLater($callbackUrl, [
-                    'event'      => 'buff_active',
+                    'type'       => 'buff_active',
                     'buff_type'  => $buff['buff_type'],
-                    'buff_name'  => $buff['buff_name'],
+                    'buff_label' => $buff['buff_name'],
                     'buff_value' => (float)$buff['buff_value'],
                     'expires_at' => (int)$buff['expires_at_unix'],
                 ]);

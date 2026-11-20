@@ -4,6 +4,12 @@
 // Persistence: LinksetData keys "spot_id" and "spot_owner"
 // Buff delivery: server push via llRequestURL (primary)
 //               + poll fallback every BUFF_POLL_INTERVAL seconds
+//
+// Click (set-up spot): tells the toucher's HUD to open this spot's page in
+//   its panel (SPOT_OPEN). Details, buffs and, for the owner, settings live
+//   there. Settings changed on the website reach us as a spot_refresh push.
+// Owner hold (3s+): the in-prim menu. Still the only way to add junk, since
+//   that needs this prim's inventory, and a fallback without a HUD.
 // ============================================================
 
 string  gApiUrl = "https://osfishing.flamesfall.net/api/";
@@ -78,10 +84,6 @@ list    gRecoverableSpotTypes = [];
 // ── Manage state ──
 string  gPendingJunkName = "";
 
-// ── Buff state ──
-list    gBuffItemIds     = [];
-list    gBuffItemLabels  = [];
-string  gPendingBuffInfo = "";
 
 // ============================================================
 // Helpers
@@ -238,6 +240,69 @@ expireBuffPush(string bname) {
     setTextLabel();
 }
 
+// Start or stop detecting players after is_active changed.
+applyActiveState() {
+    setTextLabel();
+    if (gIsActive) {
+        llSensorRepeat("", NULL_KEY, AGENT, computeRange(), PI, gScanRate);
+        llSetTimerEvent(gNormalTimer);
+    } else {
+        llSensorRemove();
+        integer i;
+        for (i = 0; i < llGetListLength(gInRange); i++)
+            llRegionSayTo(llList2Key(gInRange, i), CH_SPOT_TO_HUD, "UNSPOT|" + (string)gSpotId);
+        gInRange = [];
+        llSetTimerEvent(gIdleTimer);
+    }
+}
+
+// Read name / active / public / level from a spot_status reply.
+// Returns FALSE if the spot is gone or deleted (local data is then cleared).
+integer readStatus(string body) {
+    string exists = llJsonGetValue(body, ["exists"]);
+    string arch   = llJsonGetValue(body, ["archived"]);
+    if (exists == "false" || exists == JSON_FALSE || arch == "1" || arch == "true" || arch == JSON_TRUE) {
+        clearSpotData();
+        resetToUnsetup();
+        llOwnerSay("This fishing spot was deleted. Touch it to restore a spot or set up a new one.");
+        return FALSE;
+    }
+    string active = llJsonGetValue(body, ["is_active"]);
+    gIsActive = (active == "1" || active == "true" || active == JSON_TRUE);
+
+    string nm = llJsonGetValue(body, ["name"]);
+    if (nm != JSON_INVALID && nm != "") gSpotName = nm;
+
+    string wt = llJsonGetValue(body, ["water_type"]);
+    if (wt != JSON_INVALID && wt != "") gWaterType = wt;
+
+    string pub = llJsonGetValue(body, ["is_public"]);
+    if (pub != JSON_INVALID) gIsPublic = (pub == "1" || pub == "true" || pub == JSON_TRUE);
+
+    string sys = llJsonGetValue(body, ["is_system"]);
+    if (sys != JSON_INVALID) gIsSystem = (sys == "1" || sys == "true" || sys == JSON_TRUE);
+
+    string slvl = llJsonGetValue(body, ["spot_level"]);
+    if (slvl != JSON_INVALID && slvl != "") gSpotLevel = (integer)slvl;
+
+    string slvlr = llJsonGetValue(body, ["spot_level_ready"]);
+    if (slvlr != JSON_INVALID) gSpotLevelReady = (slvlr == "1" || slvlr == "true" || slvlr == JSON_TRUE);
+    return TRUE;
+}
+
+requestStatus(string why) {
+    gHttpAction = why;
+    gHttpReq    = llHTTPRequest(gApiUrl, [
+        HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
+    ], "action=spot_status&spot_id=" + (string)gSpotId);
+}
+
+// Ask the toucher's HUD to open this spot's page. Region-wide and naming
+// the toucher: llRegionSayTo(<avatar>) may not reach a HUD's script.
+openOnHud(key who) {
+    llRegionSay(CH_SPOT_TO_HUD, "SPOT_OPEN|" + (string)gSpotId + "|" + (string)who);
+}
+
 activateSpotSession() {
     setTextLabel();
     registerCallback();
@@ -382,8 +447,9 @@ showManageMenu(key who) {
         " | " + (gIsActive ? "Active" : "Inactive") +
         " | " + (gIsPublic ? "Public" : "Private") +
         (gIsSystem ? " | System" : "") +
-        "\nID: " + (string)gSpotId,
-        ["Use Buff", "Add Junk", "Edit", "Close"], gDialogCh);
+        "\nID: " + (string)gSpotId +
+        "\n\nDetails, buffs and settings: click the spot (or Open on HUD).",
+        ["Open on HUD", "Add Junk", "Edit", "Close"], gDialogCh);
 }
 
 showEditMenu(key who) {
@@ -496,22 +562,16 @@ default {
             return;
         }
 
-        if (holdTime < 3) {
-            setTextLabel();
-            if (gRegistered && gIsActive) notifyPlayer(who);
+        if (holdTime >= 3 && who == llGetOwner()) {
+            showManageMenu(who);
             return;
         }
 
-        if (who == llGetOwner()) {
-            showManageMenu(who);
-        } else {
-            if (gRegistered && gIsActive) notifyPlayer(who);
-            gSetupPlayer = who;
-            gHttpAction  = "buff_status";
-            gHttpReq     = llHTTPRequest(gApiUrl, [
-                HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
-            ], "action=buff_spot_status&spot_id=" + (string)gSpotId);
-        }
+        // A click: the toucher's HUD opens this spot's page (details,
+        // buffs, and settings if it's theirs).
+        setTextLabel();
+        if (gRegistered && gIsActive) notifyPlayer(who);
+        if (gRegistered) openOnHud(who);
     }
 
     sensor(integer num) {
@@ -575,11 +635,26 @@ default {
 
         llHTTPResponse(id, 200, "OK");
 
-        string action = llJsonGetValue(body, ["action"]);
-        string bname  = llJsonGetValue(body, ["buff_name"]);
+        // The server sends "type" + "buff_label"; older payloads used
+        // "event" / "action" and "buff_name".
+        string ptype = llJsonGetValue(body, ["type"]);
+        if (ptype == JSON_INVALID) ptype = llJsonGetValue(body, ["event"]);
+        if (ptype == JSON_INVALID) ptype = llJsonGetValue(body, ["action"]);
+        string bname = llJsonGetValue(body, ["buff_label"]);
+        if (bname == JSON_INVALID || bname == "") bname = llJsonGetValue(body, ["buff_name"]);
 
-        if (action == "buff_active")  { applyBuffPush(bname);  return; }
-        if (action == "buff_expired") { expireBuffPush(bname); return; }
+        if (ptype == "buff_active")  { applyBuffPush(bname);  return; }
+        if (ptype == "buff_expired") { expireBuffPush(bname); return; }
+        // Settings changed on the website: re-read them.
+        if (ptype == "spot_refresh" && gSpotId > 0) { requestStatus("refresh"); return; }
+        if (ptype == "spot_removed" && gSpotId > 0) {
+            gIsActive = FALSE;
+            applyActiveState();   // tells HUDs in range the spot is gone
+            clearSpotData();
+            resetToUnsetup();
+            llOwnerSay("This fishing spot was deleted on the website. Touch it to restore a spot or set up a new one.");
+            return;
+        }
     }
 
     http_response(key req, integer status, list meta, string body) {
@@ -623,36 +698,13 @@ default {
 
         // ── Spot status (on load / after restore) ──
         if (gHttpAction == "status") {
-            string exists = llJsonGetValue(body, ["exists"]);
-            if (exists == "false" || exists == JSON_FALSE) {
-                clearSpotData();
-                resetToUnsetup();
-                llOwnerSay("Spot no longer found on server. Touch to set up fresh.");
-                return;
-            }
+            if (readStatus(body)) activateSpotSession();
+            return;
+        }
 
-            string active = llJsonGetValue(body, ["is_active"]);
-            gIsActive = (active == "1" || active == "true" || active == JSON_TRUE);
-
-            string nm = llJsonGetValue(body, ["name"]);
-            if (nm != JSON_INVALID && nm != "") gSpotName = nm;
-
-            string wt = llJsonGetValue(body, ["water_type"]);
-            if (wt != JSON_INVALID && wt != "") gWaterType = wt;
-
-            string pub = llJsonGetValue(body, ["is_public"]);
-            if (pub != JSON_INVALID) gIsPublic = (pub == "1" || pub == "true" || pub == JSON_TRUE);
-
-            string sys = llJsonGetValue(body, ["is_system"]);
-            if (sys != JSON_INVALID) gIsSystem = (sys == "1" || sys == "true" || sys == JSON_TRUE);
-
-            string slvl = llJsonGetValue(body, ["spot_level"]);
-            if (slvl != JSON_INVALID && slvl != "") gSpotLevel = (integer)slvl;
-
-            string slvlr = llJsonGetValue(body, ["spot_level_ready"]);
-            if (slvlr != JSON_INVALID) gSpotLevelReady = (slvlr == "1" || slvlr == "true" || slvlr == JSON_TRUE);
-
-            activateSpotSession();
+        // ── Settings changed on the website (spot_refresh push) ──
+        if (gHttpAction == "refresh") {
+            if (readStatus(body)) applyActiveState();
             return;
         }
 
@@ -840,28 +892,14 @@ default {
             gRegistered    = TRUE;
             gLastHeartbeat = 0;
             saveSpotData();
-            gHttpAction = "status";
-            gHttpReq    = llHTTPRequest(gApiUrl, [
-                HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
-            ], "action=spot_status&spot_id=" + (string)gSpotId);
+            requestStatus("status");
             return;
         }
 
         // ── Manage: update (activate/rename/public) ──
         if (gHttpAction == "update") {
             llOwnerSay("✅ Spot updated.");
-            setTextLabel();
-            if (gIsActive) {
-                llSensorRepeat("", NULL_KEY, AGENT, computeRange(), PI, gScanRate);
-                llSetTimerEvent(gNormalTimer);
-            } else {
-                llSensorRemove();
-                integer i;
-                for (i = 0; i < llGetListLength(gInRange); i++)
-                    llRegionSayTo(llList2Key(gInRange, i), CH_SPOT_TO_HUD, "UNSPOT|" + (string)gSpotId);
-                gInRange = [];
-                llSetTimerEvent(gIdleTimer);
-            }
+            applyActiveState();
             showManageMenu(gSetupPlayer);
             return;
         }
@@ -901,119 +939,6 @@ default {
                 @junk_done;
             }
             showManageMenu(gSetupPlayer);
-            return;
-        }
-
-        // ── Buff: buff_status ──
-        if (gHttpAction == "buff_status") {
-            string isBuff    = llJsonGetValue(body, ["is_buffed"]);
-            string buffsJson = llJsonGetValue(body, ["buffs"]);
-
-            string info = "🎣 " + gSpotName + " — " + gWaterType + "\n\n";
-            if (isBuff == "true" || isBuff == "1" || isBuff == JSON_TRUE) {
-                info += "Active Buffs:\n";
-                integer i = 0;
-                while (i < 9) {
-                    string entry = llJsonGetValue(buffsJson, [i]);
-                    if (entry == JSON_INVALID) jump buff_info_done;
-                    info += "  " + llJsonGetValue(entry, ["buff_name"]) +
-                            " — " + llJsonGetValue(entry, ["mins_remaining"]) + "min / 120max\n";
-                    i++;
-                }
-                @buff_info_done;
-            } else {
-                info += "No active buffs.\n";
-            }
-
-            integer junkCount = llGetInventoryNumber(INVENTORY_OBJECT);
-            if (junkCount > 0) {
-                gPendingBuffInfo = info;
-                gHttpAction      = "show_junk_dialog";
-                gHttpReq         = llHTTPRequest(gApiUrl, [
-                    HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
-                ], "action=spot_list_junk&spot_id=" + (string)gSpotId);
-                return;
-            }
-
-            info += "\nUse a buff item on this spot?";
-            gSetupStep    = "buff_menu";
-            cleanupDialog();
-            gDialogCh     = -1 - (integer)llFrand(999999.0);
-            gDialogHandle = llListen(gDialogCh, "", gSetupPlayer, "");
-            llDialog(gSetupPlayer, info, ["Use Buff", "Close"], gDialogCh);
-            return;
-        }
-
-        // ── Buff: show_junk_dialog ──
-        if (gHttpAction == "show_junk_dialog") {
-            string info      = gPendingBuffInfo;
-            gPendingBuffInfo = "";
-
-            string junkJson = llJsonGetValue(body, ["junk_items"]);
-            if (junkJson != JSON_INVALID && junkJson != "[]") {
-                info += "\n🎁 Junk Loot:\n";
-                integer i = 0;
-                while (i < 10) {
-                    string entry   = llJsonGetValue(junkJson, [i]);
-                    if (entry == JSON_INVALID) jump junk2_done;
-                    string jRarity = llJsonGetValue(entry, ["rarity_label"]);
-                    if (jRarity == JSON_INVALID) jRarity = "common";
-                    info += "  - " + llJsonGetValue(entry, ["item_name"]) + ", " + jRarity + "\n";
-                    i++;
-                }
-                @junk2_done;
-            }
-
-            info += "\nUse a buff item on this spot?";
-            gSetupStep    = "buff_menu";
-            cleanupDialog();
-            gDialogCh     = -1 - (integer)llFrand(999999.0);
-            gDialogHandle = llListen(gDialogCh, "", gSetupPlayer, "");
-            llDialog(gSetupPlayer, info, ["Use Buff", "Close"], gDialogCh);
-            return;
-        }
-
-        // ── Buff: buff_inv ──
-        if (gHttpAction == "buff_inv") {
-            string invJson = llJsonGetValue(body, ["buff_inventory"]);
-            if (invJson == JSON_INVALID || invJson == "[]") {
-                llRegionSayTo(gSetupPlayer, 0, "You don't have any buff items.");
-                return;
-            }
-
-            gBuffItemIds    = [];
-            gBuffItemLabels = [];
-            integer i = 0;
-            while (i < 9) {
-                string entry = llJsonGetValue(invJson, [i]);
-                if (entry == JSON_INVALID) jump inv_done;
-                string bId   = llJsonGetValue(entry, ["buff_item_id"]);
-                string bName = llJsonGetValue(entry, ["name"]);
-                string bQty  = llJsonGetValue(entry, ["quantity"]);
-                gBuffItemIds += [bId];
-                string label = bName;
-                if (llStringLength(label) > 18) label = llGetSubString(label, 0, 17);
-                label += " x" + bQty;
-                gBuffItemLabels += [label];
-                i++;
-            }
-            @inv_done;
-
-            gSetupStep    = "buff_pick";
-            cleanupDialog();
-            gDialogCh     = -1 - (integer)llFrand(999999.0);
-            gDialogHandle = llListen(gDialogCh, "", gSetupPlayer, "");
-            llDialog(gSetupPlayer, "Select a buff item to use:",
-                gBuffItemLabels + ["Back"], gDialogCh);
-            return;
-        }
-
-        // ── Buff: buff_activate ──
-        if (gHttpAction == "buff_activate") {
-            string msg = llJsonGetValue(body, ["message"]);
-            if (msg == JSON_INVALID) msg = "Buff activated!";
-            llRegionSayTo(gSetupPlayer, 0, "✅ " + msg);
-            pollBuffStatus();
             return;
         }
 
@@ -1142,14 +1067,7 @@ default {
         if (gSetupStep == "manage") {
             cleanupDialog();
             if (msg == "Close")    { gSetupStep = ""; return; }
-            if (msg == "Use Buff") {
-                gSetupPlayer = id;
-                gHttpAction  = "buff_status";
-                gHttpReq     = llHTTPRequest(gApiUrl, [
-                    HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
-                ], "action=buff_spot_status&spot_id=" + (string)gSpotId);
-                return;
-            }
+            if (msg == "Open on HUD") { openOnHud(id); gSetupStep = ""; return; }
             if (msg == "Add Junk") { showJunkPrompt(); return; }
             if (msg == "Edit")     { showEditMenu(gSetupPlayer); return; }
             return;
@@ -1302,40 +1220,6 @@ default {
                    "&spot_id=" + (string)gSpotId);
             } else {
                 showManageMenu(gSetupPlayer);
-            }
-            return;
-        }
-
-        // ── Buff: buff menu ──
-        if (gSetupStep == "buff_menu") {
-            cleanupDialog();
-            if (msg == "Use Buff") {
-                gHttpAction = "buff_inv";
-                gHttpReq    = llHTTPRequest(gApiUrl, [
-                    HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
-                ], "action=buff_inventory&uuid=" + llEscapeURL((string)gSetupPlayer));
-            }
-            // "Close" — no action needed
-            return;
-        }
-
-        // ── Buff: buff item pick ──
-        if (gSetupStep == "buff_pick") {
-            cleanupDialog();
-            if (msg == "Back") { gSetupStep = ""; return; }
-
-            integer i;
-            integer count = llGetListLength(gBuffItemLabels);
-            for (i = 0; i < count; i++) {
-                if (llList2String(gBuffItemLabels, i) == msg) {
-                    string buffId = llList2String(gBuffItemIds, i);
-                    gHttpAction   = "buff_activate";
-                    gHttpReq      = llHTTPRequest(gApiUrl, [
-                        HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 4096
-                    ], "action=buff_activate&uuid=" + llEscapeURL((string)gSetupPlayer) +
-                       "&spot_id=" + (string)gSpotId + "&buff_item_id=" + buffId);
-                    return;
-                }
             }
             return;
         }

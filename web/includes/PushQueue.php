@@ -35,7 +35,8 @@ class PushQueue {
     const FLUSH_BATCH = 12;
 
     /** Payload 'type' values that are state snapshots rather than events. */
-    private static $collapsible = ['equip_update'];
+    // spot_refresh only says "re-read your settings": one pending is enough.
+    private static $collapsible = ['equip_update', 'spot_refresh'];
 
     public static function isCollapsible(string $pushType): bool {
         return in_array($pushType, self::$collapsible, true);

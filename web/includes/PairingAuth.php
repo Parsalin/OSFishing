@@ -872,12 +872,20 @@ class PairingAuth {
      * Update spot settings (owner or admin).
      */
     public static function updateSpot(string $ownerUuid, int $spotId, array $data): array {
-        $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
+        $stmt = db()->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $ownerUuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
+        return self::updateSpotFor($player, $spotId, $data);
+    }
 
+    /**
+     * Change a spot's name / active / public settings as $player (a players
+     * row with id + is_admin). Owner, or an admin for any spot. Archived
+     * spots can't be changed. Used by the prim's dialog and the spot page.
+     */
+    public static function updateSpotFor(array $player, int $spotId, array $data): array {
+        $pdo = db();
         $stmt = $pdo->prepare('SELECT * FROM fishing_spots WHERE id = :id');
         $stmt->execute([':id' => $spotId]);
         $spot = $stmt->fetch();
@@ -885,11 +893,20 @@ class PairingAuth {
 
         if ((int)$spot['player_id'] !== (int)$player['id'] && !(int)$player['is_admin'])
             json_error('Not authorized', 403);
+        if ((int)$spot['archived']) json_error('This spot was deleted. Rez a spot to restore it.', 403);
 
         $allowed = ['name', 'is_active', 'is_public'];
         $sets = []; $params = [':id' => $spotId];
         foreach ($allowed as $f) {
-            if (array_key_exists($f, $data)) { $sets[] = "$f = :$f"; $params[":$f"] = $data[$f]; }
+            if (!array_key_exists($f, $data)) continue;
+            $v = $data[$f];
+            if ($f === 'name') {
+                $v = trim((string)$v);
+                if ($v === '' || mb_strlen($v) > 128) json_error('Spot name must be 1-128 characters');
+            } else {
+                $v = (int)(bool)(int)$v;
+            }
+            $sets[] = "$f = :$f"; $params[":$f"] = $v;
         }
         if (empty($sets)) json_error('Nothing to update');
 
@@ -960,12 +977,16 @@ class PairingAuth {
      * Remove a junk item.
      */
     public static function removeJunkItem(string $ownerUuid, int $junkId): array {
-        $pdo = db();
-        $stmt = $pdo->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
+        $stmt = db()->prepare('SELECT id, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
         $stmt->execute([':uuid' => $ownerUuid]);
         $player = $stmt->fetch();
         if (!$player) json_error('Player not found');
+        return self::removeJunkItemFor($player, $junkId);
+    }
 
+    /** Remove a junk item as $player (owner of its spot, or admin). */
+    public static function removeJunkItemFor(array $player, int $junkId): array {
+        $pdo = db();
         $stmt = $pdo->prepare('SELECT sji.spot_id, fs.player_id FROM spot_junk_items sji JOIN fishing_spots fs ON fs.id = sji.spot_id WHERE sji.id = :id');
         $stmt->execute([':id' => $junkId]);
         $item = $stmt->fetch();
@@ -1039,7 +1060,7 @@ class PairingAuth {
     public static function spotStatus(int $spotId): array {
         $stmt = db()->prepare('
             SELECT fs.id, fs.name, wt.name AS water_type,
-                   fs.is_active, fs.is_public, fs.is_system, fs.player_id,
+                   fs.is_active, fs.is_public, fs.is_system, fs.player_id, fs.archived,
                    fs.spot_level, fs.spot_xp, fs.spot_level_ready
             FROM fishing_spots fs
             JOIN water_types wt ON wt.id = fs.water_type_id
@@ -1058,6 +1079,7 @@ class PairingAuth {
             'is_active'       => (bool)$row['is_active'],
             'is_public'       => (bool)$row['is_public'],
             'is_system'       => (bool)$row['is_system'],
+            'archived'        => (bool)$row['archived'],
             'name'            => $row['name'],
             'water_type'      => $row['water_type'],
             'spot_level'      => $level,
@@ -1065,6 +1087,111 @@ class PairingAuth {
             'spot_xp_to_next' => $xpToNext,
             'spot_level_ready'=> (bool)$row['spot_level_ready'],
         ];
+    }
+
+    /**
+     * Everything the spot page shows (opened by clicking the spot in-world,
+     * or from My Spots). Anyone logged in may view a live spot; can_manage
+     * (owner, or admin) unlocks the settings. A deleted spot is only shown
+     * to whoever can manage it.
+     */
+    public static function spotDetail(array $player, int $spotId): array {
+        require_once __DIR__ . '/Buff.php';
+        $pdo = db();
+        $stmt = $pdo->prepare('
+            SELECT fs.id, fs.name, fs.player_id, wt.name AS water_type, wt.min_level AS water_min_level,
+                   fs.region_name, fs.grid_name, fs.region_x, fs.region_y,
+                   fs.pos_x, fs.pos_y, fs.pos_z,
+                   fs.is_active, fs.is_public, fs.is_system, fs.archived, fs.created_at,
+                   fs.spot_level, fs.spot_xp, fs.spot_level_ready, fs.loot_modifier,
+                   p.display_name AS owner_name
+            FROM fishing_spots fs
+            JOIN water_types wt ON wt.id = fs.water_type_id
+            LEFT JOIN players p ON p.id = fs.player_id
+            WHERE fs.id = :id
+        ');
+        $stmt->execute([':id' => $spotId]);
+        $spot = $stmt->fetch();
+        if (!$spot) json_error('Spot not found', 404);
+
+        $isOwner   = (int)$spot['player_id'] === (int)$player['id'] && !(int)$spot['is_system'];
+        $canManage = $isOwner || (int)$player['is_admin'];
+        if ((int)$spot['archived'] && !$canManage) json_error('This spot is no longer in use', 404);
+
+        $level = (int)$spot['spot_level'];
+        $spot['spot_xp_to_next'] = Fishing::xpThresholdForNextLevel($level);
+
+        $identity = Grid::identityOf((string)$spot['grid_name']);
+        $g = $pdo->prepare("SELECT nickname FROM grids WHERE grid_identity = :gi AND nickname IS NOT NULL AND nickname <> '' LIMIT 1");
+        $g->execute([':gi' => $identity]);
+        $spot['grid_label']  = $g->fetchColumn() ?: $identity;
+        $spot['hop_gateway'] = $identity !== '' ? Grid::hopGatewayFor($identity) : null;
+
+        // When the in-world prim last checked in (null = never / swept)
+        $ls = $pdo->prepare("SELECT MAX(last_seen) FROM prim_callbacks WHERE prim_type = 'fishing_spot' AND ref_id = :id");
+        $ls->execute([':id' => $spotId]);
+        $spot['prim_last_seen'] = $ls->fetchColumn() ?: null;
+
+        $st = $pdo->prepare('
+            SELECT COUNT(*) AS catches, COUNT(DISTINCT player_id) AS anglers,
+                   SUM(caught_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY) AS today
+            FROM catch_log WHERE spot_id = :id
+        ');
+        $st->execute([':id' => $spotId]);
+        $stats = $st->fetch();
+
+        $best = $pdo->prepare('
+            SELECT fsp.name AS fish_name, cl.weight, rt.name AS rarity_name, p.display_name AS angler, cl.caught_at
+            FROM catch_log cl
+            JOIN fish_species fsp ON fsp.id = cl.fish_species_id
+            JOIN rarity_tiers rt ON rt.id = cl.rarity_id
+            JOIN players p ON p.id = cl.player_id
+            WHERE cl.spot_id = :id ORDER BY cl.weight DESC LIMIT 1
+        ');
+        $best->execute([':id' => $spotId]);
+
+        $recent = $pdo->prepare('
+            SELECT fsp.name AS fish_name, cl.weight, rt.name AS rarity_name, p.display_name AS angler, cl.caught_at
+            FROM catch_log cl
+            JOIN fish_species fsp ON fsp.id = cl.fish_species_id
+            JOIN rarity_tiers rt ON rt.id = cl.rarity_id
+            JOIN players p ON p.id = cl.player_id
+            WHERE cl.spot_id = :id ORDER BY cl.caught_at DESC LIMIT 8
+        ');
+        $recent->execute([':id' => $spotId]);
+
+        $out = [
+            'spot'       => $spot,
+            'can_manage' => $canManage,
+            'is_owner'   => $isOwner,
+            'stats'      => [
+                'catches' => (int)$stats['catches'],
+                'anglers' => (int)$stats['anglers'],
+                'today'   => (int)$stats['today'],
+                'best'    => $best->fetch() ?: null,
+            ],
+            'recent'     => $recent->fetchAll(),
+            'buffs'      => Buff::getSpotBuffs($spotId)['buffs'],
+            'junk_items' => self::listJunkItems($spotId)['junk_items'],
+        ];
+        if ($isOwner) {
+            $p = $pdo->prepare('SELECT level, spot_limit_override FROM players WHERE id = :id');
+            $p->execute([':id' => (int)$player['id']]);
+            $pr = $p->fetch();
+            $out['spot_stats'] = self::spotStats((int)$player['id'], (int)$pr['level'],
+                $pr['spot_limit_override'] !== null ? (int)$pr['spot_limit_override'] : null);
+        }
+        return $out;
+    }
+
+    /**
+     * Tell the in-world spot its settings changed on the website, so its
+     * hover text and player detection follow. Queued if the prim is offline
+     * (flushed on its next heartbeat); a newer refresh replaces an older one.
+     */
+    public static function pushSpotRefresh(int $spotId, bool $removed = false): void {
+        require_once __DIR__ . '/PrimCallback.php';
+        PrimCallback::pushToSpot($spotId, ['type' => $removed ? 'spot_removed' : 'spot_refresh']);
     }
 
     /**

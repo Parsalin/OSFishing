@@ -389,27 +389,54 @@ try {
         case 'web_spot_level_up':
             $player = AuthEmbed::requireWeb();
             $spotId = (int)require_param('spot_id');
-            json_success(PairingAuth::confirmSpotLevelUp((int)$player['id'], $spotId, (bool)$player['is_admin']));
+            $res = PairingAuth::confirmSpotLevelUp((int)$player['id'], $spotId, (bool)$player['is_admin']);
+            PairingAuth::pushSpotRefresh($spotId);
+            json_success($res);
 
         case 'web_spot_leaderboard':
             json_success(['spots' => PairingAuth::spotLeaderboard()]);
+
+        // Spot page: opened by clicking a spot in-world (the HUD loads it in
+        // its panel) or from My Spots.
+        case 'web_spot_detail':
+            $player = AuthEmbed::requireWeb();
+            json_success(PairingAuth::spotDetail($player, (int)require_param('spot_id')));
+
+        // Spot page settings: any of name / is_active / is_public.
+        case 'web_spot_settings':
+            $player = AuthEmbed::requireWeb();
+            $spotId = (int)require_param('spot_id');
+            $data = array_intersect_key($_POST, array_flip(['name', 'is_active', 'is_public']));
+            $res = PairingAuth::updateSpotFor($player, $spotId, $data);
+            PairingAuth::pushSpotRefresh($spotId);
+            json_success($res);
+
+        case 'web_spot_remove_junk':
+            $player = AuthEmbed::requireWeb();
+            json_success(PairingAuth::removeJunkItemFor($player, (int)require_param('junk_id')));
 
         case 'web_spot_rename':
             $player = AuthEmbed::requireWeb();
             $spotId = (int)require_param('spot_id');
             $name   = require_param('name');
-            json_success(PairingAuth::renameSpot((int)$player['id'], $spotId, $name));
+            $res = PairingAuth::renameSpot((int)$player['id'], $spotId, $name);
+            PairingAuth::pushSpotRefresh($spotId);
+            json_success($res);
 
         case 'web_spot_toggle':
             $player = AuthEmbed::requireWeb();
             $spotId = (int)require_param('spot_id');
             $active = (bool)(int)require_param('active');
-            json_success(PairingAuth::toggleSpot((int)$player['id'], $spotId, $active));
+            $res = PairingAuth::toggleSpot((int)$player['id'], $spotId, $active);
+            PairingAuth::pushSpotRefresh($spotId);
+            json_success($res);
 
         case 'web_spot_delete':
             $player = AuthEmbed::requireWeb();
             $spotId = (int)require_param('spot_id');
-            json_success(PairingAuth::deleteSpot((int)$player['id'], $spotId));
+            $res = PairingAuth::deleteSpot((int)$player['id'], $spotId);
+            PairingAuth::pushSpotRefresh($spotId, true);
+            json_success($res);
 
         case 'web_register':
             $uuid = require_param('uuid');
