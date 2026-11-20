@@ -440,7 +440,8 @@ function renderPlayers() {
       h('thead',null,h('tr',null,...['ID','Name','Level','Points','Casts','Catches','Line','Status',''].map(x=>h('th',null,x)))),
       h('tbody',null,...state.players.map(p=>h('tr',null,
         h('td',null,String(p.id)),
-        h('td',{style:{fontWeight:600}},p.display_name || p.username),
+        h('td',{style:{fontWeight:600}},p.display_name || p.username,
+          p.display_name && p.username ? h('span',{style:{fontWeight:400,color:'var(--muted)'}},' ('+p.username+')') : null),
         h('td',null,String(p.level)),
         h('td',{style:{color:'var(--accent)',fontWeight:700}},String(p.fishing_points)),
         h('td',null,String(p.total_casts)),
@@ -463,7 +464,7 @@ function renderPlayerDetail() {
   return h('div',null,
     h('button',{class:'back-btn',onClick:()=>{state.playerDetail=null;render();}},'← Back to players'),
     h('div',{class:'card'},h('div',{class:'card-header'},
-      h('h3',null,p.display_name+' (ID: '+p.id+')'),
+      h('h3',null,(p.display_name||p.username)+(p.display_name&&p.username?' ('+p.username+')':'')+' · ID '+p.id),
       h('div',{style:{display:'flex',gap:'6px'}},
         p.is_banned==1
           ? h('button',{class:'btn btn-success btn-sm',onClick:()=>updatePlayer(p.id,{is_banned:'0'})},'Unban')
