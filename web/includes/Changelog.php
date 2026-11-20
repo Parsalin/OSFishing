@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-20-my-spots-blank', 'date' => '2026-11-20', 'type' => 'fixed',
+         'text' => 'My Spots showed a blank page if you owned any fishing spots. It now lists them again.'],
         ['id' => '2026-11-20-inventory-tab', 'date' => '2026-11-20', 'type' => 'changed',
          'text' => 'Your fish, tackle, rods, trophies and fishing spots are now together under one Inventory tab, with a button for each along the top. My Spots is now in the panel on your HUD too, so you can open and edit your spots from there.'],
         ['id' => '2026-11-19-bigger-text', 'date' => '2026-11-19', 'type' => 'changed',
