@@ -346,6 +346,9 @@ function fmtDay(s) { const d = utcDate(s); return d ? d.toLocaleDateString([], {
 const h = (tag, attrs, ...children) => {
   const el = document.createElement(tag);
   let pendingValue;
+  // Text or an element where attrs belong is a child, not attributes
+  // (Object.entries of a string sets attribute "0" and throws).
+  if (typeof attrs === 'string' || typeof attrs === 'number' || attrs instanceof Node || Array.isArray(attrs)) { children.unshift(attrs); attrs = null; }
   if (attrs) Object.entries(attrs).forEach(([k,v]) => {
     if (k === 'class') el.className = v;
     else if (k === 'html') el.innerHTML = v;
@@ -354,7 +357,7 @@ const h = (tag, attrs, ...children) => {
     else if (k === 'value') pendingValue = v;
     else el.setAttribute(k, v);
   });
-  children.flat(Infinity).forEach(c => { if (c != null) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+  children.flat(Infinity).forEach(c => { if (c != null && c !== false) el.appendChild(c instanceof Node ? c : document.createTextNode(String(c))); });
   if (pendingValue !== undefined) el.value = pendingValue;
   return el;
 };
@@ -1489,7 +1492,7 @@ function renderMySpots() {
                   ? h('div',{style:{marginBottom:'10px'}},
                       h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12.1px',color:'var(--text-muted)',marginBottom:'4px'}},
                         h('span',lvlReady ? {style:{color:'var(--accent)',fontWeight:700}} : null, lvlReady ? 'LEVEL UP READY' : `XP: ${xp} / ${xpNext}`),
-                        h('span',`${xpPct}%`)
+                        h('span',null,`${xpPct}%`)
                       ),
                       h('div',{style:{height:'5px',borderRadius:'3px',background:'var(--bg-input)'}},
                         h('div',{style:{height:'100%',width:`${xpPct}%`,borderRadius:'3px',background:lvlReady?'var(--accent)':'var(--success)',transition:'width .3s'}})
