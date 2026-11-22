@@ -1,1 +1,2 @@
 *.bvh
+__pycache__/

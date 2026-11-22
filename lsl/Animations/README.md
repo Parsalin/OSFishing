@@ -7,13 +7,21 @@ file, upload. Made by `make_animations.py` (pure Python, no installs), except
 the two gather animations (see below):
 
 ```
-python lsl/Animations/make_animations.py          # .anim files
-python lsl/Animations/make_animations.py --bvh    # also .bvh, to preview in Blender
+python lsl/Animations/make_animations.py          # .anim files, then the twist check
+python lsl/Animations/check_twist.py              # twist check alone (any .anim)
 ```
 
 Edit the poses or the `SETTINGS` table in that script and re-run it. Never
-hand-edit the `.anim` files. The `.bvh` files are only for previewing and are
-not committed.
+hand-edit the `.anim` files. Ship `.anim` only: it carries the priority,
+loop, ease and hand pose, where a `.bvh` takes them from the upload window.
+`--bvh` still writes `.bvh` files, but only when Matthew asks for them;
+they're never committed.
+
+`check_twist.py` measures each joint's twist (rotation about its own bone)
+on every keyframe of every `.anim` here and compares it with the Avastar
+rig's twist range for that joint, the joint's natural range. `OVER` stops
+the generator: fix it, or if it's meant, say so to Matthew (BEST_PRACTICES
+60e).
 
 ## Format
 

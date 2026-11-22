@@ -1,6 +1,10 @@
-"""Generate the OSFishing avatar animations as SL/OpenSim BVH files.
+"""Generate the OSFishing avatar animations as SL/OpenSim .anim files.
 
-    python make_animations.py          # writes every *.bvh next to this file
+    python make_animations.py          # writes every *.anim next to this file
+    python make_animations.py --bvh    # also .bvh, only when Matthew asks
+
+Ship .anim only: it carries priority, loop, ease and hand pose, so the
+upload needs no settings. A .bvh takes those from the upload window.
 
 Pure Python (no numpy). Uses the standard SL BVH skeleton (inches, Y up,
 avatar faces +Z, +X is the avatar's LEFT). Frame 0 is the T-pose reference
@@ -11,7 +15,7 @@ joints they mean to.
 Upload settings for each file are in README.md.
 """
 import math
-import os
+import glob, os
 
 FPS = 30
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -706,7 +710,13 @@ if __name__ == "__main__":
         dense = build(keys, only, loop_from)
         path, secs, nj, size = write_anim(name, build(keys, only, loop_from, ktimes))
         sp = check_rules(name, keys, only, loop_from, dense, nj)
-        if "--bvh" in sys.argv:   # for previewing in Blender
+        if "--bvh" in sys.argv:   # only on request (ship .anim)
             write_bvh(name, dense)
         print(f"{name:26s} prio {SETTINGS[name][0]}  {secs:4.2f}s  {len(ktimes):3d} keys  "
               f"{nj:2d} joints  {size:6d} B  peak {sp:4.0f} deg/s")
+    # twist against the rig's natural range, for every .anim here (the
+    # Blender-made gather pair included); BEST_PRACTICES 60e
+    import check_twist
+    print()
+    if check_twist.main(sorted(glob.glob(os.path.join(HERE, "*.anim")))):
+        sys.exit("Twist past the rig's range (OVER above): fix it, or flag it to Matthew if meant.")

@@ -256,7 +256,9 @@ Scripts and details in `lsl/Animations/blender/` and its README:
     only on purpose, used carefully, and always pointed out to Matthew
     (which bone, how far, why). Print each bone's excess over its limits
     for every frame before exporting; anything over a few degrees is either
-    fixed or flagged. Twist past the limits is what made the first gather
+    fixed or flagged. `lsl/Animations/check_twist.py` checks the twist of
+    every `.anim` against the rig's ranges, and the generator runs it after
+    every build. Twist past the limits is what made the first gather
     animations look way off.
 60f. **Turn a bone from where its parent leaves it, not from its rest
     pose.** Aiming a bone straight at a direction from rest throws away its
@@ -280,9 +282,10 @@ Scripts and details in `lsl/Animations/blender/` and its README:
     a freshly created rig of the same type. Check contacts by the numbers
     (knee, toe and fingertip heights), not by eye.
 60i. **Priority 4 for the base, 5 for what plays over it,** written into the
-    header and every joint. Upload the `.anim`, not the `.bvh`: a `.bvh`
-    takes its priority from the upload window (default 3), which loses to
-    the default sit.
+    header and every joint. **Ship `.anim` only**: it carries priority, loop,
+    ease and hand pose, so we control every upload option. A `.bvh` takes
+    them from the upload window (priority default 3, which loses to the
+    default sit). Make `.bvh` files only when Matthew asks for them.
 60j. **Sit-based animations, the AVsitter way** (`[AV]sitA.lsl`): stop
     `"sit"` once when animation permission comes back, then start the pose;
     to change pose, start the new one before stopping the old. Don't stop
