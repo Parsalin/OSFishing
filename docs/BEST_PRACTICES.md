@@ -221,8 +221,9 @@ Grid-specific LSL ↔ PHP detail: `docs/GRID_COMMS_LESSONS.md`.
 60. **Don't let a device's version prompt or update offer depend on a
     server update reaching it** — devices in the field may never update.
 
-Animations and poses (all enforced by `lsl/Animations/make_animations.py`,
-which refuses to build an animation that breaks one):
+Animations and poses (60a-60d are enforced by
+`lsl/Animations/make_animations.py`, which refuses to build an animation
+that breaks one):
 
 60a. **A bone you don't move is free.** Any bone left at the T-pose (the
     reference frame) is dropped from the animation, so other animations (AO,
@@ -243,6 +244,48 @@ which refuses to build an animation that breaks one):
     robotic. Keys every 0.1 s plus one per pose is plenty; the viewer fills in.
 60d. **Not too fast:** no joint turns faster than 400°/s. A 0.15 s hook-set
     snap hit 1,250°/s and looked like a glitch, not a jerk.
+
+Animations posed on a rig (Blender + Avastar; the gather pair, 2026-11-21).
+Scripts and details in `lsl/Animations/blender/` and its README:
+
+60e. **Stay inside the rig's rotation limits, and check them before
+    exporting.** The Avastar rig has a Limit Rotation on every body bone
+    (elbow: bend on one axis, twist ±10°; head pitch to 40°). The export
+    bakes the clamped pose without a word, so a bone posed past its limit
+    ships as something else. Print each bone's excess over its limits for
+    every frame, and fix anything over a few degrees. Twist past the limits
+    is what made the first gather animations look way off.
+60f. **Turn a bone from where its parent leaves it, not from its rest
+    pose.** Aiming a bone straight at a direction from rest throws away its
+    parent's roll and adds twist the limits then clamp (collars 60° over,
+    a raised arm clamped straight). Reset the bone, then turn it the
+    shortest way from its current frame (`aim_rel`). For a hinge joint
+    (elbow, knee), also roll the bone above it about its own axis until the
+    bend lands on the hinge (`arm_hinge`).
+60g. **Spread a bend along the chain.** Don't let one joint take the whole
+    turn: a neck pointed back up from a chest pointed at the ground folds
+    51° at its base and looks crunched even with the head at the right
+    angle. Put the neck on the bisector of chest and head (or share the
+    angle between them), and look close and from the side at the neck,
+    wrists and shoulders before shipping.
+60h. **Pose on a rig with standard proportions.** The `.anim` stores joint
+    angles, not bone lengths, so any contact solved by position (hands in
+    the dirt, kneecaps on the ground, a hand under the chin) only holds for
+    the proportions it was solved on. A rig with joint offsets (arms 31%
+    long) puts the hands in the dirt in Blender and 9 cm above it in-world.
+    If a rig looks off, compare its bone lengths, rolls and constraints with
+    a freshly created rig of the same type. Check contacts by the numbers
+    (knee, toe and fingertip heights), not by eye.
+60i. **Priority 4 for the base, 5 for what plays over it,** written into the
+    header and every joint. Upload the `.anim`, not the `.bvh`: a `.bvh`
+    takes its priority from the upload window (default 3), which loses to
+    the default sit.
+60j. **Sit-based animations, the AVsitter way** (`[AV]sitA.lsl`): stop
+    `"sit"` once when animation permission comes back, then start the pose;
+    to change pose, start the new one before stopping the old. Don't stop
+    every animation on a timer: it fights AOs and kills face animations.
+    Fit the sitter to their height by measuring where they ended up and
+    correcting, not by trusting the sit target, whose offset varies by grid.
 
 ## 7. Web and admin UI
 
