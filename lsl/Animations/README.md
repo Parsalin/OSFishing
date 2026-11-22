@@ -86,13 +86,22 @@ field fine-tunes it); PrepTable uses a fixed sit target Z (0.6).
 
 `gather_search` and `gather_found` are made in Blender with Avastar, on the
 Avatar rig in `C:/Users/Matthew/Blender/animations/DigForWorms.blend`
-(not in the repo, 12 MB). Their scripts are in `blender/`:
+(not in the repo, 12 MB). Pose them on a rig with standard SL proportions
+(no joint offsets): the hand reach and kneel are solved by position, so a
+rig with long bones puts the hands above the dirt on a normal avatar. Leg
+IK must be on (`IKSwitchesProp.legs_ik_enabled`): the legs are posed with
+the heel controls. Their scripts are in `blender/`:
 
 - `DigForWorms_pose.py` builds the action **DigForWorms** (the dig loop).
 - `DigFound_pose.py` builds **DigFound** from the same kneel, reusing those
-  helpers. It rolls each upper arm so the elbow bends on its hinge: the rig's
-  Limit Rotation constraints would otherwise clamp a raised arm straight, and
-  the export bakes the clamped pose.
+  helpers.
+
+Both keep every bone inside the rig's Limit Rotation constraints (the
+export bakes the clamped pose otherwise): `aim_rel` turns a bone from where
+its parent leaves it (plain `aim` turns it from rest and loses the parent's
+roll, which twists collars and elbows past their limits), and `arm_hinge`
+rolls the upper arm so the elbow bends on its hinge. The neck sits on the
+bisector of chest and head so the look-up isn't folded into the neck base.
 
 Export each action with Avastar (`bpy.ops.avastar.export_single_anim`).
 DigFound exports as `gather_found.anim` (priority 5). DigForWorms is exported

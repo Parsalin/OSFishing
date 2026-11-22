@@ -10,8 +10,8 @@ ROCK = 1.5                        # pelvis rock amplitude (deg)
 PRIORITY = 5
 KNEE_POLE_Y = -0.6                # knee target in front so knees bend forward
 FOOT_DIR = Vector((0, 0.93, -0.36))   # toes pointing back, tips on the ground
-TORSO = (-0.95, 0.3); CHEST = (-0.9, -0.3)
-HAND_Y, HAND_Z, HAND_X = -0.62, 0.05, 0.20
+TORSO = (-0.95, 0.3); CHEST = (-0.8, -0.6)   # tuned on a standard-size rig 2026-11-21
+HAND_Y, HAND_Z, HAND_X = -0.50, 0.05, 0.20
 N = 60
 # ---------------------------------------------------------------------------
 
@@ -34,6 +34,48 @@ def arm(s, T, pole):
     p = Vector(pole); p = (p - p.dot(u)*u).normalized(); E = S + u*x + p*h
     aim('Shoulder'+s, E - S); aim('Elbow'+s, (S + u*d) - E)
     return (D.length - (L1+L2))   # >0 means hand can't reach
+
+
+def _limits(n):
+    for c in P[n].constraints:
+        if c.type == 'LIMIT_ROTATION' and c.influence > 0:
+            return [(getattr(c, 'min_' + ax), getattr(c, 'max_' + ax)) for ax in 'xyz']
+    return None
+
+def _excess(n):
+    # how far (radians) a bone's local rotation is outside its Limit Rotation
+    lim = _limits(n)
+    if not lim: return 0.0
+    e = P[n].rotation_quaternion.to_euler('XYZ')
+    return sum(max(0, lo - v) + max(0, v - hi) for v, (lo, hi) in zip(e, lim))
+
+def aim_rel(n, d):
+    # aim() turns a bone from its REST frame, which throws away its parent's
+    # roll; this turns it from where its parent leaves it, so a bone that
+    # only bends on one axis (the elbow) gets a clean bend
+    pb = P[n]; pb.rotation_quaternion = (1, 0, 0, 0); upd()
+    m = pb.matrix.copy(); cur = (m.to_3x3() @ Vector((0, 1, 0))).normalized()
+    r = (cur.rotation_difference(Vector(d).normalized()).to_matrix() @ m.to_3x3()).to_4x4()
+    r.translation = pb.head.copy(); pb.matrix = r; upd()
+
+def arm_hinge(s, T, pole):
+    """arm(), plus a roll of the upper arm about its
+    own axis so the elbow bends on its hinge. The rig's Limit Rotation
+    (elbow: bend on Z only) would otherwise clamp a raised arm straight,
+    and the export bakes the clamped pose."""
+    arm(s, T, pole)
+    S = P['Shoulder' + s].head.copy(); E = P['Elbow' + s].head.copy()
+    goal = Vector(T)                     # the hand target (aim is direction only)
+    ax = (E - S).normalized()
+    base = P['Shoulder' + s].matrix.copy()
+    def place(deg):
+        R = Matrix.Translation(S) @ Matrix.Rotation(math.radians(deg), 4, ax) @ Matrix.Translation(-S)
+        P['Shoulder' + s].matrix = R @ base; upd()
+        aim_rel('Elbow' + s, goal - P['Elbow' + s].head)
+        return _excess('Shoulder' + s) + _excess('Elbow' + s)
+    best = min(range(0, 360, 10), key=place)
+    best = min(range(best - 9, best + 10), key=place)
+    place(best)
 
 KEY = ['COG','Pelvis','ikKneeTargetLeft','ikKneeTargetRight','ikHeelLeft','ikHeelRight',
        'Torso','Chest','Neck','Head','CollarLeft','CollarRight',
@@ -72,6 +114,9 @@ def legs():
         m.translation = Vector((0.13*sx, KNEE_POLE_Y, 0.2)); kt.matrix = m
     upd()
 
+def neck_dir():
+    return (Vector((0, CHEST[0], CHEST[1])).normalized() + Vector((0, -0.75, 0.55)).normalized()).normalized()
+
 def pose(t):
     rest(); legs()
     w = 2*math.pi*t
@@ -80,14 +125,15 @@ def pose(t):
     P['Pelvis'].matrix = Matrix.Translation(pv) @ Matrix.Rotation(ang,4,'X') @ Matrix.Translation(-pv) @ P['Pelvis'].matrix; upd()
     sway = 0.04*math.sin(w); bob = 0.06*math.sin(2*w)
     aim('Torso',(sway*0.5, TORSO[0]-bob, TORSO[1])); aim('Chest',(sway, CHEST[0], CHEST[1]))
-    # neck halfway between chest and head: the look-up is shared, not folded into the neck base
-    aim('Neck',(0,-0.988,0.156)); aim('Head',(0.08*math.sin(w+0.6),-0.75,0.55))
+    # neck on the bisector of chest and head: the look-up is shared, not folded into the neck base
+    aim('Neck', neck_dir()); aim('Head',(0.08*math.sin(w+0.6),-0.75,0.55))
     miss = 0
     for s, sx, ph in (('Left',1,0.0),('Right',-1,math.pi)):
-        aim('Collar'+s,(sx*0.85,-0.5,-0.15)); th = w + ph
+        aim_rel('Collar'+s,(sx*0.85,-0.5,-0.15)); th = w + ph
         y = HAND_Y + 0.11*math.cos(th); z = HAND_Z + 0.06*max(0, math.sin(th)); x = sx*(HAND_X + 0.03*math.sin(th))
         miss = max(miss, arm(s, Vector((x,y,z)), (sx*1.0, 0.6, 0.3)))
-        aim('Wrist'+s,(0,-0.4+0.3*math.cos(th),-0.85))
+        arm_hinge(s, Vector((x,y,z)), (sx*1.0, 0.6, 0.3))   # same arm, elbow on its hinge
+        aim_rel('Wrist'+s,(0,-0.4+0.3*math.cos(th),-0.85))
     return miss
 
 def key(f):

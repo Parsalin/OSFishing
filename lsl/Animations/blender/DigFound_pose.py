@@ -4,7 +4,7 @@
 # goes back down into the dig pose (DigForWorms frame 2), so it hands back
 # to the dig loop without a jump. Plays over it at priority 5.
 #
-# Reuses DigForWorms_pose.py's rig helpers (rest, legs, aim, arm); run in the
+# Reuses DigForWorms_pose.py's rig helpers (rest, legs, aim_rel, arm_hinge); run in the
 # DigForWorms.blend with the Avatar rig. Builds the action "DigFound" and
 # leaves DigForWorms untouched.
 import bpy, math, os
@@ -17,48 +17,7 @@ exec(_src, G)
 a, P, sc = G['a'], G['P'], G['sc']
 aim, arm, KEY, LOCS, upd = G['aim'], G['arm'], G['KEY'], G['LOCS'], G['upd']
 
-from mathutils import Matrix
-
-def _limits(n):
-    for c in P[n].constraints:
-        if c.type == 'LIMIT_ROTATION' and c.influence > 0:
-            return [(getattr(c, 'min_' + ax), getattr(c, 'max_' + ax)) for ax in 'xyz']
-    return None
-
-def _excess(n):
-    # how far (radians) a bone's local rotation is outside its Limit Rotation
-    lim = _limits(n)
-    if not lim: return 0.0
-    e = P[n].rotation_quaternion.to_euler('XYZ')
-    return sum(max(0, lo - v) + max(0, v - hi) for v, (lo, hi) in zip(e, lim))
-
-def aim_rel(n, d):
-    # aim() turns a bone from its REST frame, which throws away its parent's
-    # roll; this turns it from where its parent leaves it, so a bone that
-    # only bends on one axis (the elbow) gets a clean bend
-    pb = P[n]; pb.rotation_quaternion = (1, 0, 0, 0); upd()
-    m = pb.matrix.copy(); cur = (m.to_3x3() @ Vector((0, 1, 0))).normalized()
-    r = (cur.rotation_difference(Vector(d).normalized()).to_matrix() @ m.to_3x3()).to_4x4()
-    r.translation = pb.head.copy(); pb.matrix = r; upd()
-
-def arm_hinge(s, T, pole):
-    """arm() from DigForWorms_pose, plus a roll of the upper arm about its
-    own axis so the elbow bends on its hinge. The rig's Limit Rotation
-    (elbow: bend on Z only) would otherwise clamp a raised arm straight,
-    and the export bakes the clamped pose."""
-    arm(s, T, pole)
-    S = P['Shoulder' + s].head.copy(); E = P['Elbow' + s].head.copy()
-    goal = Vector(T)                     # the hand target (aim is direction only)
-    ax = (E - S).normalized()
-    base = P['Shoulder' + s].matrix.copy()
-    def place(deg):
-        R = Matrix.Translation(S) @ Matrix.Rotation(math.radians(deg), 4, ax) @ Matrix.Translation(-S)
-        P['Shoulder' + s].matrix = R @ base; upd()
-        aim_rel('Elbow' + s, goal - P['Elbow' + s].head)
-        return _excess('Shoulder' + s) + _excess('Elbow' + s)
-    best = min(range(0, 360, 10), key=place)
-    best = min(range(best - 9, best + 10), key=place)
-    place(best)
+_limits, _excess, aim_rel, arm_hinge = G['_limits'], G['_excess'], G['aim_rel'], G['arm_hinge']
 
 def lerp(p, q, t):
     return Vector(p).lerp(Vector(q), t)
@@ -83,7 +42,7 @@ def found(lift, reach=0.0, turn=0.0):
     l = lift * lift * (3 - 2 * lift)     # smoothstep
     aim('Torso', lerp((0, G['TORSO'][0], G['TORSO'][1]), (0, -0.32, 0.95), l))
     aim('Chest', lerp((0, G['CHEST'][0], G['CHEST'][1]), (0, -0.25, 0.97), l))   # continues the torso, no backward kink
-    aim('Neck',  lerp((0, -0.988, 0.156), (0, -0.50, 0.87), l))   # neck leans forward, sharing the look-down with the head
+    aim('Neck',  lerp(G['neck_dir'](), (0, -0.50, 0.87), l))   # neck leans forward, sharing the look-down with the head
     H = P['Head'].head.copy()
     # right hand: dig spot → pinch in the middle → up in front of the face
     pinch = Vector((-0.07, -0.66, 0.03))
@@ -95,7 +54,7 @@ def found(lift, reach=0.0, turn=0.0):
     # left hand: stays in the dirt, then rests on the left thigh
     lh = dig_l.lerp(Vector((0.17, -0.44, 0.42)), l)
     arm_hinge('Left', lh, lerp((1.0, 0.6, 0.3), (1.0, 0.4, 0.0), l))
-    aim_rel('WristLeft', lerp(dig_l_wrist, (0.1, -0.9, -0.4), l))
+    aim_rel('WristLeft', lerp(dig_l_wrist, (0.1, -0.6, -0.4), l))   # inside the wrist's limits
     # head: looks at the right hand (the worm), a tilt while turning it
     eye = H + Vector((0, -0.08, 0.10))
     d = look_dir(r - eye)
