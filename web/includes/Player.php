@@ -15,11 +15,16 @@ class Player {
     public static function awardXP(int $playerId, int $amount): ?array {
         $pdo = db();
 
-        $stmt = $pdo->prepare('SELECT level, xp FROM players WHERE id = :id FOR UPDATE');
+        // Add atomically (the old read-then-write lost XP when two awards
+        // ran at once), then read back the total to check for a level-up.
+        $pdo->prepare('UPDATE players SET xp = xp + :a WHERE id = :id')
+            ->execute([':a' => $amount, ':id' => $playerId]);
+        $stmt = $pdo->prepare('SELECT level, xp FROM players WHERE id = :id');
         $stmt->execute([':id' => $playerId]);
         $player = $stmt->fetch();
+        if (!$player) return null;
 
-        $newXP = (int)$player['xp'] + $amount;
+        $newXP = (int)$player['xp'];
         $currentLevel = (int)$player['level'];
         $newLevel = $currentLevel;
 
@@ -35,6 +40,10 @@ class Player {
         $levelUpInfo = null;
         if ($levelRow && (int)$levelRow['level'] > $currentLevel) {
             $newLevel = (int)$levelRow['level'];
+            // Only the award that actually raises the level reports it
+            $stmt = $pdo->prepare('UPDATE players SET level = :lvl WHERE id = :id AND level < :lvl2');
+            $stmt->execute([':lvl' => $newLevel, ':lvl2' => $newLevel, ':id' => $playerId]);
+            if ($stmt->rowCount() !== 1) return null;
             $levelUpInfo = [
                 'old_level'   => $currentLevel,
                 'new_level'   => $newLevel,
@@ -51,9 +60,6 @@ class Player {
                 $stmt->execute([':pid' => $playerId, ':title' => $levelRow['title']]);
             }
         }
-
-        $stmt = $pdo->prepare('UPDATE players SET xp = :xp, level = :lvl WHERE id = :id');
-        $stmt->execute([':xp' => $newXP, ':lvl' => $newLevel, ':id' => $playerId]);
 
         return $levelUpInfo;
     }

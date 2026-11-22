@@ -429,8 +429,20 @@ class Quest {
             json_error('Quest requirements not yet complete');
         }
 
-        // Grant rewards and mark complete
-        $rewards = self::completeQuest($playerId, $playerQuestId, (int)$pq['quest_id']);
+        // Grant rewards and mark complete, once: a double click (or the HUD
+        // and the website together) must not pay twice.
+        $pdo->beginTransaction();
+        try {
+            $rewards = self::completeQuest($playerId, $playerQuestId, (int)$pq['quest_id']);
+            if ($rewards === null) {
+                $pdo->rollBack();
+                json_error('Quest rewards already claimed');
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
 
         return [
             'quest_title' => $pq['title'],
@@ -453,6 +465,7 @@ class Quest {
                 SELECT pq.*, q.title FROM player_quests pq
                 JOIN quests q ON q.id = pq.quest_id
                 WHERE pq.id = :id AND pq.player_id = :pid AND pq.status = \'active\'
+                FOR UPDATE
             ');
             $stmt->execute([':id' => $playerQuestId, ':pid' => $playerId]);
             $pq = $stmt->fetch();
@@ -549,7 +562,11 @@ class Quest {
             $rewards = null;
 
             if ($allComplete) {
-                $rewards = self::completeQuest($playerId, $playerQuestId, $pq['quest_id']);
+                $rewards = self::completeQuest($playerId, $playerQuestId, (int)$pq['quest_id']);
+                if ($rewards === null) {
+                    $pdo->rollBack();
+                    json_error('Quest rewards already claimed');
+                }
             }
 
             $pdo->commit();
@@ -565,8 +582,8 @@ class Quest {
                     : "Turned in {$accepted} fish. Progress: {$newCount}/{$req['quantity']}",
             ];
 
-        } catch (\Exception $e) {
-            $pdo->rollBack();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             throw $e;
         }
     }
@@ -587,17 +604,20 @@ class Quest {
     }
 
     /**
-     * Complete a quest and grant rewards.
+     * Complete a quest and grant rewards. Runs inside the caller's
+     * transaction. Returns null, granting nothing, when the quest is no
+     * longer active (a concurrent request already claimed it).
      */
-    private static function completeQuest(int $playerId, int $playerQuestId, int $questId): array {
+    private static function completeQuest(int $playerId, int $playerQuestId, int $questId): ?array {
         $pdo = db();
 
-        // Mark complete
+        // Mark complete; only the request that flips it from active pays out
         $stmt = $pdo->prepare('
             UPDATE player_quests SET status = \'completed\', completed_at = UTC_TIMESTAMP()
-            WHERE id = :id
+            WHERE id = :id AND status = \'active\'
         ');
         $stmt->execute([':id' => $playerQuestId]);
+        if ($stmt->rowCount() !== 1) return null;
 
         // Get and grant rewards
         $rewards = self::getRewards($questId);

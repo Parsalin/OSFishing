@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-21-shops-fair', 'date' => '2026-11-21', 'type' => 'fixed',
+         'text' => 'Website shop: Grasshoppers, Crickets, Minnows, Cut Bait, Leeches and Shrimp took your points but gave no bait. Each bundle now gives 10, and a purchase that fails no longer uses up your daily limit. Bait vendors no longer show "A database error occurred" after you buy or sell, and Shop → History now lists your vendor trades. Player-run shops: the owner stocks them from their own bait (Deposit / Withdraw), pays for bait sold back to the shop, and can\'t buy from their own shop. Crafting a Chum Bucket now uses only rare fish, never your epic or legendary ones.'],
         ['id' => '2026-11-21-cast-record', 'date' => '2026-11-21', 'type' => 'fixed',
          'text' => 'Casting distance now matters: a full-power cast reaches fish up to 10% heavier. Double Hook now gives you the XP for both fish, not just one. A snapped line with a Magnet on costs one Magnet, not two. If you walk away with your line still in the water, your bait now follows the same rules as reeling in after a minute.'],
         ['id' => '2026-11-22-catch-error', 'date' => '2026-11-22', 'type' => 'fixed',

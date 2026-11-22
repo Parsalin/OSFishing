@@ -78,6 +78,28 @@ class Butcher
         $rarityId = (int)$fish['rarity_id'];
         $waterTypeId = $fish['water_type_id'] ? (int)$fish['water_type_id'] : null;
 
+        // Claim the fish first, in one transaction with the payout, so two
+        // requests for the same fish can't both pay.
+        $pdo->beginTransaction();
+        try {
+            $result = self::butcherClaimed($pdo, $playerId, $playerFishId, $fish, $weight, $rarityId, $waterTypeId);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+        return $result;
+    }
+
+    private static function butcherClaimed(\PDO $pdo, int $playerId, int $playerFishId, array $fish,
+                                           float $weight, int $rarityId, ?int $waterTypeId): array {
+        $stmt = $pdo->prepare("UPDATE player_fish SET status = 'sold' WHERE id = :id AND player_id = :pid AND status = 'held'");
+        $stmt->execute([':id' => $playerFishId, ':pid' => $playerId]);
+        if ($stmt->rowCount() !== 1) {
+            $pdo->rollBack();
+            json_error('Fish not found or not in your inventory');
+        }
+
         // Calculate chunks
         $chunks = (int)floor($weight / 2) + 1;
         if ($chunks < 1) $chunks = 1;
@@ -86,14 +108,14 @@ class Butcher
         $stmt = $pdo->prepare('SELECT id FROM bait_types WHERE name = :n');
         $stmt->execute([':n' => 'Fish Chunks']);
         $chunksBaitId = (int)$stmt->fetchColumn();
-        if (!$chunksBaitId) json_error('Fish Chunks bait type not found — run migration');
+        if (!$chunksBaitId) { $pdo->rollBack(); json_error('Fish Chunks bait type not found — run migration'); }
 
         // Grant chunks
         $pdo->prepare('
             INSERT INTO player_bait (player_id, bait_id, quantity)
             VALUES (:pid, :bid, :qty)
-            ON DUPLICATE KEY UPDATE quantity = quantity + :qty2
-        ')->execute([':pid' => $playerId, ':bid' => $chunksBaitId, ':qty' => $chunks, ':qty2' => $chunks]);
+            ON DUPLICATE KEY UPDATE quantity = LEAST(quantity + :qty2, :max)
+        ')->execute([':pid' => $playerId, ':bid' => $chunksBaitId, ':qty' => $chunks, ':qty2' => $chunks, ':max' => MAX_BAIT_STACK]);
 
         // Roll for special bait
         $specialFound = null;
@@ -120,16 +142,12 @@ class Butcher
                 $pdo->prepare('
                     INSERT INTO player_bait (player_id, bait_id, quantity)
                     VALUES (:pid, :bid, 1)
-                    ON DUPLICATE KEY UPDATE quantity = quantity + 1
-                ')->execute([':pid' => $playerId, ':bid' => (int)$specialBaitId]);
+                    ON DUPLICATE KEY UPDATE quantity = LEAST(quantity + 1, :max)
+                ')->execute([':pid' => $playerId, ':bid' => (int)$specialBaitId, ':max' => MAX_BAIT_STACK]);
 
                 $specialFound = $specialName;
             }
         }
-
-        // Remove the fish from inventory (mark as butchered)
-        $pdo->prepare('UPDATE player_fish SET status = \'sold\' WHERE id = :id')
-            ->execute([':id' => $playerFishId]);
 
         // Build result
         $message = "Butchered " . $fish['fish_name'] . " (" . round($weight, 2) . " lb) into " . $chunks . " Fish Chunks!";

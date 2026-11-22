@@ -171,28 +171,32 @@ hand-made request, can farm or wreck something.
   uses bait, and `confirm_catch` uses whatever bait is equipped *now*, not the
   bait the roll was made with (roll with Glow Grubs, swap to Bread Dough,
   confirm). Fix: bind bait to the cast row; decide consumption server-side.
-- [ ] **26. `bait_gather` = unlimited bait of any type.** The HUD picks
+- [x] **26. `bait_gather` = unlimited bait of any type.** The HUD picks
   `bait_id`, and the cooldown is keyed by a free-text `spot_key`, so a new
   key per call skips it (Magnet, Abyssal Eye, …). The current HUD doesn't
   call it: remove the route and `Bait::gather`.
-- [ ] **27. Negative quantities.** `shop_buy quantity=-10` *gains* points and
+  **Fixed 2026-11-21:** route and `Bait::gather` removed.
+- [x] **27. Negative quantities.** `shop_buy quantity=-10` *gains* points and
   stock; `shop_sell` with a negative quantity *gains* bait;
   `web_shop_buy_bait bundles=0` (or negative) skips the web daily limit (the
   router counts the limit from the raw value, `buyBait` clamps it to 1).
   Fix: refuse `< 1` everywhere and cap the top end.
-- [ ] **28. Player shops mint bait and points.** `shop_deposit` adds stock
+  **Fixed 2026-11-21:** vendor trades 1-100 (`ShopSystem::checkQty`), web/HUD bundles 1-100, daily limit counted after a successful purchase in `Shop::buyBait`.
+- [x] **28. Player shops mint bait and points.** `shop_deposit` adds stock
   without taking it from the owner; `shop_register_listing` (no auth at all)
   creates a listing starting at `stock = max_stock` of anything; buying from
   your own shop pays you back; selling into a shop mints 50 % in new points.
   So: buy your own stock for free, sell it back, repeat. Fix: deposit and
   withdraw move real inventory; listings are owner-authenticated and start
   empty for player shops; no buying from your own shop; transactions.
-- [ ] **29. Anyone can create system gather points.** `gather_register` with
+  **Fixed 2026-11-21:** deposit/withdraw move real bait; listings need the vendor owner's header to own the shop (admin for system shops), only shop-sold bait, player listings start empty; no trading with your own shop; sell-backs paid by the owner; every trade one transaction with the listing row locked. (The owner header is forgeable off-grid until object tokens, audit item 1.)
+- [x] **29. Anyone can create system gather points.** `gather_register` with
   no `owner_key` makes a *system* point (no limit) for any bait type, and a
   re-register within 3 m takes over someone else's point. `gather_tick` has
   no per-player cooldown, and its `FOR UPDATE` runs outside a transaction (no
   lock). Fix: verified owner required, system points admin-only, only
   gatherable bait (`gather_method`), per-player cooldown, transaction.
+  **Fixed 2026-11-21:** owner account required, no more unowned system points (admins mark system on the panel), gatherable bait only, a point at the same place belongs to its owner, 8 s per-player cooldown per point (`gather_cooldowns`), transaction + `MAX_BAIT_STACK`. Still open: points have no grid column (54). Balance note: a level-30 player can own 30 points, each refilling 25 an hour once emptied.
 - [ ] **30. Prim callbacks are unauthenticated → hijack and SSRF.**
   `register_prim_callback` takes any `prim_uuid` / `prim_type` / `ref_id` /
   URL and the server then POSTs there (and `Grid::checkPush` probes it): a
@@ -208,7 +212,7 @@ hand-made request, can farm or wreck something.
 
 ## 🔴 Broken features (schema drift, dead code)
 
-- [ ] **31. Vendor transactions table doesn't match the code.** Table:
+- [x] **31. Vendor transactions table doesn't match the code.** Table:
   `item_ref_id, points_spent, purchased_at`. Code writes `shop_id,
   listing_id, action, item_name, points_amount` and reads `st.shop_id`,
   `created_at` (in the live error log). Every vendor buy/sell applies the
@@ -216,6 +220,7 @@ hand-made request, can farm or wreck something.
   "A database error occurred" and may retry → double purchase. The
   transactions view always errors. Fix: migration to the intended shape +
   transaction.
+  **Fixed 2026-11-21:** migration `2026_11_21_02` reshaped the (empty) table; trades log inside their transaction.
 - [ ] **32. Admin announcements can't be created.** The admin panel calls
   `admin_create/toggle_announcement` (`title, body, is_active`); the table is
   `message, priority, starts_at` (what the HUD's `announcements` reads and
@@ -275,7 +280,7 @@ hand-made request, can farm or wreck something.
   grid doesn't stop HUDs already paired there (`requireHUD` never checks the
   token's grid). Fix: require `grid_name`, check grid status in `requireHUD`,
   enforce SimOrigin once clean.
-- [ ] **42. Check-then-write races (double rewards).** Quest `claimRewards` /
+- [x] **42. Check-then-write races (double rewards).** Quest `claimRewards` /
   `completeQuest` (double-click, or HUD + web, pays twice),
   `confirmSpotLevelUp` (two levels), `Butcher::butcher` (double chunks),
   `Buff::buyFromShop` (check then deduct → negative points), `Buff::activate`
@@ -283,6 +288,7 @@ hand-made request, can farm or wreck something.
   `FOR UPDATE` outside a transaction (no lock; lost XP under concurrency).
   Fix: `UPDATE … WHERE <guard>` and check `rowCount()` before granting;
   transactions.
+  **Fixed 2026-11-21:** quest claims (`completeQuest` flips `active` → `completed` once, in a transaction), spot level-up (guarded UPDATE), butcher (claims the fish first), buff buy (`deductPoints`), buff use (`quantity >= 1`), vendor trades (above), `awardXP` (atomic `xp = xp + n`). Tested with 4-10 parallel requests.
 - [ ] **43. HUD panel login rides in the URL.** `token_id + sig + ts` sit in
   the page URL (the nginx access log keeps them), are reusable for 1 h, and
   `abs()` accepts a future `ts` (up to 2 h); `web_auto_login` mints an 8 h
@@ -292,13 +298,15 @@ hand-made request, can farm or wreck something.
 - [ ] **44. `web_register` isn't throttled.** The 6-digit code for a known
   UUID can be guessed with no attempt cap to squat a new player's avatar.
   Use `Throttle` as `web_pair_claim` does.
-- [ ] **45. The web shop sells bait it shouldn't.** `Shop::buyBait` ignores
+- [x] **45. The web shop sells bait it shouldn't.** `Shop::buyBait` ignores
   `shop_enabled` and bait `min_level`: Glow Grubs (gather-only), Magnet
   (level 8), and Fish Chunks at price 0 (free). HUD `shop_buy_bait` skips the
   web daily limit entirely.
-- [ ] **46. Crafting can eat your best fish.** `Buff::craft` takes the
+  **Fixed 2026-11-21:** `shop_enabled`, price > 0 and `min_level` enforced; HUD and web share one daily limit; bundle size defaults to 10 when `shop_quantity` is NULL (six baits sold 0 per bundle).
+- [x] **46. Crafting can eat your best fish.** `Buff::craft` takes the
   lightest fish with rarity ≥ required, so a Chum Bucket can consume an epic
   or legendary. Not in a transaction.
+  **Fixed 2026-11-21:** exact rarity only, claimed in a transaction.
 
 ## 🟡 Medium
 

@@ -161,11 +161,13 @@ class Buff
             json_error("{$item['name']} would exceed 2 hour max. {$currentMinsLeft} min remaining, can add {$canAdd} more min.");
         }
 
-        // Consume item
-        $pdo->prepare('
+        // Consume item (guarded: two uses at once can't spend one item twice)
+        $stmt = $pdo->prepare('
             UPDATE player_buff_items SET quantity = quantity - 1
-            WHERE player_id = :pid AND buff_item_id = :bid
-        ')->execute([':pid' => $playerId, ':bid' => $buffItemId]);
+            WHERE player_id = :pid AND buff_item_id = :bid AND quantity >= 1
+        ');
+        $stmt->execute([':pid' => $playerId, ':bid' => $buffItemId]);
+        if ($stmt->rowCount() !== 1) json_error("You don't have any {$item['name']}");
 
         // Activate or extend
         if ($existing) {
@@ -353,40 +355,49 @@ class Buff
             json_error("Need level {$recipe['min_level']} to craft {$recipe['name']}");
         }
 
-        // Check if player has enough fish of required rarity
-        $reqCount = $recipe['count'];
-        $stmt = $pdo->prepare('
-            SELECT id, fish_species_id, weight, rarity_id
-            FROM player_fish
-            WHERE player_id = :pid AND status = \'held\' AND rarity_id >= :rid
-            ORDER BY weight ASC
-            LIMIT ' . (int)$reqCount . '
-        ');
-        $stmt->execute([':pid' => $playerId, ':rid' => $recipe['rarity_id']]);
-        $fish = $stmt->fetchAll();
-
-        if (count($fish) < $recipe['count']) {
-            $rarityNames = [1=>'common',2=>'uncommon',3=>'rare',4=>'epic',5=>'legendary'];
-            $rn = $rarityNames[$recipe['rarity_id']] ?? 'rare';
-            json_error("Need {$recipe['count']} {$rn}+ fish. You have " . count($fish) . ".");
-        }
-
-        // Consume the fish (use lowest weight first)
-        $consumed = [];
-        for ($i = 0; $i < $recipe['count']; $i++) {
-            $f = $fish[$i];
-            $pdo->prepare('UPDATE player_fish SET status = \'sold\' WHERE id = :id')
-                ->execute([':id' => $f['id']]);
-            $consumed[] = $f['id'];
-        }
-
-        // Grant the buff item
         $stmt = $pdo->prepare('SELECT id FROM buff_items WHERE buff_type = :bt LIMIT 1');
         $stmt->execute([':bt' => $buffType]);
         $buffItem = $stmt->fetch();
         if (!$buffItem) json_error('Buff item not configured');
 
-        self::grantItem($playerId, (int)$buffItem['id']);
+        // Only fish of exactly the recipe's rarity, lightest first: a recipe
+        // for rare fish never eats an epic or legendary one. Held fish only
+        // (trophies are 'saved'). Claimed and paid in one transaction.
+        $reqCount = (int)$recipe['count'];
+        $rarityNames = [1=>'common',2=>'uncommon',3=>'rare',4=>'epic',5=>'legendary'];
+        $rn = $rarityNames[$recipe['rarity_id']] ?? 'rare';
+
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('
+                SELECT id FROM player_fish
+                WHERE player_id = :pid AND status = \'held\' AND rarity_id = :rid
+                ORDER BY weight ASC
+                LIMIT ' . $reqCount . '
+                FOR UPDATE
+            ');
+            $stmt->execute([':pid' => $playerId, ':rid' => $recipe['rarity_id']]);
+            $fishIds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+            if (count($fishIds) < $reqCount) {
+                $pdo->rollBack();
+                json_error("Need {$reqCount} {$rn} fish. You have " . count($fishIds) . ".");
+            }
+
+            $in = implode(',', array_map('intval', $fishIds));
+            $done = $pdo->exec("UPDATE player_fish SET status = 'sold' WHERE id IN ($in) AND status = 'held'");
+            if ($done !== $reqCount) {
+                $pdo->rollBack();
+                json_error("Need {$reqCount} {$rn} fish.");
+            }
+
+            self::grantItem($playerId, (int)$buffItem['id']);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+        $consumed = $fishIds;
 
         return [
             'message' => "Crafted 1x {$recipe['name']}!",
@@ -425,9 +436,10 @@ class Buff
             json_error("Need {$price} points. You have {$player['fishing_points']}.");
         }
 
-        // Deduct points
-        $pdo->prepare('UPDATE players SET fishing_points = fishing_points - :p WHERE id = :id')
-            ->execute([':p' => $price, ':id' => $playerId]);
+        // Deduct points (guarded: two buys at once can't go below zero)
+        if (!Player::deductPoints($playerId, $price)) {
+            json_error("Need {$price} points.");
+        }
 
         // Grant item
         self::grantItem($playerId, $buffItemId);

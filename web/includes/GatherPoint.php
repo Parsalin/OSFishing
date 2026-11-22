@@ -16,6 +16,16 @@ class GatherPoint
         return max(1, $level);
     }
 
+    /** Seconds a player must wait between two gathers at the same point (the point ticks every 10-30 s). */
+    const GATHER_GAP = 8;
+
+    /**
+     * A gather point registers (or re-registers) itself. Its owner must have
+     * an account; only bait that is gathered in the world can be offered;
+     * a point at the same place belongs to its owner (or an admin). Points are
+     * player points (limit by level, none for admins); an admin can mark one
+     * as a system point on the admin panel.
+     */
     public static function registerPoint(array $data): array {
         $pdo = db();
 
@@ -28,54 +38,30 @@ class GatherPoint
         $ownerKey = trim($data['owner_key'] ?? '');
 
         if ($name === '') json_error('Gather point name is required');
+        if ($region === '') json_error('Region is required');
         if ($baitId <= 0) json_error('Invalid bait_id');
 
-        $stmt = $pdo->prepare('SELECT id, name FROM bait_types WHERE id = :id');
+        $stmt = $pdo->prepare("
+            SELECT id, name FROM bait_types
+            WHERE id = :id AND is_active = 1 AND gather_method IS NOT NULL AND gather_method <> ''
+        ");
         $stmt->execute([':id' => $baitId]);
         $bait = $stmt->fetch();
-        if (!$bait) json_error('Unknown bait type', 400);
+        if (!$bait) json_error('That bait cannot be gathered', 400);
 
-        $playerId = null;
-        $isSystem = 1;
+        $owner = null;
         if ($ownerKey !== '') {
-            $stmt = $pdo->prepare('SELECT id, level FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
+            $stmt = $pdo->prepare('SELECT id, level, is_admin FROM players WHERE id = (SELECT pu.player_id FROM player_uuids pu WHERE pu.uuid = :uuid)');
             $stmt->execute([':uuid' => $ownerKey]);
             $owner = $stmt->fetch();
-            if ($owner) {
-                $playerId = (int)$owner['id'];
-                $isSystem = 0;
-
-                // Check for existing spot at this position (re-register doesn't count)
-                $stmt = $pdo->prepare('
-                    SELECT id FROM bait_gather_points
-                    WHERE region_name = :r AND ABS(pos_x - :x) < 3 AND ABS(pos_y - :y) < 3 AND ABS(pos_z - :z) < 3
-                    LIMIT 1
-                ');
-                $stmt->execute([':r' => $region, ':x' => $posX, ':y' => $posY, ':z' => $posZ]);
-                $existing = $stmt->fetch();
-
-                if (!$existing) {
-                    $stmt = $pdo->prepare('
-                        SELECT COUNT(*) FROM bait_gather_points
-                        WHERE player_id = :pid AND is_system = 0
-                    ');
-                    $stmt->execute([':pid' => $playerId]);
-                    $currentCount = (int)$stmt->fetchColumn();
-                    $limit = self::computeLimit((int)$owner['level']);
-
-                    if ($currentCount >= $limit) {
-                        json_error(
-                            "Gather point limit reached ({$currentCount}/{$limit}). Level up for more.",
-                            403
-                        );
-                    }
-                }
-            }
         }
+        if (!$owner) json_error('The gather point owner needs an OSFishing account.', 403);
+        $playerId = (int)$owner['id'];
+        $isAdmin  = (int)$owner['is_admin'] === 1;
 
-        // Check for existing point at this position
+        // An existing point at this position
         $stmt = $pdo->prepare('
-            SELECT id FROM bait_gather_points
+            SELECT id, player_id, is_system FROM bait_gather_points
             WHERE region_name = :r AND ABS(pos_x - :x) < 3 AND ABS(pos_y - :y) < 3 AND ABS(pos_z - :z) < 3
             LIMIT 1
         ');
@@ -83,21 +69,31 @@ class GatherPoint
         $existing = $stmt->fetch();
 
         if ($existing) {
-            $stmt = $pdo->prepare('
-                UPDATE bait_gather_points
-                SET name = :n, bait_id = :bid, player_id = :pid, is_system = :sys, is_active = 1
-                WHERE id = :id
-            ');
-            $stmt->execute([':n' => $name, ':bid' => $baitId, ':pid' => $playerId, ':sys' => $isSystem, ':id' => $existing['id']]);
+            if ((int)$existing['player_id'] !== $playerId && !$isAdmin) {
+                json_error('Another gather point is already registered here.', 403);
+            }
+            $pdo->prepare('
+                UPDATE bait_gather_points SET name = :n, bait_id = :bid, is_active = 1 WHERE id = :id
+            ')->execute([':n' => $name, ':bid' => $baitId, ':id' => $existing['id']]);
             return ['point_id' => (int)$existing['id'], 'bait_name' => $bait['name'], 'message' => 'Gather point updated', 'created' => false];
+        }
+
+        if (!$isAdmin) {
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM bait_gather_points WHERE player_id = :pid AND is_system = 0');
+            $stmt->execute([':pid' => $playerId]);
+            $currentCount = (int)$stmt->fetchColumn();
+            $limit = self::computeLimit((int)$owner['level']);
+            if ($currentCount >= $limit) {
+                json_error("Gather point limit reached ({$currentCount}/{$limit}). Level up for more.", 403);
+            }
         }
 
         $stmt = $pdo->prepare('
             INSERT INTO bait_gather_points
                 (name, bait_id, player_id, is_system, region_name, pos_x, pos_y, pos_z, max_stock, current_stock)
-            VALUES (:n, :bid, :pid, :sys, :r, :x, :y, :z, 25, 25)
+            VALUES (:n, :bid, :pid, 0, :r, :x, :y, :z, 25, 25)
         ');
-        $stmt->execute([':n' => $name, ':bid' => $baitId, ':pid' => $playerId, ':sys' => $isSystem,
+        $stmt->execute([':n' => $name, ':bid' => $baitId, ':pid' => $playerId,
                          ':r' => $region, ':x' => $posX, ':y' => $posY, ':z' => $posZ]);
 
         return ['point_id' => (int)$pdo->lastInsertId(), 'bait_name' => $bait['name'], 'message' => 'Gather point registered', 'created' => true];
@@ -177,40 +173,71 @@ class GatherPoint
      */
     public static function gather(int $playerId, int $pointId): array {
         $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('
+                SELECT gp.*, bt.name AS bait_name
+                FROM bait_gather_points gp
+                JOIN bait_types bt ON bt.id = gp.bait_id
+                WHERE gp.id = :id AND gp.is_active = 1
+                FOR UPDATE
+            ');
+            $stmt->execute([':id' => $pointId]);
+            $point = $stmt->fetch();
 
-        $stmt = $pdo->prepare('
-            SELECT gp.*, bt.name AS bait_name
-            FROM bait_gather_points gp
-            JOIN bait_types bt ON bt.id = gp.bait_id
-            WHERE gp.id = :id AND gp.is_active = 1
-            FOR UPDATE
-        ');
-        $stmt->execute([':id' => $pointId]);
-        $point = $stmt->fetch();
+            if (!$point) {
+                $pdo->rollBack();
+                return ['gathered' => 0, 'message' => 'Gather point inactive.', 'depleted' => true];
+            }
 
-        if (!$point) return ['gathered' => 0, 'message' => 'Gather point inactive.', 'depleted' => true];
+            $currentStock = (int)$point['current_stock'];
+            $maxStock = (int)$point['max_stock'];
+            $baitId = (int)$point['bait_id'];
 
-        $currentStock = (int)$point['current_stock'];
-        $maxStock = (int)$point['max_stock'];
+            if ($currentStock <= 0) {
+                $pdo->rollBack();
+                return ['gathered' => 0, 'depleted' => true, 'message' => 'Picked clean. Come back later.', 'stock_pct' => 0];
+            }
 
-        if ($currentStock <= 0) {
-            return ['gathered' => 0, 'depleted' => true, 'message' => 'Picked clean. Come back later.', 'stock_pct' => 0];
+            // One gather per player per point every GATHER_GAP seconds
+            // (rowCount: inserted = 1, refreshed = 2, still cooling down = 0).
+            $stmt = $pdo->prepare('
+                INSERT INTO gather_cooldowns (player_id, bait_id, spot_key, last_gathered)
+                VALUES (:pid, :bid, :k, UTC_TIMESTAMP())
+                ON DUPLICATE KEY UPDATE last_gathered = IF(
+                    last_gathered <= UTC_TIMESTAMP() - INTERVAL ' . self::GATHER_GAP . ' SECOND,
+                    UTC_TIMESTAMP(), last_gathered)
+            ');
+            $stmt->execute([':pid' => $playerId, ':bid' => $baitId, ':k' => 'gp' . $pointId]);
+            if ($stmt->rowCount() === 0) {
+                $pdo->rollBack();
+                return ['gathered' => 0, 'depleted' => false, 'message' => 'Still searching...',
+                        'stock_pct' => $maxStock > 0 ? round(($currentStock / $maxStock) * 100) : 0];
+            }
+
+            $stmt = $pdo->prepare('SELECT quantity FROM player_bait WHERE player_id = :pid AND bait_id = :bid FOR UPDATE');
+            $stmt->execute([':pid' => $playerId, ':bid' => $baitId]);
+            $held = (int)$stmt->fetchColumn();
+
+            $amount = min(mt_rand(1, 5), $currentStock, MAX_BAIT_STACK - $held);
+            if ($amount <= 0) {
+                $pdo->rollBack();
+                return ['gathered' => 0, 'depleted' => false, 'bait_name' => $point['bait_name'],
+                        'message' => 'You can carry at most ' . MAX_BAIT_STACK . " {$point['bait_name']}."];
+            }
+            $newStock = $currentStock - $amount;
+
+            $sql = 'UPDATE bait_gather_points SET current_stock = :s' . ($newStock <= 0 ? ', last_depleted = UTC_TIMESTAMP()' : '') . ' WHERE id = :id';
+            $pdo->prepare($sql)->execute([':s' => $newStock, ':id' => $pointId]);
+
+            $pdo->prepare('INSERT INTO player_bait (player_id, bait_id, quantity) VALUES (:pid, :bid, :qty) ON DUPLICATE KEY UPDATE quantity = quantity + :qty2')
+                ->execute([':pid' => $playerId, ':bid' => $baitId, ':qty' => $amount, ':qty2' => $amount]);
+            $totalQty = $held + $amount;
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
         }
-
-        $amount = mt_rand(1, 5);
-        if ($amount > $currentStock) $amount = $currentStock;
-        $newStock = $currentStock - $amount;
-
-        $sql = 'UPDATE bait_gather_points SET current_stock = :s' . ($newStock <= 0 ? ', last_depleted = UTC_TIMESTAMP()' : '') . ' WHERE id = :id';
-        $pdo->prepare($sql)->execute([':s' => $newStock, ':id' => $pointId]);
-
-        $baitId = (int)$point['bait_id'];
-        $pdo->prepare('INSERT INTO player_bait (player_id, bait_id, quantity) VALUES (:pid, :bid, :qty) ON DUPLICATE KEY UPDATE quantity = quantity + :qty2')
-            ->execute([':pid' => $playerId, ':bid' => $baitId, ':qty' => $amount, ':qty2' => $amount]);
-
-        $stmt = $pdo->prepare('SELECT quantity FROM player_bait WHERE player_id = :pid AND bait_id = :bid');
-        $stmt->execute([':pid' => $playerId, ':bid' => $baitId]);
-        $totalQty = (int)$stmt->fetchColumn();
 
         $pct = $maxStock > 0 ? round(($newStock / $maxStock) * 100) : 0;
 

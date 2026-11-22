@@ -1308,11 +1308,14 @@ class PairingAuth {
         $newMod     = Fishing::lootModifierForLevel($newLevel);
         $xpToNext   = Fishing::xpThresholdForNextLevel($newLevel);
 
-        $pdo->prepare('
+        // Guarded: two confirms at once level the spot only once
+        $stmt = $pdo->prepare('
             UPDATE fishing_spots
             SET spot_level = :lvl, loot_modifier = :mod, spot_level_ready = 0
-            WHERE id = :id
-        ')->execute([':lvl' => $newLevel, ':mod' => $newMod, ':id' => $spotId]);
+            WHERE id = :id AND spot_level_ready = 1 AND spot_level = :cur
+        ');
+        $stmt->execute([':lvl' => $newLevel, ':mod' => $newMod, ':id' => $spotId, ':cur' => (int)$spot['spot_level']]);
+        if ($stmt->rowCount() !== 1) json_error('Spot is not ready to level up', 400);
 
         return [
             'success'          => true,

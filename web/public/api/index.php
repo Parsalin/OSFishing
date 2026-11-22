@@ -620,13 +620,6 @@ try {
             $baitId = (int)require_param('bait_id');
             json_success(Bait::equip((int)$player['id'], $baitId));
 
-        // ── Bait: gather from world ──
-        case 'bait_gather':
-            $player  = PairingAuth::requireHUD($action);
-            $baitId  = (int)require_param('bait_id');
-            $spotKey = require_param('spot_key');
-            json_success(Bait::gather((int)$player['id'], $baitId, $spotKey));
-
         // ── Bait: cut fish into bait ──
         case 'bait_cut_fish':
             $player     = PairingAuth::requireHUD($action);
@@ -874,27 +867,10 @@ try {
             json_success(Shop::getItems((int)$player['level']));
 
         case 'web_shop_buy_bait':
+            // Same rules as the HUD's shop_buy_bait, daily limit included (Shop::buyBait).
             $player  = AuthEmbed::requireWeb();
             $baitId  = (int)require_param('bait_id');
             $bundles = (int)optional_param('bundles', 1);
-
-            // Check if this is a magnet (exempt from daily limit)
-            $stmt = db()->prepare('SELECT name FROM bait_types WHERE id = :id');
-            $stmt->execute([':id' => $baitId]);
-            $baitName = $stmt->fetchColumn();
-            $isMagnet = (strtolower($baitName ?: '') === 'magnet');
-
-            if (!$isMagnet) {
-                // Check daily web purchase limit
-                $dailyCheck = ShopSystem::checkWebDailyLimit((int)$player['id']);
-                $qty = $bundles * 10;  // bundles of 10
-                if ($dailyCheck['remaining'] < $qty) {
-                    json_error("Daily web limit: {$dailyCheck['remaining']} bait remaining today. Visit an in-world shop for more!");
-                }
-                // Increment after purchase
-                for ($i = 0; $i < $qty; $i++) ShopSystem::incrementWebPurchase((int)$player['id']);
-            }
-
             json_success(Shop::buyBait((int)$player['id'], $baitId, $bundles));
 
         case 'web_shop_buy_rod':
@@ -1462,7 +1438,8 @@ try {
             json_success(ShopSystem::adminRestock($uuid, $listingId));
 
         case 'shop_register_listing':
-            json_success(ShopSystem::registerListing($_POST));
+            // The vendor's owner, as the sim stamps it, must own the shop.
+            json_success(ShopSystem::registerListing($_POST, (string)($_SERVER['HTTP_X_SECONDLIFE_OWNER_KEY'] ?? '')));
 
         case 'shop_listing_status':
             json_success(ShopSystem::getListingStatus((int)require_param('listing_id')));
