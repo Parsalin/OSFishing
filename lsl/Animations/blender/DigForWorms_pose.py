@@ -61,8 +61,8 @@ def aim_rel(n, d):
 def arm_hinge(s, T, pole):
     """arm(), plus a roll of the upper arm about its
     own axis so the elbow bends on its hinge. The rig's Limit Rotation
-    (elbow: bend on Z only) would otherwise clamp a raised arm straight,
-    and the export bakes the clamped pose."""
+    (elbow: bend on Z only, twist +-10) is the joint's natural range; aimed
+    from rest, a raised arm twists far outside it."""
     arm(s, T, pole)
     S = P['Shoulder' + s].head.copy(); E = P['Elbow' + s].head.copy()
     goal = Vector(T)                     # the hand target (aim is direction only)

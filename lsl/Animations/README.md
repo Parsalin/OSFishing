@@ -96,8 +96,10 @@ the heel controls. Their scripts are in `blender/`:
 - `DigFound_pose.py` builds **DigFound** from the same kneel, reusing those
   helpers.
 
-Both keep every bone inside the rig's Limit Rotation constraints (the
-export bakes the clamped pose otherwise): `aim_rel` turns a bone from where
+Both keep every bone inside the rig's Limit Rotation constraints, the
+natural range of each joint (the export doesn't clamp; going outside a limit
+is a deliberate choice, flagged to Matthew; BEST_PRACTICES 60e). The only
+excess today is the chest, 2-3° in the dig. `aim_rel` turns a bone from where
 its parent leaves it (plain `aim` turns it from rest and loses the parent's
 roll, which twists collars and elbows past their limits), and `arm_hinge`
 rolls the upper arm so the elbow bends on its hinge. The neck sits on the

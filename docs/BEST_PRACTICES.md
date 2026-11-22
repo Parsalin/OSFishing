@@ -248,17 +248,20 @@ that breaks one):
 Animations posed on a rig (Blender + Avastar; the gather pair, 2026-11-21).
 Scripts and details in `lsl/Animations/blender/` and its README:
 
-60e. **Stay inside the rig's rotation limits, and check them before
-    exporting.** The Avastar rig has a Limit Rotation on every body bone
-    (elbow: bend on one axis, twist ±10°; head pitch to 40°). The export
-    bakes the clamped pose without a word, so a bone posed past its limit
-    ships as something else. Print each bone's excess over its limits for
-    every frame, and fix anything over a few degrees. Twist past the limits
-    is what made the first gather animations look way off.
+60e. **Stay inside the rig's rotation limits unless you mean not to.** The
+    Avastar rig has a Limit Rotation on every body bone (elbow: bend on one
+    axis, twist ±10°; head pitch to 40°): the range a real joint moves in.
+    The export doesn't clamp, so a bone posed past its limit ships exactly
+    as posed, unnatural twist and all. Going outside a limit is allowed
+    only on purpose, used carefully, and always pointed out to Matthew
+    (which bone, how far, why). Print each bone's excess over its limits
+    for every frame before exporting; anything over a few degrees is either
+    fixed or flagged. Twist past the limits is what made the first gather
+    animations look way off.
 60f. **Turn a bone from where its parent leaves it, not from its rest
     pose.** Aiming a bone straight at a direction from rest throws away its
-    parent's roll and adds twist the limits then clamp (collars 60° over,
-    a raised arm clamped straight). Reset the bone, then turn it the
+    parent's roll and adds twist far past the limits (collars 60° over, an
+    elbow twisted 97° on a ±10° axis). Reset the bone, then turn it the
     shortest way from its current frame (`aim_rel`). For a hinge joint
     (elbow, knee), also roll the bone above it about its own axis until the
     bend lands on the hinge (`arm_hinge`).
