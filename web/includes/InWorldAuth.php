@@ -12,7 +12,7 @@
  * Two kinds of action:
  *  - OWNER: `uuid` is the object's owner acting on their own thing (spot
  *    settings, vendor stock, plaque). Must equal the owner header, unless
- *    `uuid` is an admin (admins manage other players' vendors in-world).
+ *    the object owner is an admin (an admin's object may act for anyone).
  *  - TOUCHER: `uuid` is whoever touched someone else's object (buy, sell,
  *    buff, craft). The server can't verify the toucher at all; we only
  *    require that the request came from an object in a sim.
@@ -45,7 +45,10 @@ class InWorldAuth {
         $reason = null;
         if ($ownerKey === '' || $objectKey === '') {
             $reason = 'not_from_a_sim';
-        } elseif ($kind === self::OWNER && $ownerKey !== $uuid && !self::isAdmin($uuid)) {
+        } elseif ($kind === self::OWNER && $ownerKey !== $uuid && !self::isAdmin($ownerKey)) {
+            // The OBJECT'S owner (the sim-stamped header) must be an admin to
+            // act for someone else. Checking the claimed $uuid instead let any
+            // request that named an admin's UUID through.
             $reason = 'owner_mismatch';
         }
         if ($reason === null) return;

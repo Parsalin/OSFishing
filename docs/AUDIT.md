@@ -197,7 +197,7 @@ hand-made request, can farm or wreck something.
   lock). Fix: verified owner required, system points admin-only, only
   gatherable bait (`gather_method`), per-player cooldown, transaction.
   **Fixed 2026-11-21:** owner account required, no more unowned system points (admins mark system on the panel), gatherable bait only, a point at the same place belongs to its owner, 8 s per-player cooldown per point (`gather_cooldowns`), transaction + `MAX_BAIT_STACK`. Still open: points have no grid column (54). Balance note: a level-30 player can own 30 points, each refilling 25 an hour once emptied.
-- [ ] **30. Prim callbacks are unauthenticated → hijack and SSRF.**
+- [x] **30. Prim callbacks are unauthenticated → hijack and SSRF.**
   `register_prim_callback` takes any `prim_uuid` / `prim_type` / `ref_id` /
   URL and the server then POSTs there (and `Grid::checkPush` probes it): a
   real spot's pushes can be redirected, the server can be aimed at
@@ -209,6 +209,7 @@ hand-made request, can farm or wreck something.
   header must equal `prim_uuid` and its owner must own `ref_id`;
   `CURLOPT_PROTOCOLS_STR = "http,https"`; refuse loopback / private /
   link-local targets except through an admin-set `public_host`.
+  **Fixed 2026-11-21:** found on the way: FishingSpot has sent `register_spot_callback` since May and the server never had that action, so no spot was ever registered and spot pushes never arrived. Added it. Registration (both actions) now needs `X-SecondLife-Object-Key` = the prim and its owner to own the spot (or be an admin); one prim per spot. Unregister / heartbeat need the object key too. Every push goes through `PushQueue::pinnedTarget`: http(s) only, public addresses only, host pinned with `CURLOPT_RESOLVE` (no DNS rebinding); a refused target fails without connecting and the push queues. HUD callback URLs are format-checked. Off-grid header forging remains (object tokens, item 1).
 
 ## 🔴 Broken features (schema drift, dead code)
 
@@ -221,12 +222,14 @@ hand-made request, can farm or wreck something.
   transactions view always errors. Fix: migration to the intended shape +
   transaction.
   **Fixed 2026-11-21:** migration `2026_11_21_02` reshaped the (empty) table; trades log inside their transaction.
-- [ ] **32. Admin announcements can't be created.** The admin panel calls
+- [x] **32. Admin announcements can't be created.** The admin panel calls
   `admin_create/toggle_announcement` (`title, body, is_active`); the table is
   `message, priority, starts_at` (what the HUD's `announcements` reads and
   the older `admin_announce` writes). Pick one design.
-- [ ] **33. Admin fish editor "Base XP" field errors.** `Admin::updateFish`
+  **Fixed 2026-11-21:** migration `2026_11_21_03` adds `title`, `body`, `is_active`; the admin create fills `message` too and maps info/warning/urgent onto the enum. Still open: players see announcements nowhere (no HUD poll, no portal banner, nothing sends the `announcement` push) — needs a decision on where they show.
+- [x] **33. Admin fish editor "Base XP" field errors.** `Admin::updateFish`
   allows `base_xp`, which lives on `rarity_tiers`, not `fish_species`.
+  **Fixed 2026-11-21:** `base_xp` removed from the editable fish fields; the editor shows the rarity's XP read-only.
 - [ ] **34. Half the fishing rules are dead code.** The live roll is
   `generateMinuteSchedule` → `rollFishFromPool`; `rollCatch` is never called.
   So none of these do anything today: **Lucky Lure Oil** (players destroy a
@@ -243,11 +246,12 @@ hand-made request, can farm or wreck something.
   writes no catch_log row and uses no bait. Double Hook returns doubled XP
   but awards only the single amount.
   **Fixed 2026-11-21** with the cast record (junk catches still use no bait, on purpose: the Magnet is only lost when the line snaps).
-- [ ] **36. Spots stay dark after a region outage.** `cleanupStale` sets
+- [x] **36. Spots stay dark after a region outage.** `cleanupStale` sets
   `is_active = 0` after 90 min without a heartbeat; `heartbeat()`'s comment
   says it turns the spot back on, but the code doesn't, so nobody can fish
   there until the owner notices. Fix: track "auto-paused" separately from the
   owner's switch and clear it on heartbeat / registration.
+  **Fixed 2026-11-21:** the sweep no longer switches spots off (it couldn't have yet, since no spot ever registered, see 30). A silent prim stops getting pushes after 90 min (they queue) and is forgotten after 7 days; its next heartbeat brings it back.
 - [ ] **37. Buff expiry notifies one spot, deletes them all.**
   `getSpotBuffs` and `getActiveMultipliers` `DELETE` every expired buff in the
   table but push `buff_expired` only to the spot being read; every other spot
@@ -268,11 +272,12 @@ hand-made request, can farm or wreck something.
   checking the owner, and that path sets `is_active` without the spot-limit
   check. `ShopSystem::registerShop` does the same by region only (no grid, no
   owner).
-- [ ] **40. `InWorldAuth` owner rule checks the wrong key.** It passes when
+- [x] **40. `InWorldAuth` owner rule checks the wrong key.** It passes when
   `isAdmin($uuid)` — the *claimed* actor — so once enforced, any request that
   claims the admin's UUID passes. Should be `isAdmin($ownerKey)`. Also add the
   missing unauthenticated actions: `shop_register_listing`,
   `register_prim_callback`, `unregister_prim_callback`, `prim_heartbeat`.
+  **Fixed 2026-11-21:** checks `isAdmin($ownerKey)`. Vendor listings and prim callbacks check their own headers (28, 30).
 - [ ] **41. Grid approval is fail-open and client-claimed.** `pair_request`,
   `spot_register`, `spot_setup_info`, `spot_restore` skip `requireApproved`
   when `grid_name` is left out; `grid_name` is only a parameter, so a denied

@@ -1434,6 +1434,10 @@ class PairingAuth {
     public static function registerCallback(int $tokenId, string $callbackUrl): array {
         require_once __DIR__ . '/PushQueue.php';
 
+        if (!preg_match('#^https?://[^/\s]+#i', $callbackUrl) || strlen($callbackUrl) > 255) {
+            json_error('Invalid callback URL');
+        }
+
         $g = db()->prepare('SELECT grid_name FROM hud_tokens WHERE id = :id');
         $g->execute([':id' => $tokenId]);
         Grid::checkPushLater((string)$g->fetchColumn(), $callbackUrl);

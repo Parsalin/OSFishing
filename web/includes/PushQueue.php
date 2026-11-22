@@ -122,8 +122,42 @@ class PushQueue {
         return $res;
     }
 
+    /**
+     * Where a push may go: http(s) only, to a public address. Returns the
+     * curl RESOLVE entry that pins the host to the address checked here (so
+     * DNS can't swap in another one between check and connect), or null when
+     * the target is loopback, private, link-local or reserved (audit item 30:
+     * a registered URL must not aim the server at itself or its network).
+     * Private sim addresses never get here unrewritten when an admin set a
+     * public host for the grid (Grid::rewritePushUrl).
+     */
+    private static function pinnedTarget(string $url): ?string {
+        $p = parse_url($url);
+        $scheme = strtolower((string)($p['scheme'] ?? ''));
+        $host = strtolower(trim((string)($p['host'] ?? ''), '[]'));
+        if (!in_array($scheme, ['http', 'https'], true) || $host === '') return null;
+        $port = (int)($p['port'] ?? ($scheme === 'https' ? 443 : 80));
+
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            $ip = $host;
+        } else {
+            $ip = gethostbyname($host);
+            if ($ip === $host) return null;   // no A record
+        }
+        $public = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+        if ($public === false) return null;
+        return $host . ':' . $port . ':' . (str_contains($ip, ':') ? "[$ip]" : $ip);
+    }
+
     private static function handle(string $url, array $payload, int $timeout) {
-        $ch = curl_init($url);
+        $pin = self::pinnedTarget($url);
+        // A refused target gets a URL curl rejects without connecting, so
+        // callers see an ordinary failure (and the push queues).
+        $ch = curl_init($pin === null ? 'blocked://refused-target/' : $url);
+        curl_setopt($ch, CURLOPT_PROTOCOLS_STR, 'http,https');
+        curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS_STR, 'http,https');
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        if ($pin !== null) curl_setopt($ch, CURLOPT_RESOLVE, [$pin]);
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             // Same flags as json_response(): the HUD's string parser doesn't

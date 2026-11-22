@@ -676,7 +676,10 @@ function renderFishDetail() {
         editField('Fight Power',f.fight_power,v=>updateFish(f.id,{fight_power:v})),
         editField('Fight Stamina',f.fight_stamina,v=>updateFish(f.id,{fight_stamina:v})),
         editField('Base Points',f.base_points,v=>updateFish(f.id,{base_points:v})),
-        editField('Base XP',f.base_xp,v=>updateFish(f.id,{base_xp:v}))
+        // XP is set per rarity (rarity_tiers.base_xp), not per fish
+        h('div',{class:'form-group'},
+          h('label',null,'Base XP'),
+          h('div',{style:{padding:'6px 0'}},String(f.rarity_base_xp ?? '—')+' (set by rarity: '+f.rarity_name+')'))
       )
     )),
 

@@ -41,7 +41,7 @@ foreach ($steps as $label => $sql) {
 try {
     echo "{$stamp} push_queue (>" . PushQueue::MAX_AGE_HOURS . " h): " . PushQueue::sweep() . "\n";
     $r = PrimCallback::cleanupStale();
-    echo "{$stamp} prim_callbacks (stale): {$r['removed_callbacks']} removed, {$r['deactivated_spots']} spots deactivated\n";
+    echo "{$stamp} prim_callbacks (silent " . PrimCallback::FORGET_DAYS . " d): {$r['removed_callbacks']} removed\n";
 } catch (Throwable $e) {
     $failed = true;
     echo "{$stamp} push/prim sweep: FAILED " . $e->getMessage() . "\n";

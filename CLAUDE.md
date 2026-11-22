@@ -206,7 +206,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 
 ### Server push
 - `prim_callbacks` — prim_uuid, prim_type, ref_id, callback_url, region, grid, last_seen
-- Stale callbacks (>90 min no heartbeat) get swept; fishing spots auto-deactivated
+- A prim silent >90 min gets no pushes (they queue until its next heartbeat); rows are forgotten after 7 days. Spots are never switched off by the sweep. Registering (`register_spot_callback`, what FishingSpot sends) needs the prim's own object-key header and an owner who owns the spot
 - Buffs pushed to spot via callback URL; HUD also has callback URL for tutorial events
 
 ### Admin & housekeeping
@@ -267,7 +267,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 - Auto-pair URL with `/pair?uuid=X&code=Y` landing page
 - Spot archive instead of delete, with recovery flow
 - Map: pan/zoom/drag, hop:// URLs, home grid setting
-- Heartbeat system: 30 min interval, server marks inactive after ~90 min silence
+- Heartbeat system: 30 min interval; a prim silent ~90 min stops getting pushes until it checks in again
 - Bar visibility: only XP/Power/Tension shown when relevant
 - Inactive/archived spots don't count toward player's spot limit
 

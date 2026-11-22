@@ -334,7 +334,7 @@ class Admin
 
     public static function listFishSpecies(): array {
         $stmt = db()->query('
-            SELECT fs.*, rt.name AS rarity_name
+            SELECT fs.*, rt.name AS rarity_name, rt.base_xp AS rarity_base_xp
             FROM fish_species fs
             JOIN rarity_tiers rt ON rt.id = fs.rarity_id
             ORDER BY fs.id
@@ -344,7 +344,7 @@ class Admin
 
     public static function updateFish(int $fishId, array $data): array {
         $allowed = ['line_tolerance','min_weight','max_weight','fight_power','fight_stamina',
-                     'fight_speed','fight_unpredictability','base_points','base_xp','is_active'];
+                     'fight_speed','fight_unpredictability','base_points','is_active'];
         $sets = [];
         $params = [':id' => $fishId];
 
@@ -451,21 +451,32 @@ class Admin
 
     public static function listAnnouncements(): array {
         return ['announcements' => db()->query('
-            SELECT a.*, p.display_name AS author
+            SELECT a.id, a.title, COALESCE(a.body, a.message) AS body, a.priority, a.is_active,
+                   a.starts_at, a.expires_at, a.created_at, p.display_name AS author
             FROM announcements a
             LEFT JOIN players p ON p.id = a.created_by
             ORDER BY a.created_at DESC
         ')->fetchAll()];
     }
 
+    /**
+     * The admin panel offers info / warning / urgent; the column is
+     * low / normal / high / urgent. `message` is filled too, for the
+     * `announcements` API that reads it.
+     */
     public static function createAnnouncement(int $adminId, string $title, string $body, string $priority = 'info', ?string $expiresAt = null): array {
+        $map = ['info' => 'normal', 'warning' => 'high', 'urgent' => 'urgent',
+                'low' => 'low', 'normal' => 'normal', 'high' => 'high'];
+        $pri = $map[strtolower(trim($priority))] ?? 'normal';
+        $title = mb_substr(trim($title), 0, 150);
+        $body = trim($body);
         $stmt = db()->prepare('
-            INSERT INTO announcements (title, body, priority, created_by, expires_at)
-            VALUES (:t, :b, :p, :aid, :exp)
+            INSERT INTO announcements (title, body, message, priority, created_by, expires_at, is_active)
+            VALUES (:t, :b, :m, :p, :aid, :exp, 1)
         ');
         $stmt->execute([
-            ':t' => $title, ':b' => $body, ':p' => $priority,
-            ':aid' => $adminId, ':exp' => $expiresAt
+            ':t' => $title, ':b' => $body, ':m' => $title !== '' ? "{$title}: {$body}" : $body,
+            ':p' => $pri, ':aid' => $adminId, ':exp' => ($expiresAt ?: null),
         ]);
         return ['message' => 'Announcement created', 'id' => (int)db()->lastInsertId()];
     }

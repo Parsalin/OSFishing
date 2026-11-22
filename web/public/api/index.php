@@ -1000,7 +1000,8 @@ try {
         case 'announcements':
             $stmt = db()->prepare('
                 SELECT message, priority FROM announcements
-                WHERE starts_at <= UTC_TIMESTAMP() AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())
+                WHERE is_active = 1
+                  AND starts_at <= UTC_TIMESTAMP() AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())
                 ORDER BY priority DESC, id DESC LIMIT 5
             ');
             $stmt->execute();
@@ -1332,6 +1333,13 @@ try {
             $regionName = optional_param('region_name', '');
             $gridName = optional_param('grid_name', '');
             json_success(PrimCallback::register($primUuid, $primType, $callbackUrl, $refId, $regionName, $gridName));
+
+        // What FishingSpot.lsl actually sends (since May 2026; the server
+        // never had it, so no spot was ever registered for pushes).
+        case 'register_spot_callback':
+            json_success(PrimCallback::register(
+                require_param('prim_uuid'), 'fishing_spot', require_param('callback_url'),
+                (int)require_param('spot_id'), optional_param('region', ''), optional_param('grid_name', '')));
 
         case 'unregister_prim_callback':
             $primUuid = require_param('prim_uuid');
