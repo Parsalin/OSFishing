@@ -246,37 +246,91 @@ def ground_hip(q, p):
 
 
 # ── Keyframes → frames ─────────────────────────────────────────────────────
-def smooth(t):
-    return t * t * (3 - 2 * t)
-
-
 NUDGE = qaxis("X", 1.0)
 
 
-def build(keys, only=None):
-    """keys: [(time_s, pose), ...]. only: joint names to animate (others stay T-pose)."""
-    solved = []
-    for t, p in keys:
+def _dot(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+
+def _align(q, ref):
+    return q if _dot(q, ref) >= 0 else tuple(-x for x in q)
+
+
+def build(keys, only=None, loop_from=None, times=None):
+    """Smooth curve through the keyframes, sampled at `times` (default 30 fps).
+
+    keys: [(time_s, pose), ...]. only: joint names to animate (others stay T-pose).
+    loop_from: index of the key the loop restarts at (0 = whole animation), or
+    None for a one-shot. Its pose must equal the last key's, and the curve's
+    speed carries across the seam so the loop has no hitch. A one-shot eases
+    in and out at its ends. Between keys the curve keeps moving (Catmull-Rom),
+    so motion doesn't stop dead at every keyframe.
+    """
+    T = [t for t, _ in keys]
+    Q, H = [], []
+    for _, p in keys:
         q = pose_quats(p)
-        solved.append((t, q, ground_hip(q, p)))
-    total = keys[-1][0]
-    n = int(round(total * FPS)) + 1
+        Q.append(q)
+        H.append(ground_hip(q, p))
+    K = len(keys)
+    if loop_from is not None:
+        a, b = loop_from, K - 1
+        assert all(_dot(Q[a][j], Q[b][j]) ** 2 > 0.999999 for j in Q[a]), "loop ends differ"
+        assert max(abs(x - y) for x, y in zip(H[a], H[b])) < 1e-6, "loop ends differ (hip)"
+
+    def neighbours(k):
+        """(prev, next, time span) for the tangent at key k, or None for a resting end."""
+        if loop_from is not None and k in (loop_from, K - 1):
+            span = (T[K - 1] - T[K - 2]) + (T[loop_from + 1] - T[loop_from])
+            return K - 2, loop_from + 1, span
+        if k == 0 or k == K - 1:
+            return None
+        return k - 1, k + 1, T[k + 1] - T[k - 1]
+
+    def tangent(vals, k, quat):
+        nb = neighbours(k)
+        if nb is None:
+            return tuple(0.0 for _ in vals[k])
+        p, n, span = nb
+        a, b = vals[p], vals[n]
+        if quat:
+            a, b = _align(a, vals[k]), _align(b, vals[k])
+        return tuple((y - x) / span for x, y in zip(a, b))
+
+    MQ = [{j: tangent([q[j] for q in Q], k, True) for j in Q[0]} for k in range(K)]
+    MH = [tangent(H, k, False) for k in range(K)]
+
+    def herm(p0, m0, p1, m1, dt, u):
+        u2, u3 = u * u, u * u * u
+        h00, h10, h01, h11 = 2 * u3 - 3 * u2 + 1, u3 - 2 * u2 + u, -2 * u3 + 3 * u2, u3 - u2
+        return tuple(h00 * a + h10 * dt * b + h01 * c + h11 * dt * d
+                     for a, b, c, d in zip(p0, m0, p1, m1))
+
+    if times is None:
+        times = [f / FPS for f in range(int(round(T[-1] * FPS)) + 1)]
     frames = []
-    for f in range(n):
-        t = f / FPS
+    for t in times:
         k = 0
-        while k < len(solved) - 2 and solved[k + 1][0] <= t:
+        while k < K - 2 and T[k + 1] <= t:
             k += 1
-        t0, q0, h0 = solved[k]
-        t1, q1, h1 = solved[min(k + 1, len(solved) - 1)]
-        u = 0.0 if t1 <= t0 else smooth(max(0.0, min(1.0, (t - t0) / (t1 - t0))))
-        qs = {j: qslerp(q0[j], q1[j], u) for j in q0}
-        hp = tuple(a + (b - a) * u for a, b in zip(h0, h1))
+        dt = T[k + 1] - T[k]
+        u = max(0.0, min(1.0, (t - T[k]) / dt)) if dt > 0 else 0.0
+        qs = {}
+        for j in Q[k]:
+            q0 = Q[k][j]
+            s = 1.0 if _dot(q0, Q[k + 1][j]) >= 0 else -1.0
+            q1 = tuple(s * x for x in Q[k + 1][j])
+            m1 = tuple(s * x for x in MQ[k + 1][j])
+            q = herm(q0, MQ[k][j], q1, m1, dt, u)
+            n = math.sqrt(_dot(q, q))
+            qs[j] = tuple(x / n for x in q)
+        hp = herm(H[k], MH[k], H[k + 1], MH[k + 1], dt, u)
         if only is not None:
             qs = {j: (qs[j] if j in only else QI) for j in qs}
             if "hip" not in only:
                 hp = (0.0, HIP_Y, 0.0)
-        frames.append((hp, qs))
+        frames.append((t, hp, qs))
     if only is None:
         # A bone left at T-pose for the whole animation is dropped from it and
         # stays free for any other animation (AO, stands) to move. Full-body
@@ -284,8 +338,8 @@ def build(keys, only=None):
         # off T-pose for EVERY frame. Decide per bone, never per frame: a moving
         # bone passing through T-pose mid-animation must not snap to the nudge.
         for j in PARENT:
-            if all(abs(qs[j][0]) > 0.99999 for _, qs in frames):
-                for _, qs in frames:
+            if all(abs(qs[j][0]) > 0.99999 for _, _, qs in frames):
+                for _, _, qs in frames:
                     qs[j] = NUDGE
     return frames
 
@@ -317,7 +371,7 @@ def write_bvh(name, frames):
 
     emit("hip", 0)
     ref = ((0.0, HIP_Y, 0.0), {n: QI for n in PARENT})
-    allf = [ref] + frames
+    allf = [ref] + [(hp, qs) for _, hp, qs in frames]
     lines += ["MOTION", f"Frames: {len(allf)}", f"Frame Time: {1.0 / FPS:.6f}"]
     for hp, qs in allf:
         vals = list(hp)
@@ -379,11 +433,10 @@ def anim_charge():
                 lArm=((-0.1, -0.4, 0.9), (-0.65, 0.5, 0.55)),
                 rCollar=(0, 8), rHand=(0, 0, 10),
                 lLeg=((0, -8, 6), 10), rLeg=((0, 10, -6), 6))
-    hold = [(0.5, back)]
-    def f(i, b):
-        s = 1 if i % 2 else -1
+    def f(i, b):   # i = 0 and 4 are the held pose itself, so the hold loops cleanly
+        s = (0, 1, 0, -1, 0)[i]
         return pose(b, chest=(-10, -4 + 0.8 * s, 0))
-    return [(0.0, WAIT)] + hold + wobble(back, 0.7, 1.9, 0.3, f)
+    return [(0.0, WAIT)] + wobble(back, 0.9, 2.5, 0.4, f)   # loop 0.9 → 2.5
 
 
 def anim_cast():
@@ -392,7 +445,7 @@ def anim_cast():
                 rArm=((-0.2, 0.05, 1.0), (0.05, 0.1, 1.0)),
                 lArm=((0.05, -0.5, 0.85), (-0.5, -0.1, 0.85)),
                 lLeg=((0, -14, 6), 12), rLeg=((0, 12, -6), 4))
-    return [(0.0, back), (0.25, snap), (0.6, snap), (1.4, WAIT)]
+    return [(0.0, back), (0.4, snap), (0.75, snap), (1.6, WAIT)]
 
 
 def anim_nibble():
@@ -408,7 +461,7 @@ def anim_yank():
               rArm=((-0.35, -0.3, 0.3), (0.2, 0.95, -0.1)),
               lArm=((0.05, -0.6, 0.6), (-0.7, 0.5, 0.4)),
               **FIGHT_LEGS)
-    return [(0.0, WAIT), (0.15, up), (0.45, up), (1.0, FIGHT)]
+    return [(0.0, WAIT), (0.35, up), (0.65, up), (1.3, FIGHT)]
 
 
 def _fight_loop(b, amp_pitch=3.0, step=0.5, length=2.0, shake=0.0):
@@ -467,7 +520,7 @@ def anim_cheer():
                 rArm=((-0.3, -0.95, 0.1), (-0.05, -0.35, 1.0)),
                 lArm=((0.45, -0.2, 0.4), (0.0, 1.0, 0.1)), lHand=(0, 0, 0))
     up = pose(down, chest=(0, -8, 0), lArm=((0.3, 0.95, 0.05), (0.05, 1.0, 0.0)), lCollar=(0, 8))
-    return [(0.0, WAIT), (0.3, down), (0.55, up), (0.8, down), (1.05, up), (1.3, down), (2.0, WAIT)]
+    return [(0.0, WAIT), (0.45, down), (0.9, up), (1.35, down), (1.8, up), (2.25, down), (2.9, WAIT)]
 
 
 def anim_reel():
@@ -556,11 +609,12 @@ INCH = 0.0254
 HAND_RELAXED, HAND_FIST = 1, 3
 
 # priority 4 = base animation, 5 = plays over a base animation.
-# loop_in is a fraction of the length (the pose from there to the end repeats).
+# loop_in: time (s) of the keyframe the loop restarts at. It must be a keyframe
+# whose pose equals the last one, so the loop joins with no jump.
 #                            priority loop  loop_in ease_in ease_out hand
 SETTINGS = {
     "fishing_wait":             (4, True,  0.0,  0.5, 0.5, HAND_FIST),
-    "fishing_charge":           (4, True,  0.25, 0.3, 0.2, HAND_FIST),
+    "fishing_charge":           (4, True,  0.9,  0.3, 0.2, HAND_FIST),
     "fishing_fight_steady":     (4, True,  0.0,  0.3, 0.3, HAND_FIST),
     "fishing_fight_lean_left":  (4, True,  0.0,  0.3, 0.3, HAND_FIST),
     "fishing_fight_lean_right": (4, True,  0.0,  0.3, 0.3, HAND_FIST),
@@ -572,7 +626,7 @@ SETTINGS = {
     "fishing_nibble":           (5, False, 0.0,  0.1, 0.2, HAND_FIST),
     "fishing_yank":             (5, False, 0.0,  0.1, 0.3, HAND_FIST),
     "fishing_reel":             (5, True,  0.0,  0.2, 0.2, HAND_FIST),
-    "fishing_landed":           (5, True,  0.55, 0.3, 0.5, HAND_FIST),
+    "fishing_landed":           (5, True,  1.6,  0.3, 0.5, HAND_FIST),
     "fishing_disappointed":     (5, False, 0.0,  0.3, 0.5, HAND_FIST),
     "cheer":                    (5, False, 0.0,  0.2, 0.4, HAND_FIST),
     "gather_found":             (5, False, 0.0,  0.2, 0.3, HAND_RELAXED),
@@ -585,16 +639,17 @@ def _u16(v, lo, hi):
 
 
 def write_anim(name, frames):
+    """frames: [(time_s, hip_pos, joint quats), ...] — each one becomes a key."""
     prio, loop, loop_in, ease_in, ease_out, hand = SETTINGS[name]
-    dur = (len(frames) - 1) / FPS
-    times = [_u16(i / FPS, 0.0, dur) for i in range(len(frames))]
+    dur = frames[-1][0]
+    times = [_u16(t, 0.0, dur) for t, _, _ in frames]
     joints = []
     for n, _, _, _ in SKEL:
-        rots = [qs[n] for _, qs in frames]
+        rots = [qs[n] for _, _, qs in frames]
         moves = any(abs(r[0]) < 0.99999 for r in rots)
         pos = []
         if n == "hip":
-            pos = [tuple((a - b) * INCH for a, b in zip(hp, (0.0, HIP_Y, 0.0))) for hp, _ in frames]
+            pos = [tuple((a - b) * INCH for a, b in zip(hp, (0.0, HIP_Y, 0.0))) for _, hp, _ in frames]
             if not any(max(abs(c) for c in p) > 0.0005 for p in pos):
                 pos = []
         if not moves and not pos:
@@ -611,7 +666,8 @@ def write_anim(name, frames):
         joints.append(SL_JOINT[n].encode() + b"\0" + struct.pack("<ii", prio, len(rk)) + b"".join(rk)
                       + struct.pack("<i", len(pk)) + b"".join(pk))
     data = struct.pack("<HHif", 1, 0, prio, dur) + b"\0"
-    data += struct.pack("<ffiffII", loop_in * dur, dur, 1 if loop else 0, ease_in, ease_out, hand, len(joints))
+    data += struct.pack("<ffiffII", loop_in if loop else 0.0, dur, 1 if loop else 0,
+                        ease_in, ease_out, hand, len(joints))
     data += b"".join(joints) + struct.pack("<i", 0)
     path = os.path.join(HERE, name + ".anim")
     with open(path, "wb") as fh:
@@ -619,12 +675,34 @@ def write_anim(name, frames):
     return path, dur, len(joints), len(data)
 
 
+KEY_STEP = 0.1   # .anim key spacing (s); the viewer interpolates between keys
+
+
+def peak_speed(frames):
+    """Fastest any joint turns, in degrees per second."""
+    top = 0.0
+    for (t0, _, a), (t1, _, b) in zip(frames, frames[1:]):
+        for j in a:
+            d = min(1.0, abs(_dot(a[j], b[j])))
+            top = max(top, math.degrees(2 * math.acos(d)) / (t1 - t0))
+    return top
+
+
 if __name__ == "__main__":
     import sys
     _selftest()
     for name, (fn, only) in ANIMS.items():
-        frames = build(fn(), only)
-        path, secs, nj, size = write_anim(name, frames)
+        keys = fn()
+        _, loop, loop_in, _, _, _ = SETTINGS[name]
+        loop_from = None
+        if loop:
+            loop_from = [round(t, 4) for t, _ in keys].index(round(loop_in, 4))
+        dur = keys[-1][0]
+        grid = [i * KEY_STEP for i in range(int(dur / KEY_STEP + 1e-6) + 1)]
+        ktimes = sorted({round(t, 4) for t in grid + [t for t, _ in keys]})
+        path, secs, nj, size = write_anim(name, build(keys, only, loop_from, ktimes))
+        dense = build(keys, only, loop_from)
         if "--bvh" in sys.argv:   # for previewing in Blender
-            write_bvh(name, frames)
-        print(f"{name:26s} prio {SETTINGS[name][0]}  {secs:4.2f}s  {nj:2d} joints  {size:6d} B")
+            write_bvh(name, dense)
+        print(f"{name:26s} prio {SETTINGS[name][0]}  {secs:4.2f}s  {len(ktimes):3d} keys  "
+              f"{nj:2d} joints  {size:6d} B  peak {peak_speed(dense):4.0f} deg/s")

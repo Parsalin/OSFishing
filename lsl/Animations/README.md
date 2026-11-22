@@ -16,7 +16,17 @@ not committed.
 
 ## Format
 
-- Built on the standard SL skeleton, 30 fps, one key per frame.
+- Built on the standard SL skeleton. Each animation is a few hand-set poses
+  (keyframes) joined by a smooth curve that keeps moving through each pose, so
+  motion doesn't stop dead at every keyframe. The `.anim` gets a key every
+  0.1 s plus one at every pose; the viewer fills in between.
+- **Loops join cleanly:** a loop restarts at a keyframe whose pose is the same
+  as the last one, and the curve's speed carries across the seam. The script
+  refuses to build a loop whose ends differ. `fishing_charge` and
+  `fishing_landed` play their start once, then loop the held pose.
+- **Not too fast:** the script prints each animation's fastest joint turn
+  (deg/s). Keep everyday motion under about 400. The hook set (`fishing_yank`,
+  about 530) and the fist pump (`cheer`, about 480) are meant to be snappy.
 - **A bone you don't move is free.** A bone left at the T-pose is left out of
   the animation, so other animations (AO, stands) can still move it. Every
   full-body animation here therefore holds all 19 bones: any bone that would
@@ -41,7 +51,7 @@ animation that's missing.
 | Animation | Goes in | Priority | Loop | What it shows |
 |---|---|---|---|---|
 | `fishing_wait` | FishingHUD | 4 | yes | Idle with the rod held at the waist, breathing sway |
-| `fishing_charge` | FishingHUD | 4 | holds last 75% | Rod wound back over the right shoulder, held (slight tremble) |
+| `fishing_charge` | FishingHUD | 4 | wind-up once, then loops the hold | Rod wound back over the right shoulder, held (slight tremble) |
 | `fishing_fight_steady` | FishingHUD | 4 | yes | Rod up, leaning back, staggered stance, rhythmic tugs |
 | `fishing_fight_lean_left` | FishingHUD | 4 | yes | Fight pose turned and leaning to the avatar's left |
 | `fishing_fight_lean_right` | FishingHUD | 4 | yes | Mirror of lean left |
@@ -53,7 +63,7 @@ animation that's missing.
 | `fishing_nibble` | FishingHUD | 5 | no | Small rod twitch and a lean in to look (over `fishing_wait`) |
 | `fishing_yank` | FishingHUD | 5 | no | Hook set: rod jerked up and back (over the fight poses) |
 | `fishing_reel` | FishingHUD | 5 | yes | Left hand cranking the reel. **Left arm only**; it plays over the fight poses |
-| `fishing_landed` | FishingHUD | 5 | holds last 45% | Rod lowered, fish raised up in the left hand (over the fight poses) |
+| `fishing_landed` | FishingHUD | 5 | raise once, then loops the hold | Rod lowered, fish raised up in the left hand (over the fight poses) |
 | `fishing_disappointed` | FishingHUD | 5 | no | Shoulders slump, head shake (over `fishing_wait`) |
 | `cheer` | FishingHUD | 5 | no | Left-hand fist pump twice. The HUD only *stops* this one today; nothing plays it yet |
 | `gather_found` | BaitGatherPoint | 5 | no | Still squatting, holds the find up to look at it (over `gather_search`) |
