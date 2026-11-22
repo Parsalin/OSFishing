@@ -12,8 +12,12 @@
 // ANIMATIONS: Place these in the object inventory (optional):
 //   "gather_search" — looping search animation
 //   "gather_found"  — brief found animation (plays on each gather)
-// If missing, animations are silently skipped (and the viewer's own sit
-// animation is left playing, so nobody ends up standing in the prim).
+//   "AVhipfix"      — optional, AVsitter's hip-offset fix (played on sit)
+// If gather_search is missing, the normal sit is left playing so nobody
+// ends up standing in the prim. Sit handling follows AVsitter
+// ([AV]sitA.lsl): stop "sit" once when permission comes back, start the
+// new animation before stopping the old one, and a sit target with the
+// viewer's 0.4 m offset taken off.
 //
 // The sitter is placed with their feet on the bottom of this object,
 // whatever their height. An optional third description field moves them
@@ -41,9 +45,7 @@ float   gFloorLocalZ = 0.0;     // Bottom of the object, relative to the root
 float   gHeightAdjust = 0.0;    // Optional 3rd description field (metres)
 integer gFitLeft = 0;           // Re-fit passes left (the sit can settle late)
 
-// The built-in sit animations: what gets stopped by name when this object
-// can't read its own animations' keys (they aren't full perm)
-list    SIT_ANIMS = ["sit", "sit_generic", "sit_female", "sit_ground", "sit_ground_constrained"];
+float   SIT_HALF_HEIGHT = 0.9;      // typical avatar, until fitSitter measures
 
 // ── Config parsing ──
 parseConfig() {
@@ -136,40 +138,25 @@ fitSitter() {
     llSetLinkPrimitiveParamsFast(link, [PRIM_POS_LOCAL, local]);
 }
 
-// Stop everything playing on the sitter except our own animations: the
-// sim's sit, and any sit an AO starts. Run every second while seated,
-// because a sit started after our first stop (sim timing, AOs) would
-// otherwise win: it is the same priority as gather_search.
-clearOtherAnims() {
-    if (gSitter == NULL_KEY) return;
-    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)) return;
-    if (llGetInventoryType("gather_search") != INVENTORY_ANIMATION) return;
-    list ours = [];
-    key k = llGetInventoryKey("gather_search");
-    if (k != NULL_KEY) ours += [k];
-    k = llGetInventoryKey("gather_found");
-    if (k != NULL_KEY) ours += [k];
-    integer i;
-    if (ours == []) {
-        // Keys hidden (not full perm): we can't tell ours apart, so
-        // only the built-in sits are stopped
-        for (i = 0; i < llGetListLength(SIT_ANIMS); ++i)
-            llStopAnimation(llList2String(SIT_ANIMS, i));
-        return;
-    }
-    list playing = llGetAnimationList(gSitter);
-    for (i = 0; i < llGetListLength(playing); ++i) {
-        key a = llList2Key(playing, i);
-        if (llListFindList(ours, [a]) == -1) llStopAnimation((string)a);
-    }
+// Sit target where a typical avatar stands on the object's bottom, as
+// AVsitter sets it: minus the viewer's 0.4 m offset, plus 0.05 up.
+// fitSitter then corrects for the sitter's real height.
+setSitTarget() {
+    vector want = <0.0, 0.0, gFloorLocalZ + SIT_HALF_HEIGHT + gHeightAdjust>;
+    llSitTarget(want - <0.0, 0.0, 0.4> + <0.0, 0.0, 0.05>, ZERO_ROTATION);
 }
 
-// Swap the sit animation for the gather one (only when the gather
-// animation exists, so a bare prim still shows a normal sit)
-startGatherAnim() {
-    if (llGetInventoryType("gather_search") != INVENTORY_ANIMATION) return;
-    llStartAnimation("gather_search");
-    clearOtherAnims();
+// Swap one animation for another the AVsitter way: start the new one
+// first, stop the old one a moment later, so there's never a gap for
+// the default sit or stand to show through.
+swapAnim(string from, string to) {
+    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)) return;
+    if (llGetInventoryType(to) != INVENTORY_ANIMATION) return;
+    llStartAnimation(to);
+    if (from != "" && llGetInventoryType(from) == INVENTORY_ANIMATION) {
+        llSleep(0.2);
+        llStopAnimation(from);
+    }
 }
 
 // ── Register with server ──
@@ -251,13 +238,13 @@ default {
         }
 
         // Set sit target so players can sit
-        llSitTarget(<0.0, 0.0, 0.4>, ZERO_ROTATION);
+        if (llAvatarOnSitTarget() == NULL_KEY) measureFloor();
+        setSitTarget();
         llSetClickAction(CLICK_ACTION_SIT);
 
         // Listen for gather results from HUD
         llListen(-7710006, "", NULL_KEY, "");
 
-        if (llAvatarOnSitTarget() == NULL_KEY) measureFloor();
         updateText();
         registerWithServer();
     }
@@ -351,6 +338,7 @@ default {
                 if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
                     safeStopAnim(gSitter, "gather_search");
                     safeStopAnim(gSitter, "gather_found");
+                    safeStopAnim(gSitter, "AVhipfix");
                 }
 
                 llRegionSayTo(gSitter, -7710006, "GATHER_MSG|Stopped gathering.");
@@ -369,13 +357,22 @@ default {
         }
 
         if (change & CHANGED_SCALE) {
-            if (gSitter == NULL_KEY) measureFloor();
+            if (gSitter == NULL_KEY) {
+                measureFloor();
+                setSitTarget();
+            }
         }
     }
 
     run_time_permissions(integer perm) {
         if (perm & PERMISSION_TRIGGER_ANIMATION) {
-            startGatherAnim();
+            // As AVsitter does: with no gather animation, keep the sit
+            if (llGetInventoryType("gather_search") == INVENTORY_ANIMATION) {
+                llStopAnimation("sit");
+                if (llGetInventoryType("AVhipfix") == INVENTORY_ANIMATION)
+                    llStartAnimation("AVhipfix");
+                llStartAnimation("gather_search");
+            }
             // The sit has settled by the time permissions come back
             fitSitter();
         }
@@ -403,7 +400,6 @@ default {
             --gFitLeft;
             fitSitter();
         }
-        clearOtherAnims();
 
         float now = llGetTime();
 
@@ -418,20 +414,14 @@ default {
             }
 
             // Play found animation briefly
-            if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                safeStopAnim(gSitter, "gather_search");
-                safeStartAnim(gSitter, "gather_found");
-            }
+            swapAnim("gather_search", "gather_found");
 
             // Fire the gather tick — tell the sitter's HUD to call the server
             doGatherTick();
 
             // After a brief pause, go back to search animation
             llSleep(2.0);
-            if (gSitter != NULL_KEY && llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                safeStopAnim(gSitter, "gather_found");
-                startGatherAnim();
-            }
+            if (gSitter != NULL_KEY) swapAnim("gather_found", "gather_search");
 
             scheduleNextGather();
         }
