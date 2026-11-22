@@ -284,6 +284,7 @@ class Quest {
             ');
             $stmt->execute([':pqid' => $pqId, ':qid' => $questId]);
             $requirements = $stmt->fetchAll();
+            $updatesBefore = count($updates);
 
             foreach ($requirements as $req) {
                 // Check if this catch matches the requirement
@@ -329,8 +330,10 @@ class Quest {
                 ];
             }
 
-            // Check if quest is now ready to turn in (all requirements complete)
-            if (!empty($updates)) {
+            // Check if THIS quest is now ready to turn in. (It checked
+            // $updates, which holds every quest's updates, so once any quest
+            // moved, each later complete quest said "Quest ready" again.)
+            if (count($updates) > $updatesBefore) {
                 $allDone = self::checkAllComplete($pqId);
                 if ($allDone) {
                     $updates[] = [

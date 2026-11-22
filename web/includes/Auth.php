@@ -139,8 +139,9 @@ class Auth {
             'samesite' => 'Lax',
         ]);
 
+        // The session lives only in the HttpOnly cookie; returning it in the
+        // JSON too would hand it to any script on the page (audit item 51).
         return [
-            'session_id' => $sessionId,
             'player'     => self::publicPlayerData($player),
         ];
     }

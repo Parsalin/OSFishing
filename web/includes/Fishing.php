@@ -146,6 +146,23 @@ class Fishing {
             json_error('Your level is too low for this fishing spot (requires level ' . (int)$spot['spot_level'] . ')');
         }
 
+        // ── Remote fishing check (audit item 38), LOG-ONLY for now ──
+        // The sim stamps X-SecondLife-Region ("Region Name (x, y)") on every
+        // HUD request; a cast should come from the spot's region on the
+        // spot's grid. Logged so the Logic Log shows whether real casts ever
+        // fail it before it is enforced.
+        $hdrRegion = trim((string)preg_replace('/\s*\(.*$/', '', (string)($_SERVER['HTTP_X_SECONDLIFE_REGION'] ?? '')));
+        $sameRegion = $hdrRegion === '' || strcasecmp($hdrRegion, (string)$spot['region_name']) === 0;
+        $sameGrid = empty($player['grid_name']) || empty($spot['grid_name'])
+            || Grid::identityOf((string)$player['grid_name']) === Grid::identityOf((string)$spot['grid_name']);
+        if (!$sameRegion || !$sameGrid) {
+            LogicErrorLog::log('cast_wrong_region', $playerId,
+                "Cast at spot {$spotId} ({$spot['region_name']}) from region '{$hdrRegion}'", [
+                    'spot_id' => $spotId, 'spot_region' => $spot['region_name'], 'spot_grid' => $spot['grid_name'],
+                    'hud_region' => $hdrRegion, 'hud_grid' => $player['grid_name'] ?? null,
+                ]);
+        }
+
         // ── The previous cast: too soon, or still open (it ends unfinished) ──
         $last = self::lastCast($playerId);
         $sinceLast = $last ? time() - self::utcTs($last['started_at']) : PHP_INT_MAX;
@@ -331,7 +348,6 @@ class Fishing {
 
         // For each roll time, decide if a real fish bites (applying bait + line mods)
         $fishList = [];
-        $rod = ['reel_speed' => 1.0, 'tension_buffer' => 1.0, 'line_strength' => 100.0];
 
         // Check for magnet bait and junk availability
         $isMagnet = (strtolower($bait['name'] ?? '') === 'magnet');

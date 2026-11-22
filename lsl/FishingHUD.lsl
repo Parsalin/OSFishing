@@ -32,7 +32,7 @@ string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 // Script version, "YYYY.MM.DD.NN". Bumped automatically on every edit by
 // .claude/bump_version.ps1 (PostToolUse hook); never edit it by hand.
 // Sent with every hud_status and shown under Settings > devices.
-string  HUD_VERSION = "2026.11.21.01";
+string  HUD_VERSION = "2026.11.21.02";
 
 // ── Pairing State (lives only in script memory) ──
 integer gTokenId      = 0;
@@ -3009,6 +3009,14 @@ default {
         if (ch == CH_SPOT_TO_HUD) {
             list parts = llParseString2List(msg, ["|"], []);
             if (llList2String(parts, 0) == "SPOT") {
+                // Only a spot that is really here (audit item 38): any object
+                // in the region could otherwise point us at a spot id far
+                // away. The sender must be near us, and must be where it
+                // says the spot is.
+                if (!isNear(id, 64.0)) return;
+                list od = llGetObjectDetails(id, [OBJECT_POS]);
+                vector claimed = <(float)llList2String(parts, 3), (float)llList2String(parts, 4), (float)llList2String(parts, 5)>;
+                if (llGetListLength(od) == 0 || llVecDist(llList2Vector(od, 0), claimed) > 10.0) return;   // 10 m: the script may sit in a child prim
                 // Mid-cast, stay on the spot we cast at: the catch is
                 // reported against gCurrentSpotId.
                 integer newSpot = (integer)llList2String(parts, 1);

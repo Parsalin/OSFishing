@@ -261,15 +261,15 @@ try {
 
         case 'spot_register':
             // Check grid approval
-            $gridName = optional_param('grid_name', '');
+            $gridName = require_param('grid_name');   // required: leaving it out skipped the approval check (audit 41)
             SimOrigin::allow($action, (string)optional_param('owner_key', ''), (string)$gridName);
-            if ($gridName !== '') Grid::requireApproved($gridName);
+            Grid::requireApproved($gridName);
             json_success(PairingAuth::registerSpot($_POST));
 
         case 'spot_setup_info':
             $uuid = require_param('uuid');
-            $gridName = optional_param('grid_name', '');
-            if ($gridName !== '') Grid::requireApproved($gridName);
+            $gridName = require_param('grid_name');   // required: leaving it out skipped the approval check (audit 41)
+            Grid::requireApproved($gridName);
             json_success(PairingAuth::getSpotSetupInfo($uuid));
 
         case 'spot_archived_list':
@@ -286,8 +286,8 @@ try {
             $posY = (float)require_param('pos_y');
             $posZ = (float)require_param('pos_z');
             $region = require_param('region');
-            $gridName = optional_param('grid_name', '');
-            if ($gridName !== '') Grid::requireApproved($gridName);
+            $gridName = require_param('grid_name');   // required: leaving it out skipped the approval check (audit 41)
+            Grid::requireApproved($gridName);
             json_success(PairingAuth::restoreSpot($uuid, $spotId, $primUuid, $posX, $posY, $posZ, $region, $gridName));
 
         case 'spot_update':
@@ -448,13 +448,18 @@ try {
             $username = require_param('username');
             $password = require_param('password');
             $displayName = optional_param('display_name', '');
+            // The 6-digit code is the only proof of the avatar: cap guesses
+            // per avatar and per address, as web_pair_claim does (audit 44).
+            $regKey = 'reg:' . strtolower(trim($uuid));
+            Throttle::check($regKey, 10, 30, 15, 'Too many wrong codes. Wait 15 minutes and try again.');
+            Throttle::hit($regKey);
             json_success(PairingAuth::webRegister($uuid, $code, $username, $password, $displayName));
 
         case 'pair_request':
             $uuid = require_param('uuid');
-            $gridName = optional_param('grid_name', '');
+            $gridName = require_param('grid_name');   // required: leaving it out skipped the approval check (audit 41)
             SimOrigin::allow($action, $uuid, (string)$gridName);
-            if ($gridName !== '') Grid::requireApproved($gridName);
+            Grid::requireApproved($gridName);
             // Each request voids the avatar's older codes, so unlimited
             // requests would let anyone keep a player from ever pairing.
             $preqKey = 'preq:' . strtolower(trim($uuid));
@@ -1020,7 +1025,10 @@ try {
             $pid = null; $pname = null;
             try { $p = AuthEmbed::requireWeb(); $pid = (int)$p['id']; $pname = $p['display_name'] ?? $p['username'] ?? null; } catch (\Throwable $e) {}
             $q = require_param('question');
-            json_success(FAQ::submitQuestion($pid, $pname, $q));
+            $qKey = 'question:' . ($pid ?: 'anon');
+            Throttle::check($qKey, 5, 10, 60, 'You have sent several questions already. Please wait for an answer.');
+            Throttle::hit($qKey);
+            json_success(FAQ::submitQuestion($pid, $pname, mb_substr($q, 0, 2000)));
 
         case 'admin_list_questions':
             Admin::requireAdmin();
@@ -1611,7 +1619,9 @@ try {
 } catch (PDOException $e) {
     error_log("Fishing API DB Error: " . $e->getMessage());
     json_error('A database error occurred', 500);
-} catch (\Exception $e) {
-    error_log("Fishing API Error: " . $e->getMessage());
+} catch (\Throwable $e) {
+    // \Throwable, not \Exception: a TypeError (an array where a string was
+    // expected, from a crafted request) used to escape as a blank 500.
+    error_log("Fishing API Error: " . get_class($e) . ': ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
     json_error('An internal error occurred', 500);
 }

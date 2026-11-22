@@ -43,9 +43,13 @@ stale by definition. Full details: `deploy/SERVER-HANDOFF.md`.
 git push
 ssh -i ~/.ssh/osfishing_deploy osfishing@flamesfall.net 'bash /var/www/osfishing/repo/deploy/deploy.sh main'
 ```
-`deploy.sh` syncs the whole tree (never copy single files), `php -l`s it, runs
-`bin/migrate.php`, then reloads PHP-FPM. A failed migration stops the deploy
-before the reload. Schema changes are only ever made by a new file in
+`deploy.sh` `php -l`s the repo tree and runs its `bin/migrate.php` (live
+config via a gitignored symlink) BEFORE syncing, then syncs the whole tree
+(never copy single files) and reloads PHP-FPM. OPcache revalidates
+timestamps, so the sync is what puts code live; a failed check or migration
+stops the deploy with the old code still serving. Migrations therefore run
+while the old code is live: they must keep it working (add now, drop in a
+later deploy). Schema changes are only ever made by a new file in
 `web/migrations/versioned/` (PHP returning `function (PDO $pdo): void`, named
 `YYYY_MM_DD_NN_what.php`, idempotent) — never by hand on the server.
 `php bin/migrate.php --status` lists pending ones.
@@ -329,7 +333,9 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
   checks, never normal gameplay. Categories in use: `sim_origin_mismatch`,
   `inworld_unverified` (InWorldAuth header checks, log-only; audit item 1),
   `catch_refused` (confirm_catch refused: replayed token, landed before the
-  bite, cast closed or too old).
+  bite, cast closed or too old), `cast_wrong_region` (a cast from a region or
+  grid other than the spot's, per the sim's `X-SecondLife-Region` header;
+  log-only, audit item 38).
   Add a row here when adding a category. Neither helper ever throws.
 
 ## Repo layout

@@ -354,6 +354,14 @@ class PairingAuth {
             json_error('Account banned', 403);
         }
 
+        // A grid denied after its HUDs paired: those HUDs stop here (audit
+        // item 41). Matched by grid identity, so every host of the grid counts.
+        if (!empty($row['grid_name'])) {
+            $g = db()->prepare("SELECT 1 FROM grids WHERE status = 'denied' AND " . Grid::sameGridSql('grid_name', ':gi') . ' LIMIT 1');
+            $g->execute([':gi' => Grid::identityOf((string)$row['grid_name'])]);
+            if ($g->fetchColumn()) json_error('This grid is not authorized for OSFishing.', 403);
+        }
+
         // The token belongs to the avatar that paired it. (Tokens from before
         // linked avatars have avatar_uuid backfilled to the account's uuid.)
         $tokenAvatar = strtolower((string)($row['avatar_uuid'] ?: $row['uuid']));
@@ -376,15 +384,19 @@ class PairingAuth {
         }
 
         // Verify nonce is greater than last seen (replay protection)
+        // Far behind = a stale copy of the HUD (an older copy rezzed again):
+        // 401 makes it re-pair. Just behind = two requests the HUD sent
+        // together arriving out of order (line_break + reel_in): 409, so the
+        // HUD does not throw away a good pairing over it.
         if ($nonce <= (int)$row['last_nonce']) {
-            json_error('Invalid nonce (replay detected)', 401);
+            json_error('Invalid nonce (replay detected)', ((int)$row['last_nonce'] - $nonce) > 20 ? 401 : 409);
         }
 
         // Verify signature — SHA256 of message + token
         $message  = "{$uuid}:{$timestamp}:{$nonce}:{$action}:{$row['token']}";
         $expected = hash('sha256', $message);
         if (!hash_equals($expected, $signature)) {
-            error_log("Sig mismatch: action={$action} expected={$expected} got={$signature}");
+            error_log("Sig mismatch: action={$action} token_id={$tokenId}");   // never log the expected signature
             json_error('Invalid signature', 401);
         }
 
@@ -425,16 +437,22 @@ class PairingAuth {
                        WHERE player_id = :pid AND id != :tid AND revoked_at IS NULL')
             ->execute([':pid' => $playerId, ':tid' => $tokenId]);
 
-        // Update this token: active, last nonce, last used
+        // Update this token: active, last nonce, last used. The nonce is
+        // claimed atomically (audit item 52): two copies of one signed request
+        // arriving together both passed the read above; only one wins here.
         $stmt = $pdo->prepare('
             UPDATE hud_tokens SET is_active = 1, last_nonce = :n, last_used = UTC_TIMESTAMP(), last_ip = :ip
-            WHERE id = :tid
+            WHERE id = :tid AND last_nonce < :n2
         ');
         $stmt->execute([
             ':n'   => $nonce,
+            ':n2'  => $nonce,
             ':ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
             ':tid' => $tokenId,
         ]);
+        if ($stmt->rowCount() !== 1) {
+            json_error('Invalid nonce (replay detected)', 409);   // not 401: that makes the HUD drop its pairing
+        }
         // Record the grid an avatar plays from, the first time it's known.
         // Account recovery only trusts an avatar on the grid it's linked on.
         $pdo->prepare('UPDATE player_uuids SET last_used_at = UTC_TIMESTAMP(),
@@ -784,6 +802,30 @@ class PairingAuth {
         }
 
         if ($existing) {
+            // Only its owner (or an admin) may re-register a spot: this used
+            // to rewrite whatever active spot sat within 3 m (audit item 39).
+            $stmt = $pdo->prepare('SELECT player_id, is_system, is_active FROM fishing_spots WHERE id = :id');
+            $stmt->execute([':id' => $existing['id']]);
+            $cur = $stmt->fetch();
+            $mine = !(int)$cur['is_system'] && (int)$cur['player_id'] === $playerId;
+            if (!$mine && !$isAdmin) {
+                json_error('Another fishing spot is already registered here.', 403);
+            }
+            if (!$isAdmin) $isSystem = (int)$cur['is_system'];
+
+            // Switching it on counts toward the spot limit, as a new spot does
+            if ($activate && !(int)$cur['is_active'] && !$isSystem) {
+                $stmt = $pdo->prepare('
+                    SELECT COUNT(*) FROM fishing_spots
+                    WHERE player_id = :pid AND is_system = 0 AND archived = 0 AND is_active = 1 AND id <> :id
+                ');
+                $stmt->execute([':pid' => $playerId, ':id' => $existing['id']]);
+                $limit = self::computeSpotLimit($playerLevel, $spotOverride);
+                if ((int)$stmt->fetchColumn() >= $limit) {
+                    json_error("Active spot limit reached ({$limit}). Deactivate or archive a spot, or level up for more.", 403);
+                }
+            }
+
             $stmt = $pdo->prepare('
                 UPDATE fishing_spots
                 SET name = :n, water_type_id = :wt, grid_name = :gn,

@@ -269,24 +269,27 @@ hand-made request, can farm or wreck something.
   `is_public`, so a private spot is fishable by id. Fix: compare region + grid
   to the spot's (log-only first), honour `is_public`, check the sender in the
   HUD listen.
-- [ ] **39. Re-registering near someone else's spot rewrites it.**
+  **Partly fixed 2026-11-21:** `is_public` was a misreading — private spots are fishable by design ("works, but isn't shown on the map"). Cast region / grid vs the spot is checked LOG-ONLY (Logic Log `cast_wrong_region`); enforce once it shows no real casts failing. The HUD (needs the new HUD) accepts `SPOT|` only from an object within 64 m that is where it says the spot is.
+- [x] **39. Re-registering near someone else's spot rewrites it.**
   `PairingAuth::registerSpot` updates any active spot within 3 m without
   checking the owner, and that path sets `is_active` without the spot-limit
   check. `ShopSystem::registerShop` does the same by region only (no grid, no
   owner).
+  **Fixed 2026-11-21:** spots and shops re-register only for their owner or an admin; switching a spot on that way counts toward the limit; shops matched by grid (28).
 - [x] **40. `InWorldAuth` owner rule checks the wrong key.** It passes when
   `isAdmin($uuid)` — the *claimed* actor — so once enforced, any request that
   claims the admin's UUID passes. Should be `isAdmin($ownerKey)`. Also add the
   missing unauthenticated actions: `shop_register_listing`,
   `register_prim_callback`, `unregister_prim_callback`, `prim_heartbeat`.
   **Fixed 2026-11-21:** checks `isAdmin($ownerKey)`. Vendor listings and prim callbacks check their own headers (28, 30).
-- [ ] **41. Grid approval is fail-open and client-claimed.** `pair_request`,
+- [x] **41. Grid approval is fail-open and client-claimed.** `pair_request`,
   `spot_register`, `spot_setup_info`, `spot_restore` skip `requireApproved`
   when `grid_name` is left out; `grid_name` is only a parameter, so a denied
   grid's script can claim an approved host (SimOrigin is log-only). Denying a
   grid doesn't stop HUDs already paired there (`requireHUD` never checks the
   token's grid). Fix: require `grid_name`, check grid status in `requireHUD`,
   enforce SimOrigin once clean.
+  **Fixed 2026-11-21:** `grid_name` required for pair_request / spot_register / spot_setup_info / spot_restore; `requireHUD` refuses tokens on a denied grid. SimOrigin is still log-only.
 - [x] **42. Check-then-write races (double rewards).** Quest `claimRewards` /
   `completeQuest` (double-click, or HUD + web, pays twice),
   `confirmSpotLevelUp` (two levels), `Butcher::butcher` (double chunks),
@@ -302,9 +305,11 @@ hand-made request, can farm or wreck something.
   session per use. Fix: one-time exchange code, reject future `ts`,
   `history.replaceState` to strip it, `Referrer-Policy: no-referrer`, don't
   log that query string.
-- [ ] **44. `web_register` isn't throttled.** The 6-digit code for a known
+  **Partly fixed 2026-11-21:** `Referrer-Policy: same-origin` (49) keeps the URL from other sites. Still to do: one-time exchange code, reject a future `ts`, strip it with `history.replaceState`, keep it out of the access log.
+- [x] **44. `web_register` isn't throttled.** The 6-digit code for a known
   UUID can be guessed with no attempt cap to squat a new player's avatar.
   Use `Throttle` as `web_pair_claim` does.
+  **Fixed 2026-11-21:** `Throttle` 10 per avatar / 30 per address per 15 min.
 - [x] **45. The web shop sells bait it shouldn't.** `Shop::buyBait` ignores
   `shop_enabled` and bait `min_level`: Glow Grubs (gather-only), Magnet
   (level 8), and Fish Chunks at price 0 (free). HUD `shop_buy_bait` skips the
@@ -317,28 +322,34 @@ hand-made request, can farm or wreck something.
 
 ## 🟡 Medium
 
-- [ ] **47. Deploy isn't atomic.** rsync puts new code live *before*
+- [x] **47. Deploy isn't atomic.** rsync puts new code live *before*
   migrations, and `opcache.validate_timestamps = 1`, so a failed migration
   leaves new code running on the old schema (CLAUDE.md says the opposite).
   Fix: migrate from the repo tree first, or release dirs + symlink swap.
+  **Fixed 2026-11-21:** syntax check and migrations run from the repo tree before the sync; deploy.sh re-execs itself after the fetch.
 - [ ] **48. Backups and jobs fail silently, on one box.** Off-site copy still
   missing (item 3). Backup and sweep failures only reach `~/logs`; raise an
   admin alert.
-- [ ] **49. No HTTP hardening.** `osfishing-limits.conf` has routing only —
+  **Partly fixed 2026-11-21:** backup.sh and sweep.php raise an admin alert on failure (`bin/alert.php`). Off-site copy still missing (item 3).
+- [x] **49. No HTTP hardening.** `osfishing-limits.conf` has routing only —
   no `limit_req` anywhere. No HSTS, `X-Content-Type-Options`,
   `frame-ancestors` / `X-Frame-Options` (the admin panel is frameable),
   `Referrer-Policy`.
-- [ ] **50. Error handling and partial writes.** The router catches
+  **Fixed 2026-11-21:** server-level `limit_req` 20 r/s burst 80 (zone in `/etc/nginx/conf.d/osfishing-ratelimit.conf`), HSTS, nosniff, X-Frame-Options + `frame-ancestors 'self'`, Referrer-Policy. Verified live (429 past the burst).
+- [x] **50. Error handling and partial writes.** The router catches
   `\Exception`, not `\Throwable`, so TypeErrors (`web_quest_turnin` with a
   non-array `fish_ids`, a JSON body putting arrays into `trim()`) give blank
   500s. Multi-step writes with no transaction: `confirmCatch`, ShopSystem,
   Butcher, craft, GatherPoint, `webRegister`'s starter kit.
+  **Fixed 2026-11-21:** router catches `\Throwable`; confirmCatch, ShopSystem, Butcher, craft and GatherPoint are transactions. `webRegister`'s starter kit is not yet.
 - [ ] **51. Session / credential hygiene.** `webLogin` returns `session_id`
   in the JSON (undoes HttpOnly); sessions are stored raw (could be sha256 like
   login tokens); `requireHUD` logs the *expected* signature on a mismatch.
-- [ ] **52. Nonce check isn't atomic.** Two requests can read the same
+  **Partly fixed 2026-11-21:** `session_id` no longer in the login JSON; the expected signature is no longer logged. Sessions are still stored raw.
+- [x] **52. Nonce check isn't atomic.** Two requests can read the same
   `last_nonce`; use `UPDATE … SET last_nonce = :n WHERE id = :t AND
   last_nonce < :n` and check `rowCount()`.
+  **Fixed 2026-11-21:** the nonce is claimed with `WHERE last_nonce < :n` + rowCount. Replays now return 409 when just behind (two requests sent together, out of order) so the HUD keeps its pairing, 401 only when far behind (a stale HUD copy).
 - [ ] **53. The schedule reveals every fish before it bites.** `cast` and
   `roll_minute` return species, weight and rarity for every bite up front, so
   a scripted HUD can skip commons. Send times + an opaque id; reveal on hook.
@@ -347,13 +358,14 @@ hand-made request, can farm or wreck something.
 - [ ] **54. "Same region" without the grid.** Leaderboard `sim` scope
   (`byWeight`, `byCatches`, `buildSubqueryWhere`); `bait_gather_points` has no
   grid column at all; `registerShop` / `registerPoint` position matches.
-- [ ] **55. Indexes and query cost.** `catch_log` has no `spot_id` index, yet
+- [x] **55. Indexes and query cost.** `catch_log` has no `spot_id` index, yet
   per-spot `COUNT(*)` subqueries run per row (spot leaderboard, archived list,
   spot page) — add `(spot_id, caught_at)`. Duplicate indexes:
   `hud_tokens.token` ×2, `players.username` ×2, `players.uuid` ×2.
   `rollFishFromPool` queries `rarity_tiers` and one affinity row per fish per
   roll (N+1).
   **Partly fixed 2026-11-21:** the per-fish affinity / rarity N+1 in the roll is gone (one query each per schedule). Indexes still to do.
+  **Indexes fixed 2026-11-21:** migration `2026_11_21_04` adds `catch_log (spot_id, caught_at)` and drops the duplicate token / uuid / username indexes.
 - [x] **56. Tables that only grow.** The sweep skips `logic_error_log`,
   `admin_alerts`, `admin_object_log`, `spot_xp_daily`, `gather_cooldowns`,
   `daily_purchase_limits`.
@@ -362,6 +374,7 @@ hand-made request, can farm or wreck something.
   routes register any `grid_name` string (no format or length check) → grid
   rows and daily pending alerts; `submit_question` has no throttle;
   `spot_list_junk` / `web_spot_detail` show private spots' position and junk.
+  **Partly fixed 2026-11-21:** grid names must be `host[:port]` (`Grid::findOrRegister`); `submit_question` throttled (5 an hour) and capped at 2,000 characters. Private spots' position / junk on the spot page: still open (decide what a private spot hides).
 
 ## ⚪ Low / data / docs
 
@@ -369,6 +382,7 @@ hand-made request, can farm or wreck something.
   (no FK on `equipped_bait_id`). 1,589 migrated catches have `spot_id` NULL —
   old spots weren't brought over, so per-spot history from the old server is
   gone (recoverable from `deploy/old-server-capture/`?).
+  **Partly fixed 2026-11-21:** migration `2026_11_21_05` clears equipped bait that doesn't exist. The 1,589 catches with no spot are still unresolved.
 - [ ] **59. Hard-coded ids.** Starter bait 9, Cut Bait 5, water types 1–4 in
   the junk / line-break XP tables, rarity ids in recipes. Look up by name.
 - [ ] **60. Time.** `date('G')` / `date('n')` in Fishing and Quest (UTC via
@@ -384,6 +398,7 @@ hand-made request, can farm or wreck something.
   `MAX_BAIT_STACK`; `buyBait` charges full price when the 999 cap eats the
   bait; cut / butcher / craft mark fish `sold` (skews sold stats); legacy
   columns `players.setup_token` / `token_expires`.
+  **Partly fixed 2026-11-21:** `trackCatch` "Quest ready" repeat; `MAX_BAIT_STACK` on butcher / gather / vendor; web shop no longer charges for bait the cap would eat. Still open: timed quests after expiry, `sold` status for butcher / craft, legacy columns.
 
 ## Suggested order
 

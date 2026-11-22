@@ -70,6 +70,10 @@ class Grid
     public static function findOrRegister(string $gridName): ?array {
         $gridName = trim($gridName);
         if ($gridName === '') return null;
+        // A sim hostname with an optional port, nothing else: unauthenticated
+        // callers can name any grid, and each new one is a row plus a daily
+        // pending alert (audit item 57).
+        if (!preg_match('/^[A-Za-z0-9.-]{1,100}(:[0-9]{1,5})?$/', $gridName)) return null;
         $pdo = db();
 
         $row = self::findByName($gridName);
