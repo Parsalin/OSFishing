@@ -9,12 +9,124 @@ require_once __DIR__ . '/bootstrap.php';
 
 class Fishing {
 
+    // ── Cast record (fishing_casts) ──────────────────────────────────────
+    // `cast` opens a row; roll_minute, confirm_catch, line_break and
+    // reel_in must all match the player's open cast. The row fixes the spot,
+    // bait, line and power at cast time, and closing it is what makes a
+    // catch token single-use. Only the server decides bait use.
+    private const CAST_KEEP       = 100;  // casts kept per player
+    private const CAST_MAX_AGE    = 900;  // s: the HUD's 5-min idle cutoff + missed bites + a long fight
+    private const CAST_MAX_MINUTE = 6;    // the HUD gives up during minute 5
+    private const MINUTE_MIN_GAP  = 50;   // s between roll_minute calls (the HUD waits 60)
+    private const CAST_MIN_GAP    = 2;    // s between two casts
+    private const CAST_XP_GAP     = 15;   // s: a cast this soon after the last earns no cast XP
+    private const LAND_MIN_SECS   = 2;    // s: earliest landing after the bite
+    private const CAST_WEIGHT_BONUS = 0.10;  // full-power cast: +10 % weight
+
+    /** Unix time of a stored UTC DATETIME. */
+    private static function utcTs(?string $dt): int {
+        return $dt ? (int)strtotime($dt . ' UTC') : 0;
+    }
+
+    /** The player's newest cast (any status), or null. */
+    private static function lastCast(int $playerId): ?array {
+        $stmt = db()->prepare('SELECT * FROM fishing_casts WHERE player_id = :pid ORDER BY id DESC LIMIT 1');
+        $stmt->execute([':pid' => $playerId]);
+        return $stmt->fetch() ?: null;
+    }
+
+    /** The player's open cast, or null. A cast left open too long is closed here. */
+    private static function openCast(int $playerId): ?array {
+        $cast = self::lastCast($playerId);
+        if (!$cast || $cast['status'] !== 'open') return null;
+        if (time() - self::utcTs($cast['started_at']) > self::CAST_MAX_AGE) {
+            self::closeCast($cast, 'reeled');
+            return null;
+        }
+        return $cast;
+    }
+
+    /**
+     * Close an open cast that ended without a catch and settle its bait:
+     * a broken line takes the bait; otherwise 10 % inside the first minute,
+     * 90 % after. Returns null when the cast was already closed (another
+     * request got there first), else ['consumed' => bool].
+     */
+    private static function closeCast(array $cast, string $status): ?array {
+        $pdo = db();
+        $stmt = $pdo->prepare("
+            UPDATE fishing_casts SET status = :s, ended_at = UTC_TIMESTAMP()
+            WHERE id = :id AND status = 'open'
+        ");
+        $stmt->execute([':s' => $status, ':id' => $cast['id']]);
+        if ($stmt->rowCount() !== 1) return null;
+
+        if ($status === 'broken') {
+            $consume = true;
+        } else {
+            $elapsed = time() - self::utcTs($cast['started_at']);
+            $consume = mt_rand(1, 100) <= ($elapsed < 60 ? 10 : 90);
+        }
+        $consumed = $consume && $cast['bait_id'] && self::useBait((int)$cast['player_id'], (int)$cast['bait_id']);
+        if ($consumed) {
+            $pdo->prepare('UPDATE fishing_casts SET bait_consumed = 1 WHERE id = :id')
+                ->execute([':id' => $cast['id']]);
+        }
+        return ['consumed' => $consumed];
+    }
+
+    /** Take one bait. False if the player had none left. */
+    private static function useBait(int $playerId, int $baitId): bool {
+        $stmt = db()->prepare('
+            UPDATE player_bait SET quantity = quantity - 1
+            WHERE player_id = :pid AND bait_id = :bid AND quantity > 0
+        ');
+        $stmt->execute([':pid' => $playerId, ':bid' => $baitId]);
+        return $stmt->rowCount() === 1;
+    }
+
+    /** Keep only the player's newest CAST_KEEP casts. */
+    private static function pruneCasts(int $playerId): void {
+        db()->prepare('
+            DELETE FROM fishing_casts WHERE player_id = :pid AND id < (
+                SELECT id FROM (
+                    SELECT id FROM fishing_casts WHERE player_id = :pid2
+                    ORDER BY id DESC LIMIT 1 OFFSET ' . (self::CAST_KEEP - 1) . '
+                ) AS keep_from
+            )
+        ')->execute([':pid' => $playerId, ':pid2' => $playerId]);
+    }
+
+    /** Remember the earliest real bite handed out on this cast (line_break needs one). */
+    private static function noteFirstBite(int $castId, ?int $biteAt): void {
+        if ($biteAt === null) return;
+        db()->prepare('
+            UPDATE fishing_casts
+            SET first_bite_at = LEAST(COALESCE(first_bite_at, :t1), :t2)
+            WHERE id = :id
+        ')->execute([':t1' => gmdate('Y-m-d H:i:s', $biteAt), ':t2' => gmdate('Y-m-d H:i:s', $biteAt), ':id' => $castId]);
+    }
+
+    /** The bait row (with the player's quantity) for a cast; json_error if none is left. */
+    private static function castBait(int $playerId, int $baitId): array {
+        $stmt = db()->prepare('
+            SELECT pb.quantity, bt.*
+            FROM player_bait pb
+            JOIN bait_types bt ON bt.id = pb.bait_id
+            WHERE pb.player_id = :pid AND pb.bait_id = :bid
+        ');
+        $stmt->execute([':pid' => $playerId, ':bid' => $baitId]);
+        $bait = $stmt->fetch();
+        if (!$bait || (int)$bait['quantity'] <= 0) {
+            json_error('No bait remaining. Equip different bait.');
+        }
+        return $bait;
+    }
+
     /**
      * Process a cast request.
-     * Validates bait, determines what fish will bite, and returns
-     * all data the HUD needs to run the fishing session.
-     *
-     * Called when the player releases the power bar.
+     * Opens the cast record (closing any unfinished one), then returns the
+     * first minute's bite schedule. Called when the player releases the power bar.
      */
     public static function cast(array $player, int $spotId, float $castPower): array {
         $pdo = db();
@@ -34,24 +146,22 @@ class Fishing {
             json_error('Your level is too low for this fishing spot (requires level ' . (int)$spot['spot_level'] . ')');
         }
 
+        // ── The previous cast: too soon, or still open (it ends unfinished) ──
+        $last = self::lastCast($playerId);
+        $sinceLast = $last ? time() - self::utcTs($last['started_at']) : PHP_INT_MAX;
+        if ($sinceLast < self::CAST_MIN_GAP) {
+            json_error('Your line is still in the air. Cast again in a moment.');
+        }
+        if ($last && $last['status'] === 'open') {
+            self::closeCast($last, 'replaced');
+        }
+
         // ── Validate equipped bait ──
-        $baitId = $player['equipped_bait_id'];
+        $baitId = (int)$player['equipped_bait_id'];
         if (!$baitId) {
             json_error('No bait equipped');
         }
-
-        $stmt = $pdo->prepare('
-            SELECT pb.quantity, bt.*
-            FROM player_bait pb
-            JOIN bait_types bt ON bt.id = pb.bait_id
-            WHERE pb.player_id = :pid AND pb.bait_id = :bid
-        ');
-        $stmt->execute([':pid' => $playerId, ':bid' => $baitId]);
-        $bait = $stmt->fetch();
-
-        if (!$bait || (int)$bait['quantity'] <= 0) {
-            json_error('No bait remaining. Equip different bait.');
-        }
+        $bait = self::castBait($playerId, $baitId);
 
         // ── Equipped line ──
         $line = Line::getEquipped($playerId);
@@ -59,30 +169,39 @@ class Fishing {
             json_error('No line equipped. Visit the Tackle page to equip a line.');
         }
 
-        // ── Cast distance (just a display value now, rod is cosmetic) ──
+        // ── Cast distance (display; the rod is cosmetic) ──
         $castPower = max(MIN_CAST_POWER, min(1.0, $castPower));
-        $castDistance = round($castPower * 25.0, 1);  // Static cast range
+        $castDistance = round($castPower * 25.0, 1);
 
-        // ── Record cast ──
+        // ── Record the cast ──
+        $now = time();
+        $nowDt = gmdate('Y-m-d H:i:s', $now);
+        $pdo->prepare('
+            INSERT INTO fishing_casts
+                (player_id, spot_id, bait_id, line_id, cast_power, cast_distance, started_at, minute_issued_at)
+            VALUES (:pid, :sid, :bid, :lid, :pw, :cd, :t1, :t2)
+        ')->execute([
+            ':pid' => $playerId, ':sid' => $spotId, ':bid' => $baitId, ':lid' => (int)$line['id'],
+            ':pw' => $castPower, ':cd' => $castDistance, ':t1' => $nowDt, ':t2' => $nowDt,
+        ]);
+        $castId = (int)$pdo->lastInsertId();
+        self::pruneCasts($playerId);
+
         Player::incrementCasts($playerId);
-        Player::awardXP($playerId, XP_PER_CAST);
+        if ($sinceLast >= self::CAST_XP_GAP) {
+            Player::awardXP($playerId, XP_PER_CAST);
+        }
 
-        // ── Generate a schedule of roll opportunities for minute 1 (2-4 rolls over 60s) ──
+        // ── Minute 1: 2-4 roll opportunities over 60 s ──
         $schedule = self::generateMinuteSchedule(
-            (int)$spot['water_type_id'],
-            $spotId,
-            $bait,
-            $line,
-            $player,
-            1  // minute number
+            (int)$spot['water_type_id'], $spotId, $bait, $line, $player, 1,
+            ['id' => $castId, 'power' => $castPower, 'issued' => $now]
         );
-
-        // ── Create a cast session record so subsequent roll requests can authenticate ──
-        $castToken = self::generateCastToken($playerId, $spotId);
+        self::noteFirstBite($castId, $schedule['first_bite']);
 
         return [
             'cast_distance' => $castDistance,
-            'cast_token'    => $castToken,
+            'cast_id'       => $castId,
             'schedule'      => $schedule['times'],       // [12.4, 34.1, 51.0] seconds
             'schedule_fish' => $schedule['fish'],         // [null, {species_id, name, weight, ...}, null]
             'minute'        => 1,
@@ -97,10 +216,31 @@ class Fishing {
     }
 
     /**
-     * Request next minute's schedule (called by HUD after 60s with no catch).
+     * Next minute's schedule (the HUD asks every 60 s with no catch).
+     * Only for the open cast, only the next minute, and not early.
      */
     public static function rollMinute(int $playerId, int $spotId, int $minute): array {
         $pdo = db();
+
+        $cast = self::openCast($playerId);
+        if (!$cast) {
+            json_error('Your line is out of the water. Cast again.');
+        }
+        $prev = (int)$cast['last_minute'];
+        if ((int)$cast['spot_id'] !== $spotId || $minute !== $prev + 1 || $minute > self::CAST_MAX_MINUTE
+            || time() - self::utcTs($cast['minute_issued_at']) < self::MINUTE_MIN_GAP) {
+            json_error('Your cast got out of step. Reel in and cast again.');
+        }
+
+        $now = time();
+        $stmt = $pdo->prepare("
+            UPDATE fishing_casts SET last_minute = :m, minute_issued_at = :t
+            WHERE id = :id AND status = 'open' AND last_minute = :prev
+        ");
+        $stmt->execute([':m' => $minute, ':t' => gmdate('Y-m-d H:i:s', $now), ':id' => $cast['id'], ':prev' => $prev]);
+        if ($stmt->rowCount() !== 1) {
+            json_error('Your cast got out of step. Reel in and cast again.');
+        }
 
         $stmt = $pdo->prepare('SELECT * FROM fishing_spots WHERE id = :id AND is_active = 1 AND archived = 0');
         $stmt->execute([':id' => $spotId]);
@@ -109,24 +249,13 @@ class Fishing {
             json_error('Spot no longer active');
         }
 
-        $stmt = $pdo->prepare('
-            SELECT pb.quantity, bt.*
-            FROM players p
-            JOIN player_bait pb ON pb.player_id = p.id AND pb.bait_id = p.equipped_bait_id
-            JOIN bait_types bt ON bt.id = pb.bait_id
-            WHERE p.id = :pid
-        ');
-        $stmt->execute([':pid' => $playerId]);
-        $bait = $stmt->fetch();
-
-        if (!$bait) {
-            json_error('No bait');
-        }
-
-        $line = Line::getEquipped($playerId);
+        // The bait and line the cast was made with, not whatever is equipped now
+        $bait = self::castBait($playerId, (int)$cast['bait_id']);
+        $stmt = $pdo->prepare('SELECT id, name, weight_lb, visibility, min_level FROM line_types WHERE id = :id');
+        $stmt->execute([':id' => (int)$cast['line_id']]);
+        $line = $stmt->fetch();
         if (!$line) json_error('No line equipped');
 
-        // Load player row directly
         $stmt = $pdo->prepare('SELECT * FROM players WHERE id = :pid');
         $stmt->execute([':pid' => $playerId]);
         $player = $stmt->fetch();
@@ -134,13 +263,10 @@ class Fishing {
 
         // Minutes 2+ get 1-2 rolls each
         $schedule = self::generateMinuteSchedule(
-            (int)$spot['water_type_id'],
-            $spotId,
-            $bait,
-            $line,
-            $player,
-            $minute
+            (int)$spot['water_type_id'], $spotId, $bait, $line, $player, $minute,
+            ['id' => (int)$cast['id'], 'power' => (float)$cast['cast_power'], 'issued' => $now]
         );
+        self::noteFirstBite((int)$cast['id'], $schedule['first_bite']);
 
         return [
             'minute'        => $minute,
@@ -156,6 +282,9 @@ class Fishing {
      *   'times' => list of floats (seconds within the minute when a roll happens)
      *   'fish'  => parallel list of fish data or null (null = fake nibble)
      *   'dead_water' => TRUE if no fish are available in this pool at all
+     *   'first_bite' => unix time of the earliest real bite, or null
+     * $cast = ['id' => cast id, 'power' => 0..1, 'issued' => unix time the
+     * schedule is handed out]; each catch token carries the cast and its bite time.
      */
     private static function generateMinuteSchedule(
         int $waterTypeId,
@@ -163,16 +292,18 @@ class Fishing {
         array $bait,
         array $line,
         array $player,
-        int $minute
+        int $minute,
+        array $cast
     ): array {
         $pdo = db();
+        $firstBite = null;
 
         // Build eligible fish pool (water type + line visibility filter)
         $eligibleFish = self::getEligibleFish($waterTypeId, (float)$line['visibility']);
 
         // If no fish in pool: dead_water = true, no rolls scheduled
         if (empty($eligibleFish)) {
-            return ['times' => [], 'fish' => [], 'dead_water' => true];
+            return ['times' => [], 'fish' => [], 'dead_water' => true, 'first_bite' => null];
         }
 
         // How many rolls this minute?
@@ -212,6 +343,7 @@ class Fishing {
         }
 
         foreach ($times as $t) {
+            $biteAt = (int)$cast['issued'] + (int)floor($t);
             // ── Junk catch roll (magnet or buff) ──
             if (!empty($junkItems)) {
                 $junkChance = 10;
@@ -220,16 +352,9 @@ class Fishing {
                 if (isset($buffs['golden_hour'])) $junkChance += 5;
 
                 if (mt_rand(1, 100) <= $junkChance) {
-                    // Rolled junk! Pick a random junk item
-                    $totalJW = 0;
-                    foreach ($junkItems as $j) $totalJW += (float)$j['rarity_weight'];
-                    $jRoll = mt_rand(1, (int)($totalJW * 1000)) / 1000;
-                    $jAcc = 0;
-                    $junkName = $junkItems[0]['item_name'];
-                    foreach ($junkItems as $j) {
-                        $jAcc += (float)$j['rarity_weight'];
-                        if ($jRoll <= $jAcc) { $junkName = $j['item_name']; break; }
-                    }
+                    // Rolled junk! Pick a random junk item (the token names it)
+                    $junk = self::pickJunk($junkItems);
+                    $junkName = $junk['item_name'];
 
                     // Junk fight params: scaled by water type
                     // Pond=easy, River=moderate, Lake=hard, Ocean=brutal
@@ -270,9 +395,11 @@ class Fishing {
                             'tick_rate'            => FIGHT_TICK_RATE,
                         ],
                         'catch_token'     => self::generateCatchToken(
-                            (int)$player['id'], 0, $junkWeight, $spotId
+                            (int)$player['id'], 0, $junkWeight, $spotId,
+                            (int)$cast['id'], $biteAt, (int)$junk['id']
                         ),
                     ];
+                    $firstBite = $firstBite === null ? $biteAt : min($firstBite, $biteAt);
                     continue;
                 }
             }
@@ -285,6 +412,8 @@ class Fishing {
                 // Apply growth buff to weight
                 if (isset($buffs['growth'])) $weight *= (1.0 + $buffs['growth']);
                 if (isset($buffs['golden_hour'])) $weight *= (1.0 + $buffs['golden_hour']);
+                // A stronger cast reaches bigger fish
+                $weight *= 1.0 + self::CAST_WEIGHT_BONUS * (float)$cast['power'];
                 $weight = round($weight, 2);
 
                 $fightParams = self::generateFightParamsForLine($fish, $line, $weight, $buffs);
@@ -296,9 +425,11 @@ class Fishing {
                     'bite_window'     => BITE_WINDOW,
                     'fight'           => $fightParams,
                     'catch_token'     => self::generateCatchToken(
-                        (int)$player['id'], (int)$fish['id'], $weight, $spotId
+                        (int)$player['id'], (int)$fish['id'], $weight, $spotId,
+                        (int)$cast['id'], $biteAt
                     ),
                 ];
+                $firstBite = $firstBite === null ? $biteAt : min($firstBite, $biteAt);
             }
         }
 
@@ -306,71 +437,59 @@ class Fishing {
             'times'      => $times,
             'fish'       => $fishList,
             'dead_water' => false,
+            'first_bite' => $firstBite,
         ];
     }
 
     /**
-     * Handle reel-in (end-of-cast) - determine if bait was lost.
+     * Reel in (the cast ended without a catch). The server settles the bait
+     * from its own cast record; the HUD's elapsed time and caught flag are
+     * ignored. A line break may already have closed the cast (line_break and
+     * reel_in are sent together), so the newest cast is reported then.
      */
-    public static function reelIn(int $playerId, float $castElapsed, bool $caughtFish, bool $lineBroken = false): array {
-        $pdo = db();
+    public static function reelIn(int $playerId, bool $lineBroken = false): array {
+        $consumed = false;
+        $broken   = $lineBroken;
+        $baitId   = 0;
 
-        // Get equipped bait
-        $stmt = $pdo->prepare('
-            SELECT p.equipped_bait_id, pb.quantity, bt.name
-            FROM players p
-            LEFT JOIN player_bait pb ON pb.player_id = p.id AND pb.bait_id = p.equipped_bait_id
-            LEFT JOIN bait_types bt ON bt.id = p.equipped_bait_id
-            WHERE p.id = :pid
-        ');
-        $stmt->execute([':pid' => $playerId]);
-        $row = $stmt->fetch();
-
-        if (!$row || !$row['equipped_bait_id']) {
-            return ['bait_consumed' => false, 'message' => 'Line reeled in.'];
-        }
-
-        $baitId = (int)$row['equipped_bait_id'];
-        $baitName = $row['name'];
-
-        // Bait consumption rules:
-        // - If fish caught: already consumed in confirmCatch() — skip here.
-        // - If line broke: 100% consumed (bait went with the fish).
-        // - If reeled in within 60s: 10% chance.
-        // - If reeled in after 60s: 90% chance.
-        $consumeBait = false;
-        if (!$caughtFish) {
-            if ($lineBroken) {
-                $consumeBait = true;
-            } elseif ($castElapsed < 60.0) {
-                $consumeBait = (mt_rand(1, 100) <= 10);
-            } else {
-                $consumeBait = (mt_rand(1, 100) <= 90);
-            }
-
-            if ($consumeBait) {
-                $stmt = $pdo->prepare('
-                    UPDATE player_bait SET quantity = quantity - 1
-                    WHERE player_id = :pid AND bait_id = :bid AND quantity > 0
-                ');
-                $stmt->execute([':pid' => $playerId, ':bid' => $baitId]);
+        $cast = self::openCast($playerId);
+        if ($cast) {
+            $res = self::closeCast($cast, $lineBroken ? 'broken' : 'reeled');
+            $consumed = (bool)($res['consumed'] ?? false);
+            $baitId = (int)$cast['bait_id'];
+        } else {
+            $last = self::lastCast($playerId);
+            if ($last && $last['status'] === 'broken' && time() - self::utcTs($last['ended_at']) < 120) {
+                $broken   = true;
+                $consumed = (int)$last['bait_consumed'] === 1;
+                $baitId   = (int)$last['bait_id'];
             }
         }
 
-        $remaining = self::getBaitCount($playerId, $baitId);
+        $baitName = 'bait';
+        if ($baitId) {
+            $stmt = db()->prepare('SELECT name FROM bait_types WHERE id = :id');
+            $stmt->execute([':id' => $baitId]);
+            $baitName = $stmt->fetchColumn() ?: 'bait';
+        }
 
         $message = 'Line reeled in.';
-        if ($lineBroken && $consumeBait) {
+        if ($broken && $consumed) {
             $message = "The fish took your {$baitName} along with the hook.";
-        } elseif ($consumeBait) {
+        } elseif ($consumed) {
             $message = "A small fish made off with your {$baitName} without you noticing.";
-        } elseif (!$caughtFish) {
+        } elseif ($cast) {
             $message = "Line reeled in. Your {$baitName} is still on the hook.";
         }
 
+        // The HUD shows the count of the bait equipped now
+        $stmt = db()->prepare('SELECT equipped_bait_id FROM players WHERE id = :id');
+        $stmt->execute([':id' => $playerId]);
+        $equipped = (int)$stmt->fetchColumn();
+
         return [
-            'bait_consumed'  => $consumeBait,
-            'bait_remaining' => $remaining,
+            'bait_consumed'  => $consumed,
+            'bait_remaining' => $equipped ? self::getBaitCount($playerId, $equipped) : 0,
             'message'        => $message,
         ];
     }
@@ -491,15 +610,6 @@ class Fishing {
             'fish_unpredictability' => (float)($fish['fight_unpredictability'] ?? 0.5),
             'tick_rate'             => FIGHT_TICK_RATE,
         ];
-    }
-
-    /**
-     * Simple signed cast session token.
-     */
-    private static function generateCastToken(int $playerId, int $spotId): string {
-        $payload = $playerId . ':' . $spotId . ':' . time();
-        $sig = hash('sha256', $payload . ':' . (defined('CATCH_SECRET') ? CATCH_SECRET : 'devsecret'));
-        return base64_encode($payload . ':' . $sig);
     }
 
     /**
@@ -764,121 +874,154 @@ class Fishing {
     }
 
     /**
-     * Confirm a successful catch (called after player lands the fish).
+     * Confirm a successful catch (called after the player lands the fish).
+     * The catch token names its cast; the cast must still be open, and
+     * closing it here makes the token single-use. Spot, bait and cast
+     * distance come from the cast record, never from the request.
      */
-    public static function confirmCatch(
-        array $player, string $catchToken, int $spotId, float $fightDuration, float $castDistance
-    ): array {
+    public static function confirmCatch(array $player, string $catchToken, float $fightDuration): array {
         $pdo = db();
         $playerId = (int)$player['id'];
 
-        // Validate catch token
         $tokenData = self::validateCatchToken($catchToken, $playerId);
         if (!$tokenData) {
             json_error('Invalid or expired catch token');
         }
 
+        $stmt = $pdo->prepare('SELECT * FROM fishing_casts WHERE id = :id AND player_id = :pid');
+        $stmt->execute([':id' => $tokenData['cast_id'], ':pid' => $playerId]);
+        $cast = $stmt->fetch();
+
+        $refuse = function (string $why) use ($playerId, $tokenData, $cast): void {
+            LogicErrorLog::log('catch_refused', $playerId, $why, [
+                'cast_id' => $tokenData['cast_id'], 'cast_status' => $cast['status'] ?? null,
+                'fish_id' => $tokenData['fish_id'], 'bite_at' => $tokenData['bite_at'], 'now' => time(),
+            ]);
+            json_error('That catch could not be confirmed. Cast again.');
+        };
+
+        if (!$cast)                                               $refuse('no such cast');
+        if ($cast['status'] !== 'open')                           $refuse('cast already ' . $cast['status']);
+        if ((int)$cast['spot_id'] !== $tokenData['spot_id'])      $refuse('token spot differs from the cast');
+        if (time() < $tokenData['bite_at'] + self::LAND_MIN_SECS) $refuse('landed before the bite');
+        if (time() - self::utcTs($cast['started_at']) > self::CAST_MAX_AGE) $refuse('cast too old');
+
         $fishSpeciesId = $tokenData['fish_id'];
         $weight        = $tokenData['weight'];
+        $spotId        = (int)$cast['spot_id'];
+        $baitId        = $cast['bait_id'] ? (int)$cast['bait_id'] : null;
+        $rodId         = $player['equipped_rod_id'];
+        $castDistance  = (float)$cast['cast_distance'];
 
-        // Fetch spot row needed for spot XP logic
-        $stmt = $pdo->prepare('SELECT is_system, spot_level, spot_level_ready FROM fishing_spots WHERE id = :sid');
+        $stmt = $pdo->prepare('SELECT is_system, spot_level, spot_level_ready, water_type_id FROM fishing_spots WHERE id = :sid');
         $stmt->execute([':sid' => $spotId]);
-        $spotMeta = $stmt->fetch();
+        $spotMeta = $stmt->fetch() ?: null;
+        $waterTypeId = $spotMeta ? (int)$spotMeta['water_type_id'] : null;
 
-        // ── Cast distance weight bonus: up to +10% for max distance casts ──
-        if ($castDistance > 0) {
-            // Normalize cast distance: 10m = min, ~50m = max
-            $distancePct = min(1.0, max(0.0, ($castDistance - 10.0) / 40.0));
-            $distanceBonus = 1.0 + ($distancePct * 0.10);  // 1.0 to 1.10
-            $weight = round($weight * $distanceBonus, 2);
+        $fish = null;
+        if ($fishSpeciesId !== 0) {
+            $stmt = $pdo->prepare('
+                SELECT fs.*, rt.name as rarity_name, rt.base_xp, rt.point_multiplier, rt.color_hex
+                FROM fish_species fs
+                JOIN rarity_tiers rt ON rt.id = fs.rarity_id
+                WHERE fs.id = :id
+            ');
+            $stmt->execute([':id' => $fishSpeciesId]);
+            $fish = $stmt->fetch();
+            if (!$fish) $refuse('fish species gone');
         }
 
-        // ── Junk catch (fish_id = 0) ──
-        if ($fishSpeciesId === 0) {
-            // XP and points scaled by water type
-            $stmt = $pdo->prepare('SELECT water_type_id FROM fishing_spots WHERE id = :sid');
-            $stmt->execute([':sid' => $spotId]);
-            $spotRow = $stmt->fetch();
-            $wtId = $spotRow ? (int)$spotRow['water_type_id'] : 1;
+        // Buffs are read (and expired ones pushed) before the transaction
+        $buffs = Buff::getActiveMultipliers($spotId);
 
-            // Water type XP multiplier: pond=1, river=1.5, lake=2, ocean=3
-            $junkXpMult = [1 => 1.0, 2 => 1.5, 3 => 2.0, 4 => 3.0];
-            $mult = $junkXpMult[$wtId] ?? 1.0;
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare("
+                UPDATE fishing_casts SET status = 'caught', ended_at = UTC_TIMESTAMP()
+                WHERE id = :id AND status = 'open'
+            ");
+            $stmt->execute([':id' => $cast['id']]);
+            if ($stmt->rowCount() !== 1) {
+                $pdo->rollBack();
+                $refuse('cast closed by a concurrent request');
+            }
 
-            $totalXP = max(1, (int)round($weight * 3 * $mult));
-            $totalPoints = max(1, (int)round($weight * $mult));
-            $levelUp = Player::awardXP($playerId, $totalXP);
-            Player::addPoints($playerId, $totalPoints);
-
-            // Get junk item name from spot's junk table
-            $junkItem = null;
-            $stmt = $pdo->prepare('SELECT item_name FROM spot_junk_items WHERE spot_id = :sid ORDER BY RAND() LIMIT 1');
-            $stmt->execute([':sid' => $spotId]);
-            $junkName = $stmt->fetchColumn();
-            if ($junkName) $junkItem = $junkName;
-
-            return [
-                'fish_name'     => $junkItem ?: 'Junk',
-                'weight'        => round($weight, 2),
-                'rarity'        => 'junk',
-                'rarity_color'  => '888888',
-                'points_value'  => $totalPoints,
-                'xp_awarded'    => $totalXP,
-                'level_up'      => false,
-                'double_catch'  => false,
-                'bait_saved'    => false,
-                'junk_item'     => $junkItem,
-                'is_junk'       => true,
-                'quest_updates' => [],
-                'quest_msg'     => '',
-                'message'       => "You hauled up: " . ($junkItem ?: 'some junk') . "! (" . round($weight, 2) . " lbs of dead weight)",
-            ];
+            $result = $fishSpeciesId === 0
+                ? self::landJunk($pdo, $playerId, $spotId, $waterTypeId, $tokenData['junk_id'], $weight)
+                : self::landFish($pdo, $player, $fish, $weight, $spotId, $spotMeta, $waterTypeId,
+                                 $baitId, $rodId, $castDistance, $fightDuration, $buffs);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
         }
+        return $result;
+    }
 
-        // Get fish and rarity info
-        $stmt = $pdo->prepare('
-            SELECT fs.*, rt.name as rarity_name, rt.base_xp, rt.point_multiplier, rt.color_hex
-            FROM fish_species fs
-            JOIN rarity_tiers rt ON rt.id = fs.rarity_id
-            WHERE fs.id = :id
-        ');
-        $stmt->execute([':id' => $fishSpeciesId]);
-        $fish = $stmt->fetch();
+    /** A junk haul: XP and points by water type; the item is the one that was fought. Uses no bait. */
+    private static function landJunk(\PDO $pdo, int $playerId, int $spotId, ?int $waterTypeId, int $junkId, float $weight): array {
+        // Water type XP multiplier: pond=1, river=1.5, lake=2, ocean=3
+        $junkXpMult = [1 => 1.0, 2 => 1.5, 3 => 2.0, 4 => 3.0];
+        $mult = $junkXpMult[$waterTypeId ?? 1] ?? 1.0;
 
-        // Calculate points for this fish
+        $totalXP = max(1, (int)round($weight * 3 * $mult));
+        $totalPoints = max(1, (int)round($weight * $mult));
+        $levelUp = Player::awardXP($playerId, $totalXP);
+        Player::addPoints($playerId, $totalPoints);
+
+        $stmt = $pdo->prepare('SELECT item_name FROM spot_junk_items WHERE id = :id AND spot_id = :sid');
+        $stmt->execute([':id' => $junkId, ':sid' => $spotId]);
+        $junkItem = $stmt->fetchColumn() ?: null;
+
+        return [
+            'fish_name'     => $junkItem ?: 'Junk',
+            'weight'        => round($weight, 2),
+            'rarity'        => 'junk',
+            'rarity_color'  => '888888',
+            'points_value'  => $totalPoints,
+            'xp_awarded'    => $totalXP,
+            'level_up'      => $levelUp,
+            'double_catch'  => false,
+            'bait_saved'    => false,
+            'junk_item'     => $junkItem,
+            'is_junk'       => true,
+            'quest_updates' => [],
+            'quest_msg'     => '',
+            'message'       => "You hauled up: " . ($junkItem ?: 'some junk') . "! (" . round($weight, 2) . " lbs of dead weight)",
+        ];
+    }
+
+    /** A landed fish: inventory, catch log, XP, bait, buffs, spot XP, quests. */
+    private static function landFish(
+        \PDO $pdo, array $player, array $fish, float $weight, int $spotId, ?array $spotMeta,
+        ?int $waterTypeId, ?int $baitId, $rodId, float $castDistance, float $fightDuration, array $buffs
+    ): array {
+        $playerId      = (int)$player['id'];
+        $fishSpeciesId = (int)$fish['id'];
+
+        // Points and XP for this fish
         $basePoints   = (int)$fish['base_points'];
         $weightBonus  = ($weight - (float)$fish['min_weight']) * WEIGHT_BONUS_MULTIPLIER;
         $totalPoints  = max(1, (int)round($basePoints + $weightBonus));
 
-        // Calculate XP
         $baseXP       = (int)$fish['base_xp'];
         $xpWeightMod  = ($weight - (float)$fish['min_weight']) * WEIGHT_BONUS_MULTIPLIER;
         $totalXP      = max(1, (int)round($baseXP + $xpWeightMod));
 
-        $baitId = $player['equipped_bait_id'];
-        $rodId  = $player['equipped_rod_id'];
-
-        // ── Get active buffs for this spot ──
-        $buffs = Buff::getActiveMultipliers($spotId);
-
-        // Blessing buff: boost XP
         if (isset($buffs['blessing'])) {
             $totalXP = (int)round($totalXP * (1.0 + $buffs['blessing']));
         }
-        // Golden hour: boost XP and points
         if (isset($buffs['golden_hour'])) {
             $totalXP = (int)round($totalXP * (1.0 + $buffs['golden_hour']));
             $totalPoints = (int)round($totalPoints * (1.0 + $buffs['golden_hour']));
         }
 
-        // ── Insert into fish inventory ──
-        $stmt = $pdo->prepare('
+        $insertFish = $pdo->prepare('
             INSERT INTO player_fish
             (player_id, fish_species_id, weight, rarity_id, spot_id, bait_used_id, rod_used_id, status)
             VALUES (:pid, :fid, :w, :rid, :sid, :bid, :rodid, \'held\')
         ');
-        $stmt->execute([
+        $fishRow = [
             ':pid'   => $playerId,
             ':fid'   => $fishSpeciesId,
             ':w'     => $weight,
@@ -886,95 +1029,59 @@ class Fishing {
             ':sid'   => $spotId,
             ':bid'   => $baitId,
             ':rodid' => $rodId,
-        ]);
+        ];
+        $insertFish->execute($fishRow);
 
-        // ── Insert into catch log (permanent) ──
-        $stmt = $pdo->prepare('
+        $pdo->prepare('
             INSERT INTO catch_log
             (player_id, fish_species_id, weight, rarity_id, spot_id, bait_used_id, rod_used_id,
              cast_distance, fight_duration, xp_awarded)
             VALUES (:pid, :fid, :w, :rid, :sid, :bid, :rodid, :cd, :fd, :xp)
-        ');
-        $stmt->execute([
-            ':pid'   => $playerId,
-            ':fid'   => $fishSpeciesId,
-            ':w'     => $weight,
-            ':rid'   => (int)$fish['rarity_id'],
-            ':sid'   => $spotId,
-            ':bid'   => $baitId,
-            ':rodid' => $rodId,
-            ':cd'    => $castDistance,
-            ':fd'    => (int)$fightDuration,
-            ':xp'    => $totalXP,
+        ')->execute($fishRow + [
+            ':cd' => $castDistance,
+            ':fd' => max(0, (int)$fightDuration),
+            ':xp' => $totalXP,
         ]);
 
-        // ── Award XP ──
-        $levelUp = Player::awardXP($playerId, $totalXP);
-
-        // ── Increment catch counter ──
         Player::incrementCatches($playerId);
 
-        // ── Consume one bait (the fish ate it) ──
+        // ── One bait (the fish ate it), unless Bait Saver keeps it ──
+        $saveBait = false;
         if ($baitId) {
-            $saveBait = false;
             if (isset($buffs['bait_saver'])) {
                 $saveBait = (mt_rand(1, 100) <= (int)($buffs['bait_saver'] * 100));
             }
-            if (!$saveBait) {
-                $stmt = $pdo->prepare('
-                    UPDATE player_bait SET quantity = quantity - 1
-                    WHERE player_id = :pid AND bait_id = :bid AND quantity > 0
-                ');
-                $stmt->execute([':pid' => $playerId, ':bid' => $baitId]);
-            }
+            if (!$saveBait) self::useBait($playerId, $baitId);
         }
 
-        // ── Double hook buff: chance for a second fish ──
+        // ── Double hook: a second copy of the same fish, with its XP ──
         $doubleCatch = false;
         if (isset($buffs['double_hook'])) {
             $doubleCatch = (mt_rand(1, 100) <= (int)($buffs['double_hook'] * 100));
             if ($doubleCatch) {
-                // Grant another copy of the same fish
-                $pdo->prepare('
-                    INSERT INTO player_fish
-                    (player_id, fish_species_id, weight, rarity_id, spot_id, bait_used_id, rod_used_id, status)
-                    VALUES (:pid, :fid, :w, :rid, :sid, :bid, :rodid, \'held\')
-                ')->execute([
-                    ':pid' => $playerId, ':fid' => $fishSpeciesId, ':w' => $weight,
-                    ':rid' => (int)$fish['rarity_id'], ':sid' => $spotId,
-                    ':bid' => $baitId, ':rodid' => $rodId,
-                ]);
+                $insertFish->execute($fishRow);
                 $totalPoints *= 2;
                 $totalXP *= 2;
             }
         }
 
+        $levelUp = Player::awardXP($playerId, $totalXP);
+
         // Tournament standings are computed from catch_log (Tournament::getLeaderboard).
 
-        // ── Award spot XP ──
         $spotXpResult = self::awardSpotXp($pdo, $spotId, $playerId, (int)$fish['rarity_id'], $spotMeta);
 
-        // ── Auto-track quest progress ──
         $questUpdates = [];
         try {
-            // Get the water type for this spot
-            $stmt = $pdo->prepare('SELECT water_type_id FROM fishing_spots WHERE id = :sid');
-            $stmt->execute([':sid' => $spotId]);
-            $spotRow = $stmt->fetch();
-            $waterTypeId = $spotRow ? (int)$spotRow['water_type_id'] : null;
-
             $questUpdates = Quest::trackCatch(
                 $playerId, $fishSpeciesId, $weight, $spotId,
-                $baitId ? (int)$baitId : null,
-                $waterTypeId,
-                (int)$fish['rarity_id']
+                $baitId, $waterTypeId, (int)$fish['rarity_id']
             );
         } catch (\Throwable $e) {
             // Don't let quest errors break the catch
             error_log("Quest tracking error: " . $e->getMessage());
         }
 
-        // Build quest progress message for HUD
         $questMsg = '';
         foreach ($questUpdates as $qu) {
             if (!empty($qu['ready_to_claim'])) {
@@ -989,35 +1096,22 @@ class Fishing {
         $catchMsg = "You caught a {$fish['rarity_name']} {$fish['name']} weighing " . round($weight, 2) . " lbs!";
         if ($doubleCatch) $catchMsg .= " DOUBLE HOOK! Two fish!";
 
-        // ── Bonus junk side-catch (only when Treasure Scent buff is active) ──
-        // Note: junk FIGHTS are handled separately via the schedule system.
-        // This is a secondary bonus drop for fish catches only.
+        // ── Bonus junk side-catch (only when Treasure Scent is active) ──
+        // Junk FIGHTS come from the schedule; this is a secondary drop on fish catches.
         $junkItem = null;
         if (isset($buffs['treasure'])) {
-            try {
-                $stmt = $pdo->prepare('SELECT id, item_name, rarity_weight FROM spot_junk_items WHERE spot_id = :sid');
-                $stmt->execute([':sid' => $spotId]);
-                $junkItems = $stmt->fetchAll();
+            $stmt = $pdo->prepare('SELECT id, item_name, rarity_weight FROM spot_junk_items WHERE spot_id = :sid');
+            $stmt->execute([':sid' => $spotId]);
+            $junkItems = $stmt->fetchAll();
 
-                if (!empty($junkItems)) {
-                    // Only Treasure Scent triggers this (50% chance), Golden Hour adds 5%
-                    $junkChance = (int)($buffs['treasure'] * 100);
-                    if (isset($buffs['golden_hour'])) $junkChance += 5;
+            if (!empty($junkItems)) {
+                $junkChance = (int)($buffs['treasure'] * 100);
+                if (isset($buffs['golden_hour'])) $junkChance += 5;
 
-                    if (mt_rand(1, 100) <= $junkChance) {
-                        $totalJunkWeight = 0;
-                        foreach ($junkItems as $j) $totalJunkWeight += (float)$j['rarity_weight'];
-                        $roll = mt_rand(1, max(1, (int)($totalJunkWeight * 1000))) / 1000;
-                        $acc = 0;
-                        foreach ($junkItems as $j) {
-                            $acc += (float)$j['rarity_weight'];
-                            if ($roll <= $acc) { $junkItem = $j['item_name']; break; }
-                        }
-                        if ($junkItem) $catchMsg .= " You also fished up: " . $junkItem . "!";
-                    }
+                if (mt_rand(1, 100) <= $junkChance) {
+                    $junkItem = self::pickJunk($junkItems)['item_name'];
+                    $catchMsg .= " You also fished up: " . $junkItem . "!";
                 }
-            } catch (\Throwable $e) {
-                error_log("Junk side-catch error: " . $e->getMessage());
             }
         }
 
@@ -1030,7 +1124,7 @@ class Fishing {
             'xp_awarded'        => $totalXP,
             'level_up'          => $levelUp,
             'double_catch'      => $doubleCatch,
-            'bait_saved'        => isset($buffs['bait_saver']) && !empty($saveBait) && $saveBait,
+            'bait_saved'        => $saveBait,
             'junk_item'         => $junkItem,
             'quest_updates'     => $questUpdates,
             'quest_msg'         => trim($questMsg),
@@ -1040,64 +1134,75 @@ class Fishing {
         ];
     }
 
+    /** Weighted pick from spot_junk_items rows (id, item_name, rarity_weight). */
+    private static function pickJunk(array $junkItems): array {
+        $total = 0.0;
+        foreach ($junkItems as $j) $total += (float)$j['rarity_weight'];
+        $roll = mt_rand(1, max(1, (int)($total * 1000))) / 1000;
+        $acc = 0.0;
+        foreach ($junkItems as $j) {
+            $acc += (float)$j['rarity_weight'];
+            if ($roll <= $acc) return $j;
+        }
+        return $junkItems[0];
+    }
+
     /**
-     * Report a line break. Awards small XP by water type.
-     * Only consumes bait if it's a Magnet.
+     * Report a line break: small XP by water type, once per cast, and only
+     * when the cast really had a bite. The bait goes with the fish.
      */
-    public static function reportLineBreak(int $playerId, int $spotId): array {
+    public static function reportLineBreak(int $playerId): array {
         $pdo = db();
 
-        // Get water type for XP scaling
-        $wtId = 1;
-        if ($spotId > 0) {
+        $cast = self::openCast($playerId);
+        if ($cast) {
+            self::closeCast($cast, 'broken');
+        }
+        $cast = self::lastCast($playerId);
+
+        $hadBite = $cast && $cast['status'] === 'broken' && $cast['first_bite_at']
+            && self::utcTs($cast['first_bite_at']) <= time()
+            && time() - self::utcTs($cast['ended_at']) < 120;
+        if (!$hadBite) {
+            return ['xp_awarded' => 0, 'bait_lost' => false, 'message' => 'Line snapped!'];
+        }
+
+        $xp = 0;
+        $stmt = $pdo->prepare('UPDATE fishing_casts SET break_xp_given = 1 WHERE id = :id AND break_xp_given = 0');
+        $stmt->execute([':id' => $cast['id']]);
+        if ($stmt->rowCount() === 1) {
             $stmt = $pdo->prepare('SELECT water_type_id FROM fishing_spots WHERE id = :sid');
-            $stmt->execute([':sid' => $spotId]);
-            $row = $stmt->fetch();
-            if ($row) $wtId = (int)$row['water_type_id'];
+            $stmt->execute([':sid' => $cast['spot_id']]);
+            $wtId = (int)($stmt->fetchColumn() ?: 1);
+            // Small XP: pond=2, river=3, lake=5, ocean=8
+            $xpByWater = [1 => 2, 2 => 3, 3 => 5, 4 => 8];
+            $xp = $xpByWater[$wtId] ?? 2;
+            Player::awardXP($playerId, $xp);
         }
 
-        // Small XP: pond=2, river=3, lake=5, ocean=8
-        $xpByWater = [1 => 2, 2 => 3, 3 => 5, 4 => 8];
-        $xp = $xpByWater[$wtId] ?? 2;
-        Player::awardXP($playerId, $xp);
-
-        // Check if equipped bait is Magnet — only lose magnet on break
-        $stmt = $pdo->prepare('SELECT equipped_bait_id FROM players WHERE id = :id');
-        $stmt->execute([':id' => $playerId]);
-        $player = $stmt->fetch();
-        $baitLost = false;
-
-        if ($player && $player['equipped_bait_id']) {
-            $stmt = $pdo->prepare('SELECT name FROM bait_types WHERE id = :id');
-            $stmt->execute([':id' => $player['equipped_bait_id']]);
-            $baitName = $stmt->fetchColumn();
-
-            if (strtolower($baitName) === 'magnet') {
-                // Consume one magnet
-                $pdo->prepare('
-                    UPDATE player_bait SET quantity = quantity - 1
-                    WHERE player_id = :pid AND bait_id = :bid AND quantity > 0
-                ')->execute([':pid' => $playerId, ':bid' => $player['equipped_bait_id']]);
-                $baitLost = true;
-            }
-        }
-
+        $baitLost = (int)$cast['bait_consumed'] === 1;
         return [
             'xp_awarded' => $xp,
-            'bait_lost' => $baitLost,
-            'message' => "Line snapped! +" . $xp . " XP" . ($baitLost ? " (Magnet lost)" : ""),
+            'bait_lost'  => $baitLost,
+            'message'    => 'Line snapped!' . ($xp ? " +{$xp} XP" : ''),
         ];
     }
 
     /**
-     * Generate a signed catch token so the HUD can't fake catches.
+     * Sign a catch token so the HUD can't fake catches. It names the cast,
+     * the spot and the moment the bite comes (bite_at, unix time).
      */
-    private static function generateCatchToken(int $playerId, int $fishId, float $weight, int $spotId): string {
+    private static function generateCatchToken(
+        int $playerId, int $fishId, float $weight, int $spotId, int $castId, int $biteAt, int $junkId = 0
+    ): string {
         $data = json_encode([
             'pid' => $playerId,
             'fid' => $fishId,
             'w'   => $weight,
             'sid' => $spotId,
+            'c'   => $castId,
+            'b'   => $biteAt,
+            'j'   => $junkId,
             't'   => time(),
         ]);
         $sig = hash_hmac('sha256', $data, HUD_SECRET);
@@ -1105,31 +1210,33 @@ class Fishing {
     }
 
     /**
-     * Validate and decode a catch token.
+     * Validate and decode a catch token. Tokens from before the cast record
+     * (no cast id) are refused.
      */
     private static function validateCatchToken(string $token, int $playerId): ?array {
         $parts = explode('.', $token);
         if (count($parts) !== 2) return null;
 
-        $data = base64_decode($parts[0]);
-        $sig  = $parts[1];
-
+        $data = base64_decode($parts[0], true);
+        if ($data === false) return null;
         $expected = hash_hmac('sha256', $data, HUD_SECRET);
-        if (!hash_equals($expected, $sig)) return null;
+        if (!hash_equals($expected, $parts[1])) return null;
 
         $decoded = json_decode($data, true);
-        if (!$decoded) return null;
-
-        // Verify player match
+        if (!is_array($decoded) || empty($decoded['c'])) return null;
         if ((int)$decoded['pid'] !== $playerId) return null;
 
         // Token expires after 10 minutes (generous for long fights)
-        if (time() - (int)$decoded['t'] > 600) return null;
+        $age = time() - (int)$decoded['t'];
+        if ($age > 600 || $age < -60) return null;
 
         return [
             'fish_id' => (int)$decoded['fid'],
             'weight'  => (float)$decoded['w'],
             'spot_id' => (int)$decoded['sid'],
+            'cast_id' => (int)$decoded['c'],
+            'bite_at' => (int)$decoded['b'],
+            'junk_id' => (int)($decoded['j'] ?? 0),
         ];
     }
 

@@ -335,9 +335,9 @@ try {
 
         // ── Line break report (small XP, magnet loss) ──
         case 'line_break':
+            // spot_id is still sent by HUDs; the cast record decides the spot.
             $player = PairingAuth::requireHUD($action);
-            $spotId = (int)optional_param('spot_id', 0);
-            json_success(Fishing::reportLineBreak((int)$player['id'], $spotId));
+            json_success(Fishing::reportLineBreak((int)$player['id']));
 
         case 'spot_delete':
             $uuid = require_param('uuid');
@@ -557,22 +557,22 @@ try {
             $minute  = (int)require_param('minute');
             json_success(Fishing::rollMinute((int)$player['id'], $spotId, $minute));
 
-        // ── Reel in without a fish (determines bait loss) ──
+        // ── Reel in without a fish (the server decides bait loss) ──
+        // cast_elapsed and caught_fish are still sent by HUDs and ignored:
+        // the cast record has the real start time and knows about catches.
         case 'reel_in':
             $player = PairingAuth::requireHUD($action);
-            $elapsed = (float)require_param('cast_elapsed');
-            $caught = (bool)(int)optional_param('caught_fish', 0);
             $broken = (bool)(int)optional_param('line_broken', 0);
-            json_success(Fishing::reelIn((int)$player['id'], $elapsed, $caught, $broken));
+            json_success(Fishing::reelIn((int)$player['id'], $broken));
 
         // ── Confirm catch (after successful fight) ──
         case 'confirm_catch':
+            // spot_id and cast_distance are still sent by HUDs and ignored:
+            // the catch token's cast record supplies both.
             $player        = PairingAuth::requireHUD($action);
             $catchToken    = require_param('catch_token');
-            $spotId        = (int)require_param('spot_id');
-            $fightDuration = (float)require_param('fight_duration');
-            $castDistance   = (float)optional_param('cast_distance', 0);
-            json_success(Fishing::confirmCatch($player, $catchToken, $spotId, $fightDuration, $castDistance));
+            $fightDuration = (float)optional_param('fight_duration', 0);
+            json_success(Fishing::confirmCatch($player, $catchToken, $fightDuration));
 
         // ── Line: list for player (tackle page) ──
         case 'list_lines':

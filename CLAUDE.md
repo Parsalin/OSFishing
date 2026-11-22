@@ -185,6 +185,11 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 - `line_types` — twine through titanium leader, 7 tiers
 - `catch_log` — full catch history, indexed by player, spot, fish, time
 - `player_fish` — held inventory, separate `status='saved'` for trophies
+- `fishing_casts` — the server's record of each cast (last 100 per player).
+  `cast` opens one; roll_minute / confirm_catch / line_break / reel_in must
+  match the open cast, which fixes spot, bait, line and power. Catch tokens
+  carry the cast id and bite time; closing the cast makes them single-use.
+  Bait use is decided only here, from the server's own times
 - `fishing_spots` — owner, water type, region, pos, public/system flags, archived flag, archived_at
 
 ### Spots & ownership
@@ -322,7 +327,9 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 - **Admin alerts** (`AdminAlerts::send`) are for things an admin should act on.
   **Logic Log** (`LogicErrorLog::log`) is only for self-repairs and fail-closed
   checks, never normal gameplay. Categories in use: `sim_origin_mismatch`,
-  `inworld_unverified` (InWorldAuth header checks, log-only; audit item 1).
+  `inworld_unverified` (InWorldAuth header checks, log-only; audit item 1),
+  `catch_refused` (confirm_catch refused: replayed token, landed before the
+  bite, cast closed or too old).
   Add a row here when adding a category. Neither helper ever throws.
 
 ## Repo layout

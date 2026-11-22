@@ -137,13 +137,13 @@ hand-made request, can farm or wreck something.
 
 ## 🔴 Critical — exploitable now
 
-- [ ] **21. Catch tokens can be confirmed again and again.**
+- [x] **21. Catch tokens can be confirmed again and again.**
   `Fishing::validateCatchToken` checks signature, player and age (10 min)
   but nothing records that a token was used, so one legendary's token can be
   sent to `confirm_catch` repeatedly: a new fish, XP, quest progress and
   catch_log row each time. Fix: store a token id (or its hash) under a
   UNIQUE key when confirmed; refuse a second use.
-- [ ] **22. `roll_minute` hands out fish without a cast.** No cast session
+- [x] **22. `roll_minute` hands out fish without a cast.** No cast session
   is needed and any `minute` is accepted; every call returns 1–3 freshly
   signed catch tokens. With 21 that is unlimited fish. `generateCastToken`
   makes a `cast_token` nothing checks (signed with the fallback
@@ -151,16 +151,23 @@ hand-made request, can farm or wreck something.
   last minute, closed); `roll_minute` only for an open cast, only `last+1`,
   only after 60 s; catch tokens carry the cast id and bite time, and
   `confirm_catch` refuses before the bite and after the cast closes.
-- [ ] **23. `confirm_catch` trusts the client's `spot_id` and
+  **Fixed 2026-11-21 (21–25):** `fishing_casts` (last 100 per player). Cast
+  XP only when the previous cast was 15 s+ earlier; casts 2 s apart minimum.
+  Junk catches now award the item that was fought (35, first half) and
+  Double Hook awards both fish's XP (35, second half). confirmCatch is one
+  transaction. Refusals go to the Logic Log as `catch_refused`. The HUD is
+  unchanged; it still sends spot_id / cast_distance / cast_elapsed /
+  caught_fish, all ignored now.
+- [x] **23. `confirm_catch` trusts the client's `spot_id` and
   `cast_distance`.** The token carries `sid` but it's ignored, so a catch can
   be credited to any spot: its buffs (double hook, blessing, golden hour),
   spot XP, tournament standings, "at spot X" quests. `cast_distance` comes
   from the HUD and adds up to +10 % weight (the server's own cast caps at
   25 m; the bonus scales to 50 m). Fix: use the token's spot and the cast
   row's distance.
-- [ ] **24. Free XP from `line_break`.** 2–8 XP per call, no cast or hooked
+- [x] **24. Free XP from `line_break`.** 2–8 XP per call, no cast or hooked
   fish needed. Fix: only for an open cast with a hooked fish, once.
-- [ ] **25. Bait use is the client's choice.** `reel_in caught_fish=1` never
+- [x] **25. Bait use is the client's choice.** `reel_in caught_fish=1` never
   uses bait, and `confirm_catch` uses whatever bait is equipped *now*, not the
   bait the roll was made with (roll with Glow Grubs, swap to Bread Dough,
   confirm). Fix: bind bait to the cast row; decide consumption server-side.
@@ -226,10 +233,11 @@ hand-made request, can farm or wreck something.
   into the live roll; delete `rollCatch`, `generateFightParams`,
   `calculateBiteWait`, `generateNibbleTimes`, `generateCastToken`. Player
   visible → changelog.
-- [ ] **35. Junk and double-hook payouts are wrong.** A junk catch awards a
+- [x] **35. Junk and double-hook payouts are wrong.** A junk catch awards a
   *different* random item (`ORDER BY RAND()`) than the one the HUD fought,
   writes no catch_log row and uses no bait. Double Hook returns doubled XP
   but awards only the single amount.
+  **Fixed 2026-11-21** with the cast record (junk catches still use no bait, on purpose: the Magnet is only lost when the line snaps).
 - [ ] **36. Spots stay dark after a region outage.** `cleanupStale` sets
   `is_active = 0` after 90 min without a heartbeat; `heartbeat()`'s comment
   says it turns the spot back on, but the code doesn't, so nobody can fish
@@ -319,6 +327,8 @@ hand-made request, can farm or wreck something.
 - [ ] **53. The schedule reveals every fish before it bites.** `cast` and
   `roll_minute` return species, weight and rarity for every bite up front, so
   a scripted HUD can skip commons. Send times + an opaque id; reveal on hook.
+  Needs a HUD release (a new `hook` action); old HUDs read the fish from the
+  schedule, so the server must keep sending it until they're retired.
 - [ ] **54. "Same region" without the grid.** Leaderboard `sim` scope
   (`byWeight`, `byCatches`, `buildSubqueryWhere`); `bait_gather_points` has no
   grid column at all; `registerShop` / `registerPoint` position matches.
