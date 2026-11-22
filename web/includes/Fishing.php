@@ -298,19 +298,19 @@ class Fishing {
         $pdo = db();
         $firstBite = null;
 
-        // Build eligible fish pool (water type + line visibility filter)
-        $eligibleFish = self::getEligibleFish($waterTypeId, (float)$line['visibility']);
+        // ── Get active spot buffs ──
+        $buffs = Buff::getActiveMultipliers($spotId);
 
-        // If no fish in pool: dead_water = true, no rolls scheduled
-        if (empty($eligibleFish)) {
+        // Weighted pool for this minute (water type, line, bait, time, season, events, spot, buffs)
+        $pool = self::buildPool($waterTypeId, $spotId, $bait, $line, $buffs);
+
+        // If no fish can bite here at all: dead_water = true, no rolls scheduled
+        if (empty($pool['entries'])) {
             return ['times' => [], 'fish' => [], 'dead_water' => true, 'first_bite' => null];
         }
 
         // How many rolls this minute?
         $rollCount = ($minute === 1) ? mt_rand(2, 4) : mt_rand(1, 2);
-
-        // ── Get active spot buffs ──
-        $buffs = Buff::getActiveMultipliers($spotId);
 
         // ── Chum buff: add extra roll opportunity ──
         if (isset($buffs['chum']) && mt_rand(1, 100) <= 50) {
@@ -404,7 +404,7 @@ class Fishing {
                 }
             }
 
-            $fish = self::rollFishFromPool($eligibleFish, $bait, $line, $player);
+            $fish = self::pickFromPool($pool);
             if ($fish === null) {
                 $fishList[] = null;
             } else {
@@ -495,78 +495,113 @@ class Fishing {
     }
 
     /**
-     * Get fish species available in a water type that aren't scared by the line's visibility.
+     * The weighted pool one schedule rolls from. Every catch rule lives here
+     * (audit item 34: most of them used to sit in rollCatch, which nothing
+     * called, so they did nothing):
+     *   - fish of this water type, active, not scared off by the line;
+     *     event fish only while their world event runs (then ×3); fish that
+     *     require a bait only with that bait
+     *   - bait affinity per fish (×0.3 when the bait isn't listed for it)
+     *   - bait rarity_mod boosts rare+ fish (only when > 1, as designed)
+     *   - time of day (UTC): a night / dawn / dusk fish ×2 in its hours, ×0.2 outside
+     *   - season (UTC month): a seasonal fish ×2 in season, ×0.3 outside
+     *   - the spot's loot modifier (spot level), Lucky Lure Oil and Golden
+     *     Hour boost rare+ fish
+     *   - no-bite weight: 1.5 × the fish total, divided by the bait's
+     *     catch_rate_mod (better bait bites more often) and lowered by
+     *     Chum and Golden Hour
+     * Returns ['entries' => [[fish, weight]...], 'total' => float, 'no_bite' => float].
      */
-    private static function getEligibleFish(int $waterTypeId, float $lineVisibility): array {
-        $stmt = db()->prepare('
-            SELECT fs.*, fwt.catch_weight_override
+    private static function buildPool(int $waterTypeId, int $spotId, array $bait, array $line, array $buffs): array {
+        $pdo = db();
+
+        $stmt = $pdo->prepare('
+            SELECT fs.*, fwt.catch_weight_override, rt.catch_weight AS rarity_weight
             FROM fish_species fs
             JOIN fish_water_types fwt ON fwt.fish_id = fs.id
+            JOIN rarity_tiers rt ON rt.id = fs.rarity_id
             WHERE fwt.water_type_id = :wt
+              AND fs.is_active = 1
               AND fs.line_tolerance >= :lv
         ');
-        $stmt->execute([':wt' => $waterTypeId, ':lv' => $lineVisibility]);
-        return $stmt->fetchAll();
-    }
+        $stmt->execute([':wt' => $waterTypeId, ':lv' => (float)$line['visibility']]);
+        $fishRows = $stmt->fetchAll();
 
-    /**
-     * Roll one fish from the eligible pool (or null for fake nibble).
-     * Applies bait affinity weighting.
-     */
-    private static function rollFishFromPool(array $pool, array $bait, array $line, array $player): ?array {
-        // Fetch rarities
-        $rarities = [];
-        foreach (db()->query('SELECT * FROM rarity_tiers')->fetchAll() as $r) {
-            $rarities[(int)$r['id']] = $r;
-        }
+        // One query each instead of one per fish per roll
+        $stmt = $pdo->prepare('SELECT fish_id, affinity FROM fish_bait_affinity WHERE bait_id = :b');
+        $stmt->execute([':b' => (int)$bait['id']]);
+        $affinity = [];
+        foreach ($stmt->fetchAll() as $a) $affinity[(int)$a['fish_id']] = (float)$a['affinity'];
 
-        // Build weighted pool with bait affinity
-        $weightedPool = [];
-        $totalWeight = 0.0;
-        foreach ($pool as $fish) {
-            $baseWeight = $fish['catch_weight_override'] ?? $rarities[(int)$fish['rarity_id']]['catch_weight'];
-            $w = (float)$baseWeight;
+        $required = array_flip(array_map('intval', $pdo->query(
+            'SELECT DISTINCT fish_id FROM fish_bait_affinity WHERE is_required = 1'
+        )->fetchAll(PDO::FETCH_COLUMN)));
 
-            // Bait affinity
-            $stmt = db()->prepare('
-                SELECT affinity FROM fish_bait_affinity
-                WHERE fish_id = :fid AND bait_id = :bid
-            ');
-            $stmt->execute([':fid' => $fish['id'], ':bid' => $bait['id']]);
-            $affinity = $stmt->fetchColumn();
-            if ($affinity !== false) {
-                $w *= (float)$affinity;
-            } else {
-                $w *= 0.3;  // Low affinity for unlisted bait
+        $events = array_flip($pdo->query('SELECT event_key FROM world_events WHERE is_active = 1')->fetchAll(PDO::FETCH_COLUMN));
+
+        $stmt = $pdo->prepare('SELECT loot_modifier FROM fishing_spots WHERE id = :id');
+        $stmt->execute([':id' => $spotId]);
+        $spotMod = max(1.0, (float)($stmt->fetchColumn() ?: 1.0));
+
+        $hour = (int)gmdate('G');
+        $timeOfDay = ($hour >= 5 && $hour < 8) ? 'dawn'
+                   : (($hour >= 8 && $hour < 18) ? 'day'
+                   : (($hour >= 18 && $hour < 21) ? 'dusk' : 'night'));
+        $season = self::getCurrentSeason();
+
+        $rarityMod = max(1.0, (float)($bait['rarity_mod'] ?? 1.0));
+        $rareBoost = $rarityMod * $spotMod
+                   * (1.0 + (float)($buffs['lure_oil'] ?? 0))
+                   * (1.0 + (float)($buffs['golden_hour'] ?? 0));
+
+        $entries = [];
+        $total = 0.0;
+        foreach ($fishRows as $fish) {
+            $fid = (int)$fish['id'];
+
+            $cond = (string)($fish['special_condition'] ?? '');
+            if ($cond !== '' && !isset($events[$cond])) continue;   // event fish, event off
+            if (isset($required[$fid]) && !isset($affinity[$fid])) continue;  // needs a bait we don't have
+
+            $w = (float)($fish['catch_weight_override'] ?? $fish['rarity_weight']);
+            $w *= $affinity[$fid] ?? 0.3;
+            if ($cond !== '') $w *= 3.0;
+
+            $t = (string)($fish['time_modifier'] ?? 'any');
+            if ($t !== '' && $t !== 'any') {
+                $inTime = $t === $timeOfDay || ($t === 'dawn_dusk' && ($timeOfDay === 'dawn' || $timeOfDay === 'dusk'));
+                $w *= $inTime ? 2.0 : 0.2;
             }
-
-            // Player level check
-            if ((int)$player['level'] < (int)($fish['min_level'] ?? 1)) {
-                $w *= 0.1;  // Very unlikely if under-leveled
+            $s = (string)($fish['season_modifier'] ?? 'any');
+            if ($s !== '' && $s !== 'any') {
+                $w *= ($s === $season) ? 2.0 : 0.3;
             }
+            if ((int)$fish['rarity_id'] >= 3) $w *= $rareBoost;
 
             if ($w > 0) {
-                $weightedPool[] = ['fish' => $fish, 'weight' => $w];
-                $totalWeight += $w;
+                $entries[] = ['fish' => $fish, 'weight' => $w];
+                $total += $w;
             }
         }
 
-        // Also add a "no bite" outcome (fake nibble) - weight roughly 1.5x the total
-        // This means roughly 60% of rolls result in a fake nibble
-        $noBiteWeight = $totalWeight * 1.5;
-        $totalWeight += $noBiteWeight;
+        $catchRate = max(0.05, (float)($bait['catch_rate_mod'] ?? 1.0));
+        $noBite = $total * 1.5 / $catchRate;
+        if (isset($buffs['chum']))        $noBite *= (1.0 - (float)$buffs['chum']);
+        if (isset($buffs['golden_hour'])) $noBite *= (1.0 - (float)$buffs['golden_hour']);
 
-        if ($totalWeight <= 0) return null;
+        return ['entries' => $entries, 'total' => $total, 'no_bite' => max(0.0, $noBite)];
+    }
 
-        $roll = mt_rand(0, (int)($totalWeight * 1000)) / 1000.0;
-        $accumulator = 0.0;
-        foreach ($weightedPool as $entry) {
-            $accumulator += $entry['weight'];
-            if ($roll <= $accumulator) {
-                return $entry['fish'];
-            }
+    /** One roll from a pool: a fish row, or null for a nibble. */
+    private static function pickFromPool(array $pool): ?array {
+        $sum = $pool['total'] + $pool['no_bite'];
+        if ($sum <= 0) return null;
+        $roll = mt_rand(0, 1000000) / 1000000.0 * $sum;
+        foreach ($pool['entries'] as $e) {
+            $roll -= $e['weight'];
+            if ($roll < 0) return $e['fish'];
         }
-        return null;  // Fake nibble
+        return null;   // the no-bite share
     }
 
     /**
@@ -608,267 +643,6 @@ class Fishing {
             'fish_stamina'          => round((float)$fish['fight_stamina'] * $staminaMod, 1),
             'fish_power'            => round((float)$fish['fight_power'] * $powerMod, 2),
             'fish_unpredictability' => (float)($fish['fight_unpredictability'] ?? 0.5),
-            'tick_rate'             => FIGHT_TICK_RATE,
-        ];
-    }
-
-    /**
-     * Roll the loot table to determine what fish bites (if any).
-     */
-    private static function rollCatch(
-        int $waterTypeId, int $spotId, array $bait, array $rod, float $castDistance, array $player
-    ): ?array {
-        $pdo = db();
-
-        // Get all fish for this water type
-        $stmt = $pdo->prepare('
-            SELECT fs.*, fwt.catch_weight_override
-            FROM fish_species fs
-            JOIN fish_water_types fwt ON fwt.fish_id = fs.id
-            WHERE fwt.water_type_id = :wt AND fs.is_active = 1
-        ');
-        $stmt->execute([':wt' => $waterTypeId]);
-        $allFish = $stmt->fetchAll();
-
-        if (empty($allFish)) {
-            return null;
-        }
-
-        // Get rarity base weights
-        $stmt = $pdo->prepare('SELECT * FROM rarity_tiers');
-        $stmt->execute();
-        $rarities = [];
-        foreach ($stmt->fetchAll() as $r) {
-            $rarities[(int)$r['id']] = $r;
-        }
-
-        // Check active world events
-        $stmt = $pdo->prepare('SELECT event_key FROM world_events WHERE is_active = 1');
-        $stmt->execute();
-        $activeEvents = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
-        // Get spot loot modifier
-        $stmt = $pdo->prepare('SELECT loot_modifier FROM fishing_spots WHERE id = :id');
-        $stmt->execute([':id' => $spotId]);
-        $spotMod = (float)$stmt->fetchColumn();
-
-        // Get current time of day (simplified: use server hour)
-        $hour = (int)date('G');
-        $timeOfDay = 'day';
-        if ($hour >= 5 && $hour < 8) $timeOfDay = 'dawn';
-        elseif ($hour >= 8 && $hour < 18) $timeOfDay = 'day';
-        elseif ($hour >= 18 && $hour < 21) $timeOfDay = 'dusk';
-        else $timeOfDay = 'night';
-
-        // Build weighted pool
-        $pool = [];
-        $totalWeight = 0;
-
-        foreach ($allFish as $fish) {
-            $fishRarityId = (int)$fish['rarity_id'];
-            $baseWeight = $fish['catch_weight_override'] ?? $rarities[$fishRarityId]['catch_weight'];
-            $weight = (float)$baseWeight;
-
-            // ── Apply bait affinity modifier ──
-            $stmt = $pdo->prepare('
-                SELECT affinity, is_required FROM fish_bait_affinity
-                WHERE fish_id = :fid AND bait_id = :bid
-            ');
-            $stmt->execute([':fid' => $fish['id'], ':bid' => $bait['id']]);
-            $affinity = $stmt->fetch();
-
-            if ($affinity) {
-                $weight *= (float)$affinity['affinity'];
-            } else {
-                // Check if this fish requires specific bait
-                $stmt2 = $pdo->prepare('
-                    SELECT COUNT(*) FROM fish_bait_affinity
-                    WHERE fish_id = :fid AND is_required = 1
-                ');
-                $stmt2->execute([':fid' => $fish['id']]);
-                if ((int)$stmt2->fetchColumn() > 0) {
-                    // Fish requires specific bait and we don't have it — skip
-                    continue;
-                }
-                // No special affinity, slight penalty
-                $weight *= 0.5;
-            }
-
-            // ── Apply bait global modifiers ──
-            $weight *= (float)$bait['catch_rate_mod'];
-
-            // Rarity shift from bait
-            if ((float)$bait['rarity_mod'] > 1.0 && $fishRarityId >= 3) {
-                $weight *= (float)$bait['rarity_mod'];
-            }
-
-            // ── Apply time of day modifier ──
-            $fishTime = $fish['time_modifier'] ?? 'any';
-            if ($fishTime !== 'any') {
-                if ($fishTime === 'dawn_dusk' && ($timeOfDay === 'dawn' || $timeOfDay === 'dusk')) {
-                    $weight *= 2.0;
-                } elseif ($fishTime === $timeOfDay) {
-                    $weight *= 2.0;
-                } else {
-                    $weight *= 0.2; // Much harder outside preferred time
-                }
-            }
-
-            // ── Apply special condition check ──
-            if ($fish['special_condition']) {
-                if (!in_array($fish['special_condition'], $activeEvents)) {
-                    continue; // Event not active, fish unavailable
-                }
-                $weight *= 3.0; // Boost during event
-            }
-
-            // ── Apply season modifier ──
-            $currentSeason = self::getCurrentSeason();
-            if ($fish['season_modifier'] && $fish['season_modifier'] !== 'any') {
-                if ($fish['season_modifier'] === $currentSeason) {
-                    $weight *= 2.0;
-                } else {
-                    $weight *= 0.3;
-                }
-            }
-
-            // ── Apply spot modifier ──
-            $weight *= $spotMod;
-
-            if ($weight > 0) {
-                $pool[] = ['fish' => $fish, 'weight' => $weight];
-                $totalWeight += $weight;
-            }
-        }
-
-        if (empty($pool) || $totalWeight <= 0) {
-            return null;
-        }
-
-        // ── Get active spot buffs ──
-        $buffs = Buff::getActiveMultipliers($spotId);
-
-        // ── Base no-bite chance (20%) ──
-        $noBiteChance = 0.20 / (float)$bait['catch_rate_mod'];
-        // Chum buff: reduce no-bite chance
-        if (isset($buffs['chum'])) {
-            $noBiteChance *= (1.0 - $buffs['chum']); // e.g. 0.20 * 0.75 = 0.15
-        }
-        // Golden hour: small bite boost
-        if (isset($buffs['golden_hour'])) {
-            $noBiteChance *= (1.0 - $buffs['golden_hour']);
-        }
-        if (mt_rand(1, 1000) / 1000 < $noBiteChance) {
-            return null;
-        }
-
-        // ── Lucky Lure Oil: boost rare+ fish weights in pool ──
-        if (isset($buffs['lure_oil'])) {
-            $lureBoost = 1.0 + $buffs['lure_oil']; // e.g. 1.15
-            $totalWeight = 0;
-            foreach ($pool as &$entry) {
-                if ((int)$entry['fish']['rarity_id'] >= 3) {
-                    $entry['weight'] *= $lureBoost;
-                }
-                $totalWeight += $entry['weight'];
-            }
-            unset($entry);
-        }
-
-        // ── Golden hour: slight rarity boost ──
-        if (isset($buffs['golden_hour'])) {
-            $ghBoost = 1.0 + $buffs['golden_hour'];
-            $totalWeight = 0;
-            foreach ($pool as &$entry) {
-                if ((int)$entry['fish']['rarity_id'] >= 3) {
-                    $entry['weight'] *= $ghBoost;
-                }
-                $totalWeight += $entry['weight'];
-            }
-            unset($entry);
-        }
-
-        // ── Weighted random selection ──
-        $roll = mt_rand(1, (int)($totalWeight * 1000)) / 1000;
-        $cumulative = 0;
-        $selected = $pool[0]; // fallback
-
-        foreach ($pool as $entry) {
-            $cumulative += $entry['weight'];
-            if ($roll <= $cumulative) {
-                $selected = $entry;
-                break;
-            }
-        }
-
-        $fish = $selected['fish'];
-
-        // ── Generate weight ──
-        $minW = (float)$fish['min_weight'];
-        $maxW = (float)$fish['max_weight'];
-
-        // Weight distribution: skewed toward smaller (more realistic)
-        // Use beta-like distribution: average of two random rolls
-        $r1 = mt_rand(0, 10000) / 10000;
-        $r2 = mt_rand(0, 10000) / 10000;
-        $normalized = ($r1 * $r2);
-        $weight = $minW + ($normalized * ($maxW - $minW));
-
-        // ── Growth Tonic buff: boost weight ──
-        if (isset($buffs['growth'])) {
-            $weight *= (1.0 + $buffs['growth']);
-        }
-        // ── Golden Hour: slight weight boost ──
-        if (isset($buffs['golden_hour'])) {
-            $weight *= (1.0 + $buffs['golden_hour']);
-        }
-
-        $weight = round($weight, 2);
-
-        return ['fish' => $fish, 'weight' => $weight, 'buffs' => $buffs];
-    }
-
-    /**
-     * Generate all fight parameters for the HUD.
-     */
-    private static function generateFightParams(array $fish, array $rod, float $weight, array $buffs = []): array {
-        // Scale fight values by weight within species range
-        $minW = (float)$fish['min_weight'];
-        $maxW = (float)$fish['max_weight'];
-        $range = $maxW - $minW;
-        $weightScale = $range > 0 ? ($weight - $minW) / $range : 0.5;
-
-        // Heavier fish fight harder
-        $staminaMod = 1.0 + ($weightScale * 0.5);
-        $powerMod   = 1.0 + ($weightScale * 0.3);
-
-        // ── Calm Waters buff: reduce fight difficulty ──
-        if (isset($buffs['calm'])) {
-            $staminaMod *= (1.0 - $buffs['calm']); // e.g. stamina * 0.8
-            $powerMod *= (1.0 - $buffs['calm']);
-        }
-        // ── Golden Hour: slight difficulty reduction ──
-        if (isset($buffs['golden_hour'])) {
-            $staminaMod *= (1.0 - $buffs['golden_hour']);
-        }
-
-        // Rod modifiers make fights easier
-        $rodReelSpeed    = (float)$rod['reel_speed'];
-        $rodTensionBuf   = (float)$rod['tension_buffer'];
-        $rodLineStrength = (float)$rod['line_strength'];
-
-        return [
-            'initial_distance'      => round(50 + ($weight * 0.5), 0),
-            'line_strength'         => $rodLineStrength,
-            'reel_rate'             => round(BASE_REEL_RATE * $rodReelSpeed, 2),
-            'tension_decay'         => round(BASE_TENSION_DECAY * $rodTensionBuf, 2),
-            'tension_wrong_dir'     => round(TENSION_WRONG_DIR / $rodTensionBuf, 2),
-            'tension_reel_vs_run'   => round(TENSION_REEL_AGAINST_RUN / $rodTensionBuf, 2),
-            'fish_stamina'          => round((float)$fish['fight_stamina'] * $staminaMod, 1),
-            'fish_speed'            => round((float)$fish['fight_speed'] * (1 + $weightScale * 0.2), 2),
-            'fish_power'            => round((float)$fish['fight_power'] * $powerMod, 2),
-            'fish_line_pull'        => round((float)$fish['fight_line_pull'] * FISH_RUN_RATE * $powerMod, 2),
-            'fish_unpredictability' => (float)$fish['fight_unpredictability'],
             'tick_rate'             => FIGHT_TICK_RATE,
         ];
     }
@@ -1241,36 +1015,10 @@ class Fishing {
     }
 
     /**
-     * Calculate bite wait time based on bait effectiveness.
-     */
-    private static function calculateBiteWait(array $bait, array $fish): int {
-        $base = rand(BITE_WAIT_MIN, BITE_WAIT_MAX);
-        $mod  = (float)$bait['catch_rate_mod'];
-        return max(BITE_WAIT_MIN, (int)round($base / $mod));
-    }
-
-    /**
-     * Generate random times for fake nibbles during the wait.
-     */
-    private static function generateNibbleTimes(int $biteWait, int $count): array {
-        if ($count === 0) return [];
-
-        $times = [];
-        // Nibbles happen in first 80% of wait, not too close to real bite
-        $maxNibbleTime = (int)($biteWait * 0.8);
-
-        for ($i = 0; $i < $count; $i++) {
-            $times[] = rand(2, max(3, $maxNibbleTime));
-        }
-        sort($times);
-        return $times;
-    }
-
-    /**
      * Get current season from server date.
      */
     private static function getCurrentSeason(): string {
-        $month = (int)date('n');
+        $month = (int)gmdate('n');
         if ($month >= 3 && $month <= 5) return 'spring';
         if ($month >= 6 && $month <= 8) return 'summer';
         if ($month >= 9 && $month <= 11) return 'fall';

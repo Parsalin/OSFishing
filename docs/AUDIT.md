@@ -230,7 +230,7 @@ hand-made request, can farm or wreck something.
 - [x] **33. Admin fish editor "Base XP" field errors.** `Admin::updateFish`
   allows `base_xp`, which lives on `rarity_tiers`, not `fish_species`.
   **Fixed 2026-11-21:** `base_xp` removed from the editable fish fields; the editor shows the rarity's XP read-only.
-- [ ] **34. Half the fishing rules are dead code.** The live roll is
+- [x] **34. Half the fishing rules are dead code.** The live roll is
   `generateMinuteSchedule` → `rollFishFromPool`; `rollCatch` is never called.
   So none of these do anything today: **Lucky Lure Oil** (players destroy a
   legendary fish to craft it), the **spot-level loot modifier** (the reward
@@ -241,6 +241,7 @@ hand-made request, can farm or wreck something.
   into the live roll; delete `rollCatch`, `generateFightParams`,
   `calculateBiteWait`, `generateNibbleTimes`, `generateCastToken`. Player
   visible → changelog.
+  **Fixed 2026-11-21:** one `Fishing::buildPool` per schedule holds every rule (affinity, bait catch_rate_mod on the bite rate, bait rarity_mod > 1 on rare+, UTC time of day, UTC season, event fish, required bait, `is_active`, spot loot modifier / Lure Oil / Golden Hour on rare+, Chum / Golden Hour on the bite rate); dead code deleted. 10,000-roll simulation on the pond: Earthworms ≈ unchanged; Glow Grubs bite 50 % (was 37 %) with 3× the rares; Magnet fish bites 17 % (was 40 %); Bread Dough 35 % (was 40 %). Rarity_mod < 1 (Corn, Bread, Magnet) is not applied, as in the original rollCatch.
 - [x] **35. Junk and double-hook payouts are wrong.** A junk catch awards a
   *different* random item (`ORDER BY RAND()`) than the one the HUD fought,
   writes no catch_log row and uses no bait. Double Hook returns doubled XP
@@ -252,11 +253,12 @@ hand-made request, can farm or wreck something.
   there until the owner notices. Fix: track "auto-paused" separately from the
   owner's switch and clear it on heartbeat / registration.
   **Fixed 2026-11-21:** the sweep no longer switches spots off (it couldn't have yet, since no spot ever registered, see 30). A silent prim stops getting pushes after 90 min (they queue) and is forgotten after 7 days; its next heartbeat brings it back.
-- [ ] **37. Buff expiry notifies one spot, deletes them all.**
+- [x] **37. Buff expiry notifies one spot, deletes them all.**
   `getSpotBuffs` and `getActiveMultipliers` `DELETE` every expired buff in the
   table but push `buff_expired` only to the spot being read; every other spot
   keeps showing its expired buffs. Fix: expire per spot (or in the sweep) and
   queue a push for each.
+  **Fixed 2026-11-21:** `Buff::expireDue` deletes per row and pushes `buff_expired` to each row's own spot; runs on reads, on the heartbeat sweep roll, and every 10 min from cron (`sweep.php --buffs`).
 
 ## 🟠 High
 
@@ -351,9 +353,11 @@ hand-made request, can farm or wreck something.
   `hud_tokens.token` ×2, `players.username` ×2, `players.uuid` ×2.
   `rollFishFromPool` queries `rarity_tiers` and one affinity row per fish per
   roll (N+1).
-- [ ] **56. Tables that only grow.** The sweep skips `logic_error_log`,
+  **Partly fixed 2026-11-21:** the per-fish affinity / rarity N+1 in the roll is gone (one query each per schedule). Indexes still to do.
+- [x] **56. Tables that only grow.** The sweep skips `logic_error_log`,
   `admin_alerts`, `admin_object_log`, `spot_xp_daily`, `gather_cooldowns`,
   `daily_purchase_limits`.
+  **Fixed 2026-11-21:** `bin/sweep.php` now prunes logic_error_log (90 d), read admin_alerts (90 d), admin_object_log (180 d), spot_xp_daily (30 d), gather_cooldowns (1 d), daily_purchase_limits (7 d).
 - [ ] **57. Unauthenticated spam / leaks.** `grid_check` and the pairing
   routes register any `grid_name` string (no format or length check) → grid
   rows and daily pending alerts; `submit_question` has no throttle;
@@ -370,6 +374,7 @@ hand-made request, can farm or wreck something.
 - [ ] **60. Time.** `date('G')` / `date('n')` in Fishing and Quest (UTC via
   bootstrap, but the rule is `gmdate`). Daily quests reset at 00:00 UTC (7 pm
   New York) — say so on the quest page.
+  **2026-11-21:** `date()` → `gmdate()` done (Fishing, Quest). The quest-page note is still to do.
 - [ ] **61. Docs drift.** CLAUDE.md rarity XP 5/15/40/100/300 vs DB
   8/20/55/150/500; "HMAC-SHA256" signing is really SHA-256 of
   `message:token`; the heartbeat and `deleteSpot` comments.

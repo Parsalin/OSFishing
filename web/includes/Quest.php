@@ -798,7 +798,7 @@ class Quest {
     }
 
     private static function getCurrentSeason(): string {
-        $month = (int)date('n');
+        $month = (int)gmdate('n');
         if ($month >= 3 && $month <= 5) return 'spring';
         if ($month >= 6 && $month <= 8) return 'summer';
         if ($month >= 9 && $month <= 11) return 'fall';

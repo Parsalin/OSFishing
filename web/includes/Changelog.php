@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-21-catch-rules', 'date' => '2026-11-21', 'type' => 'fixed',
+         'text' => 'Several fishing rules didn\'t take effect until now. Your choice of bait now changes how often fish bite, and some baits bring up rare fish more often. Some fish keep to certain hours or seasons (by server time, UTC). Levelling up a fishing spot makes rare fish more likely there. Lucky Lure Oil and Golden Hour now raise your chance of rare fish, as they say they do. Buffs that run out now disappear from every spot right away, not just the one someone was fishing at.'],
         ['id' => '2026-11-21-spot-push', 'date' => '2026-11-21', 'type' => 'fixed',
          'text' => 'Fishing spots in-world now really do update the moment something changes: a buff used on the spot, or settings changed on the spot page (name, on/off, public/private, level, junk). Before, the spot only caught up when it next checked in, up to several minutes later.'],
         ['id' => '2026-11-21-shops-fair', 'date' => '2026-11-21', 'type' => 'fixed',

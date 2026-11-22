@@ -1353,6 +1353,7 @@ try {
             if (mt_rand(1, 20) === 1) {
                 PrimCallback::cleanupStale();
                 PushQueue::sweep();
+                Buff::expireDue();   // every spot hears about its own expired buffs
             }
             json_success(['ok' => true]);
 

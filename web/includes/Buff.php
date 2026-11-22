@@ -62,8 +62,7 @@ class Buff
     public static function getSpotBuffs(int $spotId): array {
         $pdo = db();
 
-        // Clean expired buffs
-        $pdo->prepare('DELETE FROM spot_buffs WHERE expires_at <= UTC_TIMESTAMP()')->execute();
+        self::expireDue($spotId);
 
         $stmt = $pdo->prepare('
             SELECT sb.id, sb.buff_type, sb.buff_value, sb.activated_at, sb.expires_at,
@@ -254,35 +253,49 @@ class Buff
      * Get buff multipliers for a spot (used by fishing engine).
      * Returns associative array of buff_type => value for active buffs.
      */
-    public static function getActiveMultipliers(int $spotId): array {
+    /**
+     * Delete expired buffs and tell each spot about its own (audit item 37:
+     * this used to delete every spot's expired buffs but notify only the spot
+     * being read, so the others kept showing them). $spotId = null does every
+     * spot (bin/sweep.php). A row is pushed only by the call that deleted it,
+     * so two requests at once don't push twice. Returns how many expired.
+     */
+    public static function expireDue(?int $spotId = null): int {
         $pdo = db();
-
-        // Find expired buffs that need notifying
-        $stmt = $pdo->prepare('
-            SELECT sb.buff_type, bi.name AS buff_name, fs.name AS spot_name
+        $sql = '
+            SELECT sb.id, sb.spot_id, sb.buff_type, bi.name AS buff_name, fs.name AS spot_name
             FROM spot_buffs sb
             LEFT JOIN buff_items bi ON bi.buff_type = sb.buff_type
             LEFT JOIN fishing_spots fs ON fs.id = sb.spot_id
-            WHERE sb.spot_id = :sid AND sb.expires_at <= UTC_TIMESTAMP()
-            GROUP BY sb.buff_type
-        ');
-        $stmt->execute([':sid' => $spotId]);
-        $expired = $stmt->fetchAll();
+            WHERE sb.expires_at <= UTC_TIMESTAMP()' . ($spotId !== null ? ' AND sb.spot_id = :sid' : '') . '
+            GROUP BY sb.id';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($spotId !== null ? [':sid' => $spotId] : []);
+        $rows = $stmt->fetchAll();
 
-        // Delete expired
-        $pdo->prepare('DELETE FROM spot_buffs WHERE expires_at <= UTC_TIMESTAMP()')->execute();
-
-        // Push expiration notifications
-        if (!empty($expired) && class_exists('PrimCallback')) {
-            foreach ($expired as $exp) {
-                PrimCallback::pushToSpot($spotId, [
-                    'type'       => 'buff_expired',
-                    'buff_type'  => $exp['buff_type'],
-                    'buff_label' => $exp['buff_name'] ?: $exp['buff_type'],
-                    'spot_name'  => $exp['spot_name'] ?: 'this spot',
-                ]);
-            }
+        $del = $pdo->prepare('DELETE FROM spot_buffs WHERE id = :id');
+        $told = [];
+        $n = 0;
+        foreach ($rows as $r) {
+            $del->execute([':id' => $r['id']]);
+            if ($del->rowCount() !== 1) continue;
+            $n++;
+            $key = $r['spot_id'] . '|' . $r['buff_type'];
+            if (isset($told[$key]) || !class_exists('PrimCallback')) continue;
+            $told[$key] = true;
+            PrimCallback::pushToSpot((int)$r['spot_id'], [
+                'type'       => 'buff_expired',
+                'buff_type'  => $r['buff_type'],
+                'buff_label' => $r['buff_name'] ?: $r['buff_type'],
+                'spot_name'  => $r['spot_name'] ?: 'this spot',
+            ]);
         }
+        return $n;
+    }
+
+    public static function getActiveMultipliers(int $spotId): array {
+        $pdo = db();
+        self::expireDue($spotId);
 
         $stmt = $pdo->prepare('
             SELECT buff_type, buff_value FROM spot_buffs
