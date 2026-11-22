@@ -9,22 +9,37 @@
 # documented source of "server is running stale code" bugs on this project's
 # sibling app.
 #
+# Order matters (audit item 47). OPcache revalidates file timestamps, so the
+# moment rsync copies a file it is live; the FPM reload is not the switch.
+# So everything that can fail runs BEFORE the sync, against the repo tree:
+#   fetch -> syntax check -> migrations -> sync (goes live) -> cron -> reload.
+# A failed check or migration leaves the old code serving, untouched.
+# Migrations therefore run while the OLD code is still live: each one must
+# leave the schema working for the old code too (add, don't rename/drop in
+# the same deploy that stops using something).
+#
 set -euo pipefail
 
 APP_ROOT="/var/www/osfishing"
 REPO_DIR="${APP_ROOT}/repo"
 WEB_SRC="${REPO_DIR}/web"
 WEB_DST="${APP_ROOT}/web"
-BRANCH="${1:-main}"
 
+if [ "${1:-}" != "--after-fetch" ]; then
+    BRANCH="${1:-main}"
+    cd "${REPO_DIR}"
+    git config --global --get-all safe.directory | grep -qxF "${REPO_DIR}" \
+        || git config --global --add safe.directory "${REPO_DIR}"
+
+    echo "==> Fetching ${BRANCH}"
+    git fetch --all --prune
+    git reset --hard "origin/${BRANCH}"
+    # This file may just have changed under the running shell, which reads
+    # scripts as it goes. Hand over to the fresh copy for everything else.
+    exec bash "${REPO_DIR}/deploy/deploy.sh" --after-fetch "${BRANCH}"
+fi
+BRANCH="${2:-main}"
 cd "${REPO_DIR}"
-
-git config --global --get-all safe.directory | grep -qxF "${REPO_DIR}" \
-    || git config --global --add safe.directory "${REPO_DIR}"
-
-echo "==> Fetching ${BRANCH}"
-git fetch --all --prune
-git reset --hard "origin/${BRANCH}"
 REV="$(git rev-parse --short HEAD)"
 echo "    now at ${REV}: $(git log -1 --pretty=%s)"
 
@@ -33,10 +48,32 @@ if [ -f "${WEB_SRC}/composer.json" ]; then
     (cd "${WEB_SRC}" && composer install --no-dev --optimize-autoloader --no-interaction --quiet)
 fi
 
-# config.php holds the DB credentials and HUD_SECRET. It is gitignored, so it
-# does not exist in the source tree — without this exclude, --delete would
-# remove the live config and take the site down.
-echo "==> Syncing to ${WEB_DST}"
+echo "==> Syntax check (repo tree, before anything goes live)"
+for d in public includes bin migrations; do
+    [ -d "${WEB_SRC}/${d}" ] || continue
+    find "${WEB_SRC}/${d}" -name '*.php' -print0 \
+        | xargs -0 -r -n1 -P4 php -l > /dev/null
+done
+
+# config.php is not in git; check the live one so a broken hand-edit is
+# caught here rather than as a 500 on the live site.
+if [ -f "${WEB_DST}/config.php" ]; then
+    php -l "${WEB_DST}/config.php" > /dev/null
+else
+    echo "    ERROR: ${WEB_DST}/config.php is missing — the site cannot work." >&2
+    exit 1
+fi
+
+# Migrations run from the repo tree (new migrate.php + new migrations) with
+# the live config, while the old code is still serving. The symlink is
+# gitignored, survives `git reset --hard`, and rsync excludes it.
+echo "==> Applying migrations"
+ln -sfn "${WEB_DST}/config.php" "${WEB_SRC}/config.php"
+php "${WEB_SRC}/bin/migrate.php"
+
+# config.php holds the DB credentials and HUD_SECRET. Without this exclude,
+# --delete would remove the live config and take the site down.
+echo "==> Syncing to ${WEB_DST} (live from here)"
 rsync -a --delete \
     --exclude 'config.php' \
     --exclude 'storage/' \
@@ -45,27 +82,6 @@ rsync -a --delete \
     "${WEB_SRC}/" "${WEB_DST}/"
 
 install -d -o osfishing -g osfishing -m 2775 "${APP_ROOT}/storage"
-
-# Fail the deploy before bad PHP goes live, not after.
-echo "==> Syntax check on deployed tree"
-for d in public includes bin migrations; do
-    [ -d "${WEB_DST}/${d}" ] || continue
-    find "${WEB_DST}/${d}" -name '*.php' -print0 \
-        | xargs -0 -r -n1 -P4 php -l > /dev/null
-done
-
-# config.php is not in the synced tree; check it separately so a broken
-# hand-edit is caught here rather than as a 500 on the live site.
-if [ -f "${WEB_DST}/config.php" ]; then
-    php -l "${WEB_DST}/config.php" > /dev/null
-else
-    echo "    WARNING: ${WEB_DST}/config.php is missing — the site will not work."
-fi
-
-# Schema and data migrations (web/migrations/versioned). A failure stops the
-# deploy here, before FPM reloads, so OPcache keeps serving the old code.
-echo "==> Applying migrations"
-php "${WEB_DST}/bin/migrate.php"
 
 # Scheduled jobs live in the repo: this replaces the managed block of the
 # osfishing crontab on every deploy and leaves any other lines alone.
@@ -79,6 +95,7 @@ CRON_BLOCK="# BEGIN osfishing-managed (deploy/deploy.sh — edit there, not here
 # END osfishing-managed"
 { { crontab -l 2>/dev/null || true; } | sed '/^# BEGIN osfishing-managed/,/^# END osfishing-managed/d'; echo "${CRON_BLOCK}"; } | crontab -
 
+# Drops cached copies of files the sync deleted or replaced.
 echo "==> Reloading PHP-FPM (clears OPcache)"
 sudo /usr/bin/systemctl reload php8.4-fpm
 

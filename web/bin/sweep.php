@@ -70,4 +70,9 @@ try {
     echo "{$stamp} push/prim sweep: FAILED " . $e->getMessage() . "\n";
 }
 
+if ($failed) {
+    require_once __DIR__ . '/../includes/AdminAlerts.php';
+    AdminAlerts::send('sweep_failed', 'The nightly cleanup (bin/sweep.php) had a failing step. See ~/logs/sweep.log on the server.',
+        null, [], 'job:sweep_failed', 20);
+}
 exit($failed ? 1 : 0);

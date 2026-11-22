@@ -21,6 +21,13 @@ OUT="${BACKUP_DIR}/osfishing-${STAMP}.sql.gz"
 umask 077
 mkdir -p "${BACKUP_DIR}"
 
+# Any failure raises an admin alert (Alerts tab), not just a line in ~/logs.
+ALERT_PHP="/var/www/osfishing/web/bin/alert.php"
+on_fail() {
+    php "${ALERT_PHP}" backup_failed "Nightly database backup failed at line $1 ($(date -u +%FT%TZ)). See ~/logs/backup.log on the server." || true
+}
+trap 'on_fail ${LINENO}' ERR
+
 get() { grep -E "^$1=" "${SECRETS}" | head -n1 | cut -d= -f2-; }
 DB_NAME="$(get DB_NAME)"
 DB_USER="$(get DB_USER)"
@@ -42,6 +49,7 @@ mariadb-dump --defaults-extra-file="${CNF}" \
 SIZE=$(stat -c%s "${OUT}.partial")
 if [ "${SIZE}" -lt 10240 ] || ! zcat "${OUT}.partial" | tail -n1 | grep -q 'Dump completed'; then
     echo "$(date -u +%FT%TZ) ERROR: dump looks incomplete (${SIZE} bytes); keeping old backups" >&2
+    php "${ALERT_PHP}" backup_failed "Nightly database backup looked incomplete (${SIZE} bytes); old backups kept." || true
     exit 1
 fi
 mv "${OUT}.partial" "${OUT}"
