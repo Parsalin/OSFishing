@@ -32,7 +32,7 @@ string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 // Script version, "YYYY.MM.DD.NN". Bumped automatically on every edit by
 // .claude/bump_version.ps1 (PostToolUse hook); never edit it by hand.
 // Sent with every hud_status and shown under Settings > devices.
-string  HUD_VERSION = "2026.11.19.05";
+string  HUD_VERSION = "2026.11.21.01";
 
 // ── Pairing State (lives only in script memory) ──
 integer gTokenId      = 0;
@@ -1911,6 +1911,8 @@ default {
                     hudInfo("HOOK SET! Fight is on!");
 
                     if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
+                        // Fight poses replace the idle (same priority 4)
+                        safeStopAnim("fishing_wait");
                         safePlayAnim("fishing_yank");
                     }
 

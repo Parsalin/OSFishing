@@ -528,8 +528,90 @@ ANIMS = {
     "prep_done":                (anim_prep_done, None),
 }
 
+# ── SL binary .anim (KeyframeMotion v1.0) ──────────────────────────────────
+import struct
+
+SL_JOINT = {
+    "hip": "mPelvis", "abdomen": "mTorso", "chest": "mChest", "neck": "mNeck", "head": "mHead",
+    "lCollar": "mCollarLeft", "lShldr": "mShoulderLeft", "lForeArm": "mElbowLeft", "lHand": "mWristLeft",
+    "rCollar": "mCollarRight", "rShldr": "mShoulderRight", "rForeArm": "mElbowRight", "rHand": "mWristRight",
+    "lThigh": "mHipLeft", "lShin": "mKneeLeft", "lFoot": "mAnkleLeft",
+    "rThigh": "mHipRight", "rShin": "mKneeRight", "rFoot": "mAnkleRight",
+}
+MAX_PELVIS_OFFSET = 5.0      # metres, LL_MAX_PELVIS_OFFSET
+INCH = 0.0254
+HAND_RELAXED, HAND_FIST = 1, 3
+
+# priority 4 = base animation, 5 = plays over a base animation.
+# loop_in is a fraction of the length (the pose from there to the end repeats).
+#                            priority loop  loop_in ease_in ease_out hand
+SETTINGS = {
+    "fishing_wait":             (4, True,  0.0,  0.5, 0.5, HAND_FIST),
+    "fishing_charge":           (4, True,  0.25, 0.3, 0.2, HAND_FIST),
+    "fishing_fight_steady":     (4, True,  0.0,  0.3, 0.3, HAND_FIST),
+    "fishing_fight_lean_left":  (4, True,  0.0,  0.3, 0.3, HAND_FIST),
+    "fishing_fight_lean_right": (4, True,  0.0,  0.3, 0.3, HAND_FIST),
+    "fishing_fight_strain":     (4, True,  0.0,  0.3, 0.3, HAND_FIST),
+    "gather_search":            (4, True,  0.0,  0.5, 0.5, HAND_RELAXED),
+    "prep_chop":                (4, False, 0.0,  0.2, 0.2, HAND_FIST),
+    "prep_done":                (4, False, 0.0,  0.2, 0.4, HAND_RELAXED),
+    "fishing_cast":             (5, False, 0.0,  0.1, 0.4, HAND_FIST),
+    "fishing_nibble":           (5, False, 0.0,  0.1, 0.2, HAND_FIST),
+    "fishing_yank":             (5, False, 0.0,  0.1, 0.3, HAND_FIST),
+    "fishing_reel":             (5, True,  0.0,  0.2, 0.2, HAND_FIST),
+    "fishing_landed":           (5, True,  0.55, 0.3, 0.5, HAND_FIST),
+    "fishing_disappointed":     (5, False, 0.0,  0.3, 0.5, HAND_FIST),
+    "cheer":                    (5, False, 0.0,  0.2, 0.4, HAND_FIST),
+    "gather_found":             (5, False, 0.0,  0.2, 0.3, HAND_RELAXED),
+}
+
+
+def _u16(v, lo, hi):
+    v = max(lo, min(hi, v))
+    return int(round((v - lo) / (hi - lo) * 65535))
+
+
+def write_anim(name, frames):
+    prio, loop, loop_in, ease_in, ease_out, hand = SETTINGS[name]
+    dur = (len(frames) - 1) / FPS
+    times = [_u16(i / FPS, 0.0, dur) for i in range(len(frames))]
+    joints = []
+    for n, _, _, _ in SKEL:
+        rots = [qs[n] for _, qs in frames]
+        moves = any(abs(r[0]) < 0.99999 for r in rots)
+        pos = []
+        if n == "hip":
+            pos = [tuple((a - b) * INCH for a, b in zip(hp, (0.0, HIP_Y, 0.0))) for hp, _ in frames]
+            if not any(max(abs(c) for c in p) > 0.0005 for p in pos):
+                pos = []
+        if not moves and not pos:
+            continue   # never leaves the reference pose: not animated (layers cleanly)
+        rk = []
+        if moves:
+            for t, (w, x, y, z) in zip(times, rots):
+                if w < 0:
+                    w, x, y, z = -w, -x, -y, -z
+                # BVH (x left, y up, z fwd) → SL (x fwd, y left, z up)
+                rk.append(struct.pack("<4H", t, _u16(z, -1, 1), _u16(x, -1, 1), _u16(y, -1, 1)))
+        pk = [struct.pack("<4H", t, *(_u16(c, -MAX_PELVIS_OFFSET, MAX_PELVIS_OFFSET) for c in (pz, px, py)))
+              for t, (px, py, pz) in zip(times, pos)]
+        joints.append(SL_JOINT[n].encode() + b"\0" + struct.pack("<ii", prio, len(rk)) + b"".join(rk)
+                      + struct.pack("<i", len(pk)) + b"".join(pk))
+    data = struct.pack("<HHif", 1, 0, prio, dur) + b"\0"
+    data += struct.pack("<ffiffII", loop_in * dur, dur, 1 if loop else 0, ease_in, ease_out, hand, len(joints))
+    data += b"".join(joints) + struct.pack("<i", 0)
+    path = os.path.join(HERE, name + ".anim")
+    with open(path, "wb") as fh:
+        fh.write(data)
+    return path, dur, len(joints), len(data)
+
+
 if __name__ == "__main__":
+    import sys
     _selftest()
     for name, (fn, only) in ANIMS.items():
-        path, secs = write_bvh(name, build(fn(), only))
-        print(f"{name:26s} {secs:4.2f}s  {os.path.basename(path)}")
+        frames = build(fn(), only)
+        path, secs, nj, size = write_anim(name, frames)
+        if "--bvh" in sys.argv:   # for previewing in Blender
+            write_bvh(name, frames)
+        print(f"{name:26s} prio {SETTINGS[name][0]}  {secs:4.2f}s  {nj:2d} joints  {size:6d} B")
