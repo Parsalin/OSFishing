@@ -355,7 +355,10 @@ const h = (tag, attrs, ...children) => {
     else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k === 'value') pendingValue = v;
-    else el.setAttribute(k, v);
+    // Boolean attributes are on when PRESENT: setAttribute('checked', false)
+    // still checks the box. true -> present, false/null -> left off.
+    else if (v === true) el.setAttribute(k, '');
+    else if (v !== false && v != null) el.setAttribute(k, v);
   });
   children.flat(Infinity).forEach(c => { if (c != null && c !== false) el.appendChild(c instanceof Node ? c : document.createTextNode(String(c))); });
   if (pendingValue !== undefined) el.value = pendingValue;
@@ -861,9 +864,21 @@ async function loadChangelogUnseen() {
   const r = await api('changelog_unseen');
   if (r.success) { state.changelogUnseen = r.unseen || 0; render(); }
 }
-async function setChangelogPublished(id, on) {
-  const r = await api('admin_changelog_publish', { entry_id: id, published: on ? '1' : '0' });
-  if (r.success) { showToast(r.message); loadChangelog(); } else showToast(r.error, true);
+// Saves one entry and updates only that row and the hidden count, as
+// Fertility does: no reload, no full re-render (that redraw was the flicker).
+// The box is disabled while saving and goes back if the save fails.
+async function setChangelogPublished(id, box) {
+  const want = box.checked;
+  box.disabled = true;
+  const r = await api('admin_changelog_publish', { entry_id: id, published: want ? '1' : '0' });
+  box.disabled = false;
+  if (!r.success) { box.checked = !want; showToast(r.error || 'Could not save. Please try again.', true); return; }
+  const e = (state.changelog || []).find(x => x.id === id);
+  if (e) e.published = want;
+  const row = box.closest('.cl-item');
+  if (row) row.style.opacity = want ? '1' : '0.5';
+  const count = $('cl-hidden-count');
+  if (count) count.textContent = String((state.changelog || []).filter(x => !x.published).length);
 }
 async function loadRecoveryTerminals() {
   const r = await api('recovery_terminals');
@@ -924,7 +939,7 @@ function renderSidebar(mobile) {
     {key:'map',label:'Grid Map',icon:'🗺️'},
     {key:'journal',label:'Journal',icon:icons.journal},{key:'log',label:'Catch Log',icon:icons.log},
     {key:'help',label:'Help',icon:icons.quest},
-    {key:'changelog',label:"What's New",icon:'📰'},
+    {key:'changelog',label:'Change Log',icon:'📰'},
     {key:'settings',label:'Settings',icon:icons.settings},
   ];
 
@@ -1821,29 +1836,47 @@ function renderSettings() {
 }
 
 // ═══════════════════════════════════════════════
-// PAGE: WHAT'S NEW (changelog)
+// PAGE: CHANGE LOG
+// Laid out like Fertility's changelog: entries grouped by day, a type pill,
+// and for admins a Published checkbox per entry. Unpublished entries are
+// dimmed, and the admin note counts how many are hidden.
 // ═══════════════════════════════════════════════
 function renderChangelog() {
   const entries = state.changelog;
   if (!entries) return loadingMsg();
+  const isAdmin = state.changelogAdmin;
   const typeStyle = { new:['New','var(--success)'], changed:['Changed','var(--accent)'], fixed:['Fixed','var(--text-muted)'] };
+  const byDate = [];
+  entries.forEach(e => {
+    const last = byDate[byDate.length - 1];
+    if (last && last.date === e.date) last.items.push(e); else byDate.push({ date: e.date, items: [e] });
+  });
+  const hidden = entries.filter(e => !e.published).length;
+  const card = (...c) => h('div',{class:'card',style:{maxWidth:'760px',marginBottom:'12px'}},h('div',{class:'card-body'},...c));
+
   return h('div',{class:'fade-in'},
-    h('div',{class:'section-header'},h('h2',{class:'section-title'},"What's New")),
-    state.changelogAdmin ? h('div',{style:{fontSize:'13.2px',color:'var(--text-muted)',marginBottom:'12px',maxWidth:'680px'}},
-      'Admin view: entries start hidden. Tick Published to show one to players. Dimmed entries are hidden.') : null,
-    entries.length === 0 ? h('div',{class:'card'},h('div',{class:'card-body',style:{color:'var(--text-muted)',fontSize:'14.3px'}},'Nothing here yet.')) :
-    h('div',{style:{display:'flex',flexDirection:'column',gap:'10px',maxWidth:'680px'}},...entries.map(e=>{
-      const [label,color] = typeStyle[e.type] || [e.type,'var(--text-muted)'];
-      return h('div',{class:'card',style:{opacity:e.published?'1':'0.55'}},h('div',{class:'card-body'},
-        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'6px'}},
-          h('div',{style:{fontSize:'12.1px',color:'var(--text-muted)'}},
-            h('span',{style:{color,fontWeight:700,textTransform:'uppercase',marginRight:'8px'}},label), fmtDay(e.date+' 12:00:00')),
-          state.changelogAdmin ? h('label',{style:{fontSize:'12.1px',display:'flex',gap:'5px',alignItems:'center'}},
-            h('input',{type:'checkbox',checked:e.published,onChange:ev=>setChangelogPublished(e.id, ev.target.checked)}),'Published') : null
-        ),
-        h('div',{style:{fontSize:'14.3px',lineHeight:'1.55',fontWeight:e.unseen?700:400}},e.text)
-      ));
-    }))
+    h('div',{class:'section-header'},h('h2',{class:'section-title'},'Change Log')),
+    h('div',{style:{fontSize:'13.2px',color:'var(--text-muted)',margin:'-4px 0 12px',maxWidth:'760px'}},
+      'Updates to the HUD and the website. Entries in ', h('strong',null,'bold'), ' are new since your last visit.'),
+    isAdmin ? card(h('div',{style:{fontSize:'13.2px',color:'var(--text-muted)'}},
+      '🛡️ Admin view: tick ', h('strong',null,'Published'), ' to show an entry to players. New entries start hidden. ',
+      h('span',{id:'cl-hidden-count',style:{fontWeight:700,color:'var(--text-primary)'}},String(hidden)), ' hidden.')) : null,
+    entries.length === 0 ? card(h('div',{style:{color:'var(--text-muted)',fontSize:'14.3px'}},'No updates posted yet.')) :
+    card(...byDate.map((day, di) => h('section',{style:{marginTop: di ? '18px' : '0'}},
+      h('h3',{style:{fontSize:'12.1px',textTransform:'uppercase',letterSpacing:'.06em',color:'var(--text-muted)',margin:'0 0 6px',fontWeight:600}},
+        fmtDay(day.date + ' 12:00:00')),
+      ...day.items.map((e, i) => {
+        const [label, color] = typeStyle[e.type] || [e.type, 'var(--text-muted)'];
+        return h('div',{class:'cl-item',style:{display:'flex',gap:'10px',alignItems:'flex-start',padding:'8px 0',
+            borderTop: i ? '1px solid var(--border)' : '0', opacity: e.published ? '1' : '0.5'}},
+          h('span',{style:{flex:'0 0 auto',minWidth:'70px',textAlign:'center',fontSize:'11px',fontWeight:700,textTransform:'uppercase',
+            padding:'2px 8px',borderRadius:'999px',border:'1px solid ' + color,color}},label),
+          h('span',{style:{flex:'1 1 auto',minWidth:0,fontSize:'14.3px',lineHeight:'1.55',fontWeight:e.unseen?700:400}},e.text),
+          isAdmin ? h('label',{style:{flex:'0 0 auto',display:'flex',alignItems:'center',gap:'6px',fontSize:'12.1px',whiteSpace:'nowrap',cursor:'pointer'}},
+            h('input',{type:'checkbox',checked:!!e.published,onChange:ev=>setChangelogPublished(e.id, ev.target)}),'Published') : null
+        );
+      })
+    )))
   );
 }
 

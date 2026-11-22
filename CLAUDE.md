@@ -57,7 +57,7 @@ later deploy). Schema changes are only ever made by a new file in
 **Before every commit — changelog check:** if the change alters anything a player
 can see or do (HUD, website, mechanics, numbers, messages, fixes they'd notice), add
 an entry to `web/includes/Changelog.php` **in the same commit**. Entries start hidden
-until an admin publishes them on the portal's What's New page. Skip only admin-only,
+until an admin publishes them on the portal's Change Log page. Skip only admin-only,
 internal, refactor or docs-only commits, and say so when reporting the commit. Plain
 player language; never spoil a discovery; never rename or reuse a shipped `id`.
 
@@ -219,7 +219,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 - `logic_error_log` — silent self-repairs / fail-closed checks (Logic Log tab)
 - `admin_objects` / `admin_object_log` — approved in-world admin objects and their activity
 - `login_tokens` — one-time recovery login links (sha256 only); `web_sessions.recovery_until`
-- `changelog_published` / `changelog_seen` — What's New publish state and per-player last visit
+- `changelog_published` / `changelog_seen` — Change Log publish state and per-player last visit
 
 ### Tutorials, trophies, etc.
 - `player_saved_fish` — separate trophy collection (referenced by status='saved' in player_fish)
@@ -373,8 +373,10 @@ nginx ignores those; routing lives in `deploy/nginx/`.
 
 `docs/BEST_PRACTICES.md` is the general rule list learned across Fertility and
 OSFishing (trust, time/schema, pushes, deploy, LSL, UI, working practice).
-Follow it. `docs/AUDIT.md` is the current worklist of places OSFishing doesn't
-yet (2026-11-19 scan); tick items off there as they're fixed.
+Follow it. `docs/AUDIT.md` holds only OPEN audit items (scans of 2026-11-19
+and 2026-11-21). When one is finished, add a **Fixed** note and move the
+whole item, number kept, to `docs/AUDIT_ARCHIVE.md`; partly fixed items stay
+in the worklist with a note saying what's left.
 
 ## LSL / grid gotchas
 

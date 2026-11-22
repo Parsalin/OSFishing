@@ -555,33 +555,34 @@ class PairingAuth {
             $playerId = (int)$pdo->lastInsertId();
             $pdo->prepare('INSERT INTO player_uuids (player_id, uuid, grid_identity, avatar_name) VALUES (:pid, :u, :gi, :n)')
                 ->execute([':pid' => $playerId, ':u' => $uuid, ':gi' => $gridIdentity, ':n' => $displayName]);
+
+            // Starter rod, line and bait in the same transaction: a failure
+            // part-way no longer leaves an account without its kit.
+            $pdo->prepare('INSERT IGNORE INTO player_rods (player_id, rod_id) VALUES (:pid, 1)')
+                ->execute([':pid' => $playerId]);
+            $pdo->prepare('UPDATE players SET equipped_rod_id = 1 WHERE id = :id')
+                ->execute([':id' => $playerId]);
+
+            $twineId = $pdo->query("SELECT id FROM line_types WHERE name = 'Twine' LIMIT 1")->fetchColumn();
+            if ($twineId) {
+                $pdo->prepare('INSERT IGNORE INTO player_lines (player_id, line_id) VALUES (:pid, :lid)')
+                    ->execute([':pid' => $playerId, ':lid' => $twineId]);
+                $pdo->prepare('UPDATE players SET equipped_line_id = :lid WHERE id = :id')
+                    ->execute([':lid' => $twineId, ':id' => $playerId]);
+            }
+
+            // 20 Bread Dough
+            $pdo->prepare('INSERT INTO player_bait (player_id, bait_id, quantity) VALUES (:pid, 9, 20)')
+                ->execute([':pid' => $playerId]);
+            $pdo->prepare('UPDATE players SET equipped_bait_id = 9 WHERE id = :id')
+                ->execute([':id' => $playerId]);
+
             $pdo->commit();
         } catch (\PDOException $e) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) $pdo->rollBack();
             if ($e->getCode() === '23000') json_error('An account already exists for this avatar or username. Try logging in instead.', 409);
             throw $e;
         }
-
-        // Grant starter rod, line, and bait
-        $pdo->prepare('INSERT IGNORE INTO player_rods (player_id, rod_id) VALUES (:pid, 1)')
-            ->execute([':pid' => $playerId]);
-        $pdo->prepare('UPDATE players SET equipped_rod_id = 1 WHERE id = :id')
-            ->execute([':id' => $playerId]);
-
-        // Grant and equip starter line (Twine)
-        $twineId = $pdo->query("SELECT id FROM line_types WHERE name = 'Twine' LIMIT 1")->fetchColumn();
-        if ($twineId) {
-            $pdo->prepare('INSERT IGNORE INTO player_lines (player_id, line_id) VALUES (:pid, :lid)')
-                ->execute([':pid' => $playerId, ':lid' => $twineId]);
-            $pdo->prepare('UPDATE players SET equipped_line_id = :lid WHERE id = :id')
-                ->execute([':lid' => $twineId, ':id' => $playerId]);
-        }
-
-        // Grant starter bait (20 Bread Dough)
-        $pdo->prepare('INSERT INTO player_bait (player_id, bait_id, quantity) VALUES (:pid, 9, 20)')
-            ->execute([':pid' => $playerId]);
-        $pdo->prepare('UPDATE players SET equipped_bait_id = 9 WHERE id = :id')
-            ->execute([':id' => $playerId]);
 
         // Pair the HUD that issued the code; its next poll collects the token.
         self::claimCode($playerId, $code, 'HUD');
