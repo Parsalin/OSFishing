@@ -41,7 +41,8 @@ float   gFloorLocalZ = 0.0;     // Bottom of the object, relative to the root
 float   gHeightAdjust = 0.0;    // Optional 3rd description field (metres)
 integer gFitLeft = 0;           // Re-fit passes left (the sit can settle late)
 
-// The viewer's built-in sit animations, stopped while gathering
+// The built-in sit animations: what gets stopped by name when this object
+// can't read its own animations' keys (they aren't full perm)
 list    SIT_ANIMS = ["sit", "sit_generic", "sit_female", "sit_ground", "sit_ground_constrained"];
 
 // ── Config parsing ──
@@ -135,14 +136,40 @@ fitSitter() {
     llSetLinkPrimitiveParamsFast(link, [PRIM_POS_LOCAL, local]);
 }
 
-// Swap the viewer's sit animation for the gather one (only when the
-// gather animation exists, so a bare prim still shows a normal sit)
+// Stop everything playing on the sitter except our own animations: the
+// sim's sit, and any sit an AO starts. Run every second while seated,
+// because a sit started after our first stop (sim timing, AOs) would
+// otherwise win: it is the same priority as gather_search.
+clearOtherAnims() {
+    if (gSitter == NULL_KEY) return;
+    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)) return;
+    if (llGetInventoryType("gather_search") != INVENTORY_ANIMATION) return;
+    list ours = [];
+    key k = llGetInventoryKey("gather_search");
+    if (k != NULL_KEY) ours += [k];
+    k = llGetInventoryKey("gather_found");
+    if (k != NULL_KEY) ours += [k];
+    integer i;
+    if (ours == []) {
+        // Keys hidden (not full perm): we can't tell ours apart, so
+        // only the built-in sits are stopped
+        for (i = 0; i < llGetListLength(SIT_ANIMS); ++i)
+            llStopAnimation(llList2String(SIT_ANIMS, i));
+        return;
+    }
+    list playing = llGetAnimationList(gSitter);
+    for (i = 0; i < llGetListLength(playing); ++i) {
+        key a = llList2Key(playing, i);
+        if (llListFindList(ours, [a]) == -1) llStopAnimation((string)a);
+    }
+}
+
+// Swap the sit animation for the gather one (only when the gather
+// animation exists, so a bare prim still shows a normal sit)
 startGatherAnim() {
     if (llGetInventoryType("gather_search") != INVENTORY_ANIMATION) return;
-    integer i;
-    for (i = 0; i < llGetListLength(SIT_ANIMS); ++i)
-        llStopAnimation(llList2String(SIT_ANIMS, i));
     llStartAnimation("gather_search");
+    clearOtherAnims();
 }
 
 // ── Register with server ──
@@ -376,6 +403,7 @@ default {
             --gFitLeft;
             fitSitter();
         }
+        clearOtherAnims();
 
         float now = llGetTime();
 
