@@ -82,8 +82,8 @@ def found(lift, reach=0.0, turn=0.0):
     dig_l_wrist = (0, -0.1, -0.85)
     l = lift * lift * (3 - 2 * lift)     # smoothstep
     aim('Torso', lerp((0, G['TORSO'][0], G['TORSO'][1]), (0, -0.32, 0.95), l))
-    aim('Chest', lerp((0, G['CHEST'][0], G['CHEST'][1]), (0, -0.10, 0.99), l))
-    aim('Neck',  lerp((0, -0.85, 0.5), (0, -0.22, 0.97), l))   # neck shares the look-down
+    aim('Chest', lerp((0, G['CHEST'][0], G['CHEST'][1]), (0, -0.25, 0.97), l))   # continues the torso, no backward kink
+    aim('Neck',  lerp((0, -0.988, 0.156), (0, -0.50, 0.87), l))   # neck leans forward, sharing the look-down with the head
     H = P['Head'].head.copy()
     # right hand: dig spot → pinch in the middle → up in front of the face
     pinch = Vector((-0.07, -0.66, 0.03))

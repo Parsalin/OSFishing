@@ -80,7 +80,8 @@ def pose(t):
     P['Pelvis'].matrix = Matrix.Translation(pv) @ Matrix.Rotation(ang,4,'X') @ Matrix.Translation(-pv) @ P['Pelvis'].matrix; upd()
     sway = 0.04*math.sin(w); bob = 0.06*math.sin(2*w)
     aim('Torso',(sway*0.5, TORSO[0]-bob, TORSO[1])); aim('Chest',(sway, CHEST[0], CHEST[1]))
-    aim('Neck',(0,-0.85,0.5)); aim('Head',(0.08*math.sin(w+0.6),-0.75,0.55))
+    # neck halfway between chest and head: the look-up is shared, not folded into the neck base
+    aim('Neck',(0,-0.988,0.156)); aim('Head',(0.08*math.sin(w+0.6),-0.75,0.55))
     miss = 0
     for s, sx, ph in (('Left',1,0.0),('Right',-1,math.pi)):
         aim('Collar'+s,(sx*0.85,-0.5,-0.15)); th = w + ph
