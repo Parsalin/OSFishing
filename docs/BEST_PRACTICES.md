@@ -220,6 +220,14 @@ Grid-specific LSL ↔ PHP detail: `docs/GRID_COMMS_LESSONS.md`.
 59. **Emoji and special characters via `llUnescapeURL`**, not `\x` escapes.
 60. **Don't let a device's version prompt or update offer depend on a
     server update reaching it** — devices in the field may never update.
+61. **Animations and poses: a bone you don't move is free.** Any bone left at
+    the T-pose (the reference frame) is dropped from the animation, so other
+    animations (AO, stands) still move it. A still or full-body pose must move
+    every bone a little off T-pose, even the "neutral" ones (stomach, neck,
+    collars, hands). Leave a bone at T-pose only on purpose, for a layered
+    animation that moves just some joints. (Morphs/shape sliders are a
+    different thing; this is animations and poses only.)
+    `lsl/Animations/make_animations.py` does this with a 1° nudge.
 
 ## 7. Web and admin UI
 

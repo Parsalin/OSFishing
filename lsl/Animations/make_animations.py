@@ -250,6 +250,9 @@ def smooth(t):
     return t * t * (3 - 2 * t)
 
 
+NUDGE = qaxis("X", 1.0)
+
+
 def build(keys, only=None):
     """keys: [(time_s, pose), ...]. only: joint names to animate (others stay T-pose)."""
     solved = []
@@ -273,6 +276,11 @@ def build(keys, only=None):
             qs = {j: (qs[j] if j in only else QI) for j in qs}
             if "hip" not in only:
                 hp = (0.0, HIP_Y, 0.0)
+        else:
+            # A joint left at T-pose is dropped from the animation and stays free
+            # for any other animation (AO, stands) to move. Full-body poses must
+            # hold every bone, so nudge resting joints 1 degree off T-pose.
+            qs = {j: (NUDGE if abs(q[0]) > 0.99996 else q) for j, q in qs.items()}
         frames.append((hp, qs))
     return frames
 

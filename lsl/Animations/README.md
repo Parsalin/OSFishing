@@ -17,9 +17,13 @@ not committed.
 ## Format
 
 - Built on the standard SL skeleton, 30 fps, one key per frame.
-- A joint that never leaves the default pose is left out of the file. That's
-  how `fishing_reel` moves only the left arm and plays on top of the fight
-  animations.
+- **A bone you don't move is free.** A bone left at the T-pose is left out of
+  the animation, so other animations (AO, stands) can still move it. Every
+  full-body animation here therefore holds all 19 bones: any bone that would
+  rest at T-pose is set 1° off it (`NUDGE`). Only layered animations leave
+  bones out, on purpose: `fishing_reel` moves just the left shoulder and
+  elbow so it plays on top of the fight poses. (This is about animations and
+  poses, not morphs.)
 - The rod is held in the **right hand** (FishingRod attaches to Right Hand).
   The left hand rests on the reel. If the rod points the wrong way in the
   `fishing_wait` pose, fix the rod's attachment rotation, not the animation.
