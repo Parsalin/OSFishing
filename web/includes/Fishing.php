@@ -949,8 +949,7 @@ class Fishing {
             }
         }
 
-        // ── Check tournament entries ──
-        self::updateTournaments($playerId, $fishSpeciesId, $weight, $spotId);
+        // Tournament standings are computed from catch_log (Tournament::getLeaderboard).
 
         // ── Award spot XP ──
         $spotXpResult = self::awardSpotXp($pdo, $spotId, $playerId, (int)$fish['rarity_id'], $spotMeta);
@@ -1309,61 +1308,5 @@ class Fishing {
         }
 
         return ['xp_awarded' => $xpToAward, 'level_ready' => $levelReady];
-    }
-
-    /**
-     * Update any active tournaments with a new catch.
-     */
-    private static function updateTournaments(int $playerId, int $fishSpeciesId, float $weight, int $spotId): void {
-        $pdo = db();
-
-        $stmt = $pdo->prepare('
-            SELECT * FROM tournaments
-            WHERE is_active = 1 AND starts_at <= UTC_TIMESTAMP() AND ends_at > UTC_TIMESTAMP()
-        ');
-        $stmt->execute();
-        $tournaments = $stmt->fetchAll();
-
-        foreach ($tournaments as $t) {
-            // Check species filter
-            if ($t['target_species_id'] && (int)$t['target_species_id'] !== $fishSpeciesId) continue;
-
-            // Check water filter
-            if ($t['target_water_id']) {
-                $stmt2 = $pdo->prepare('SELECT water_type_id FROM fishing_spots WHERE id = :id');
-                $stmt2->execute([':id' => $spotId]);
-                $spotWater = (int)$stmt2->fetchColumn();
-                if ($spotWater !== (int)$t['target_water_id']) continue;
-            }
-
-            // Upsert tournament entry
-            $scoring = $t['scoring_type'];
-            $stmt2 = $pdo->prepare('
-                INSERT INTO tournament_entries (tournament_id, player_id, score, total_catches)
-                VALUES (:tid, :pid, :score, 1)
-                ON DUPLICATE KEY UPDATE
-                    score = CASE
-                        WHEN :scoring = \'biggest_single\' AND :score2 > score THEN :score3
-                        WHEN :scoring2 = \'total_weight\' THEN score + :score4
-                        WHEN :scoring3 = \'most_catches\' THEN total_catches + 1
-                        ELSE score
-                    END,
-                    total_catches = total_catches + 1,
-                    last_updated = UTC_TIMESTAMP()
-            ');
-
-            $scoreVal = ($scoring === 'most_catches') ? 1 : $weight;
-            $stmt2->execute([
-                ':tid'      => $t['id'],
-                ':pid'      => $playerId,
-                ':score'    => $scoreVal,
-                ':score2'   => $scoreVal,
-                ':score3'   => $scoreVal,
-                ':score4'   => $scoreVal,
-                ':scoring'  => $scoring,
-                ':scoring2' => $scoring,
-                ':scoring3' => $scoring,
-            ]);
-        }
     }
 }

@@ -604,7 +604,7 @@ try {
         // ── Rod gallery (cosmetic only, no auth needed) ──
         case 'list_rods':
             $rods = db()->query('
-                SELECT id, name, tier, description, shop_price AS cost_points, min_level
+                SELECT id, name, tier, description, cost AS cost_points, min_level
                 FROM rod_types ORDER BY min_level ASC, id ASC
             ')->fetchAll();
             json_success(['rods' => $rods]);
