@@ -27,9 +27,14 @@ class Leaderboard
         ?string $scopeValue = null,
         ?int $waterTypeId = null,
         int $limit = 10,
-        ?int $spotId = null
+        ?int $spotId = null,
+        ?string $gridName = null
     ): array {
         $pdo = db();
+        // "Same region" means same region name AND same grid (region names
+        // repeat across grids). Boards that send their grid get both; older
+        // boards that don't still get the region-only match (audit item 54).
+        self::$simGrid = ($scope === 'sim' && $gridName) ? Grid::identityOf($gridName) : null;
 
         if ($metric === 'weight') {
             return self::byWeight($pdo, $scope, $scopeValue, $waterTypeId, $limit, $spotId);
@@ -37,6 +42,9 @@ class Leaderboard
             return self::byCatches($pdo, $scope, $scopeValue, $waterTypeId, $limit, $spotId);
         }
     }
+
+    /** Grid identity for the sim scope of the current get() call, or null. */
+    private static ?string $simGrid = null;
 
     /**
      * Heaviest single catch leaderboard.
@@ -59,6 +67,10 @@ class Leaderboard
         } elseif ($scope === 'sim' && $scopeValue) {
             $where[] = 'fs.region_name = :scope_val';
             $params[':scope_val'] = $scopeValue;
+            if (self::$simGrid !== null) {
+                $where[] = Grid::sameGridSql('fs.grid_name', ':scope_grid');
+                $params[':scope_grid'] = self::$simGrid;
+            }
         }
 
         // Water type filter
@@ -112,6 +124,7 @@ class Leaderboard
             $where[] = Grid::sameGridSql('fs2.grid_name', ':sub_scope_val');
         } elseif ($scope === 'sim' && $scopeValue) {
             $where[] = 'fs2.region_name = :sub_scope_val';
+            if (self::$simGrid !== null) $where[] = Grid::sameGridSql('fs2.grid_name', ':sub_scope_grid');
         }
         if ($waterTypeId) {
             $where[] = 'fs2.water_type_id = :sub_wt';
@@ -127,6 +140,7 @@ class Leaderboard
             $params[':sub_scope_val'] = Grid::identityOf($scopeValue);
         } elseif ($scope === 'sim' && $scopeValue) {
             $params[':sub_scope_val'] = $scopeValue;
+            if (self::$simGrid !== null) $params[':sub_scope_grid'] = self::$simGrid;
         }
         if ($waterTypeId) {
             $params[':sub_wt'] = $waterTypeId;
@@ -153,6 +167,10 @@ class Leaderboard
         } elseif ($scope === 'sim' && $scopeValue) {
             $where[] = 'fs.region_name = :scope_val';
             $params[':scope_val'] = $scopeValue;
+            if (self::$simGrid !== null) {
+                $where[] = Grid::sameGridSql('fs.grid_name', ':scope_grid');
+                $params[':scope_grid'] = self::$simGrid;
+            }
         }
 
         if ($waterTypeId) {

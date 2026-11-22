@@ -63,7 +63,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 
 ### Trust model
 - Server is authoritative for all game decisions: catch outcomes, XP, currency, item rolls
-- HUD authenticates via HMAC-SHA256 signed requests with replay-protection nonces
+- HUD authenticates by SHA-256 of `uuid:timestamp:nonce:action:token` (not an HMAC) with replay-protection nonces
 - Every API call signs `uuid:timestamp:nonce:action:token` with the per-pairing token
 - Tokens issued via 6-digit pairing codes claimed on the website
 
@@ -182,7 +182,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 
 ### Fishing
 - `fish_species` — name, water_type, rarity_id, base_xp_per_lb, base_value_per_lb, weight_min/max, etc.
-- `rarity_tiers` — common (5 XP, 50% catch weight), uncommon (15, 25%), rare (40, 10%), epic (100, 3%), legendary (300, 0.5%)
+- `rarity_tiers` — common (8 XP, 50% catch weight), uncommon (20, 25%), rare (55, 10%), epic (150, 3%), legendary (500, 0.5%)
 - `water_types` — pond (lvl 1+), river (3+), lake (5+), ocean (10+)
 - `bait_types` — earthworms, crickets, leeches, shrimp, glow grubs, magnets, etc.
 - `bait_affinity` — fish×bait catch-rate and rarity-mod modifiers (350+ entries)
@@ -253,7 +253,7 @@ player language; never spoil a discovery; never rename or reuse a shipped `id`.
 - Add notes, return trophy to inventory anytime
 
 ### Leveling
-- XP from rarity (Common 5, Uncommon 15, Rare 40, Epic 100, Legendary 300)
+- XP from rarity (Common 8, Uncommon 20, Rare 55, Epic 150, Legendary 500, per `rarity_tiers.base_xp`) plus a weight bonus
 - Daily/weekly quests for bonus XP
 - Levels gate water types: pond→river (3)→lake (5)→ocean (10)
 

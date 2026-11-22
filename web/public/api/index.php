@@ -734,7 +734,8 @@ try {
             if ($limit < 1) $limit = 1;
             if ($limit > 25) $limit = 25;
             json_success([
-                'leaderboard' => Leaderboard::get($metric, $scope, $scopeValue, $waterTypeId ? (int)$waterTypeId : null, $limit, $spotId ? (int)$spotId : null),
+                'leaderboard' => Leaderboard::get($metric, $scope, $scopeValue, $waterTypeId ? (int)$waterTypeId : null, $limit, $spotId ? (int)$spotId : null,
+                                                  (string)optional_param('grid_name', '') ?: null),
                 'metric' => $metric,
                 'scope' => $scope,
                 'water_type' => $waterType,

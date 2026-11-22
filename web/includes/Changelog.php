@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-21-board-sim-grid', 'date' => '2026-11-21', 'type' => 'fixed',
+         'text' => 'Leaderboard boards set to "Sim" no longer mix in catches from a region with the same name on another grid. (Needs the updated leaderboard board.)'],
         ['id' => '2026-11-21-quest-ready-repeat', 'date' => '2026-11-21', 'type' => 'fixed',
          'text' => 'After a catch, your HUD could repeat "Quest ready" for quests it had already told you about. It now only tells you about the quest that just became ready.'],
         ['id' => '2026-11-21-catch-rules', 'date' => '2026-11-21', 'type' => 'fixed',

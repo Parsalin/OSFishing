@@ -358,6 +358,7 @@ hand-made request, can farm or wreck something.
 - [ ] **54. "Same region" without the grid.** Leaderboard `sim` scope
   (`byWeight`, `byCatches`, `buildSubqueryWhere`); `bait_gather_points` has no
   grid column at all; `registerShop` / `registerPoint` position matches.
+  **Partly fixed 2026-11-21:** leaderboard `sim` scope matches the grid when the board sends it (LeaderboardDisplay now does; older boards get region-only). Still open: `bait_gather_points` has no grid column.
 - [x] **55. Indexes and query cost.** `catch_log` has no `spot_id` index, yet
   per-spot `COUNT(*)` subqueries run per row (spot leaderboard, archived list,
   spot page) — add `(spot_id, caught_at)`. Duplicate indexes:
@@ -392,6 +393,7 @@ hand-made request, can farm or wreck something.
 - [ ] **61. Docs drift.** CLAUDE.md rarity XP 5/15/40/100/300 vs DB
   8/20/55/150/500; "HMAC-SHA256" signing is really SHA-256 of
   `message:token`; the heartbeat and `deleteSpot` comments.
+  **Partly fixed 2026-11-21:** CLAUDE.md rarity XP and the signing description corrected; the heartbeat comment is gone with item 36. `deleteSpot` comment still to check.
 - [ ] **62. Small bugs.** `trackCatch` re-sends "Quest ready" for every later
   quest once any update happened; timed quests can be claimed after expiry
   (none use `time_limit` yet); GatherPoint / Butcher grants skip

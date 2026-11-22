@@ -71,7 +71,7 @@ string COL_BORDER   = "ff3a423a";
 fetchLeaderboard() {
     string body = "action=leaderboard&metric=" + gMetric + "&scope=" + gScope + "&limit=10";
     if (gScope == "grid" && gGridName != "") body += "&scope_value=" + llEscapeURL(gGridName);
-    else if (gScope == "sim" && gRegion != "") body += "&scope_value=" + llEscapeURL(gRegion);
+    else if (gScope == "sim" && gRegion != "") body += "&scope_value=" + llEscapeURL(gRegion) + "&grid_name=" + llEscapeURL(gGridName);   // region names repeat across grids
     if (gWaterType != "") body += "&water_type=" + llEscapeURL(gWaterType);
     if (gSpotId > 0) body += "&spot_id=" + (string)gSpotId;
     gHttpReq = llHTTPRequest(gApiUrl, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_BODY_MAXLENGTH, 8192], body);
