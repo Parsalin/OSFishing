@@ -220,16 +220,29 @@ Grid-specific LSL ↔ PHP detail: `docs/GRID_COMMS_LESSONS.md`.
 59. **Emoji and special characters via `llUnescapeURL`**, not `\x` escapes.
 60. **Don't let a device's version prompt or update offer depend on a
     server update reaching it** — devices in the field may never update.
-61. **Animations and poses: a bone you don't move is free.** Any bone left at
-    the T-pose (the reference frame) is dropped from the animation, so other
-    animations (AO, stands) still move it. A still or full-body pose must move
-    every bone a little off T-pose, even the "neutral" ones (stomach, neck,
-    collars, hands). Leave a bone at T-pose only on purpose, for a layered
-    animation that moves just some joints. (Morphs/shape sliders are a
-    different thing; this is animations and poses only.)
-    `lsl/Animations/make_animations.py` does this with a 1° nudge, decided
-    per bone over the whole animation (a per-frame check makes moving bones
-    snap to the nudge as they pass through T-pose: a visible twitch).
+
+Animations and poses (all enforced by `lsl/Animations/make_animations.py`,
+which refuses to build an animation that breaks one):
+
+60a. **A bone you don't move is free.** Any bone left at the T-pose (the
+    reference frame) is dropped from the animation, so other animations (AO,
+    stands) still move it. A still or full-body pose must move every bone a
+    little off T-pose, even the "neutral" ones (stomach, neck, collars,
+    hands). A layered animation leaves out only the bones it means to leave
+    free, and still holds every bone it owns (`fishing_reel` holds the whole
+    left arm, wrist and collar included). Decide the nudge per bone over the
+    whole animation, never per frame: a per-frame check makes moving bones
+    snap to the nudge as they pass through T-pose, a visible twitch. (Morphs
+    and shape sliders are a different thing; this is animations and poses.)
+60b. **A loop's first real frame equals its last.** Restart the loop on a
+    keyframe whose pose is the same as the last one, never at a percentage
+    that lands between keys, and carry the motion's speed across the seam.
+60c. **Smooth keyframes, not eased segments.** Set a few poses and join them
+    with a curve that keeps moving through each one (Catmull-Rom). Easing in
+    and out of every keyframe stops the motion dead at each key and looks
+    robotic. Keys every 0.1 s plus one per pose is plenty; the viewer fills in.
+60d. **Not too fast:** no joint turns faster than 400°/s. A 0.15 s hook-set
+    snap hit 1,250°/s and looked like a glitch, not a jerk.
 
 ## 7. Web and admin UI
 

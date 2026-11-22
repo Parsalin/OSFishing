@@ -24,15 +24,18 @@ not committed.
   as the last one, and the curve's speed carries across the seam. The script
   refuses to build a loop whose ends differ. `fishing_charge` and
   `fishing_landed` play their start once, then loop the held pose.
-- **Not too fast:** the script prints each animation's fastest joint turn
-  (deg/s). Keep everyday motion under about 400. The hook set (`fishing_yank`,
-  about 530) and the fist pump (`cheer`, about 480) are meant to be snappy.
+- **Not too fast:** no joint turns faster than 400°/s. The script prints each
+  animation's fastest joint turn.
+- **The script enforces these rules** (and BEST_PRACTICES 60a–60d): it stops
+  with an error if an animation doesn't hold every bone it owns, has a loop
+  with no matching restart keyframe, turns a joint faster than 400°/s, or has
+  keyframes out of order or closer than one frame.
 - **A bone you don't move is free.** A bone left at the T-pose is left out of
   the animation, so other animations (AO, stands) can still move it. Every
   full-body animation here therefore holds all 19 bones: any bone that would
   rest at T-pose is set 1° off it (`NUDGE`). Only layered animations leave
-  bones out, on purpose: `fishing_reel` moves just the left shoulder and
-  elbow so it plays on top of the fight poses. (This is about animations and
+  bones out, on purpose: `fishing_reel` holds just the left arm (collar,
+  shoulder, elbow, wrist) so it plays on top of the fight poses. (This is about animations and
   poses, not morphs.)
 - The rod is held in the **right hand** (FishingRod attaches to Right Hand).
   The left hand rests on the reel. If the rod points the wrong way in the
@@ -62,7 +65,7 @@ animation that's missing.
 | `fishing_cast` | FishingHUD | 5 | no | Forward snap to release, then settle into the hold (over `fishing_wait`) |
 | `fishing_nibble` | FishingHUD | 5 | no | Small rod twitch and a lean in to look (over `fishing_wait`) |
 | `fishing_yank` | FishingHUD | 5 | no | Hook set: rod jerked up and back (over the fight poses) |
-| `fishing_reel` | FishingHUD | 5 | yes | Left hand cranking the reel. **Left arm only**; it plays over the fight poses |
+| `fishing_reel` | FishingHUD | 5 | yes | Left hand cranking the reel. **Left arm only** (all 4 bones); it plays over the fight poses |
 | `fishing_landed` | FishingHUD | 5 | raise once, then loops the hold | Rod lowered, fish raised up in the left hand (over the fight poses) |
 | `fishing_disappointed` | FishingHUD | 5 | no | Shoulders slump, head shake (over `fishing_wait`) |
 | `cheer` | FishingHUD | 5 | no | Left-hand fist pump twice. The HUD only *stops* this one today; nothing plays it yet |

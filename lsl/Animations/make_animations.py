@@ -331,16 +331,16 @@ def build(keys, only=None, loop_from=None, times=None):
             if "hip" not in only:
                 hp = (0.0, HIP_Y, 0.0)
         frames.append((t, hp, qs))
-    if only is None:
-        # A bone left at T-pose for the whole animation is dropped from it and
-        # stays free for any other animation (AO, stands) to move. Full-body
-        # poses must hold every bone, so a bone that never moves is set 1 degree
-        # off T-pose for EVERY frame. Decide per bone, never per frame: a moving
-        # bone passing through T-pose mid-animation must not snap to the nudge.
-        for j in PARENT:
-            if all(abs(qs[j][0]) > 0.99999 for _, _, qs in frames):
-                for _, _, qs in frames:
-                    qs[j] = NUDGE
+    # A bone left at T-pose for the whole animation is dropped from it and
+    # stays free for any other animation (AO, stands) to move. Every bone the
+    # animation owns (all of them, or the `only` set of a layered one) must be
+    # held, so a bone that never moves is set 1 degree off T-pose for EVERY
+    # frame. Decide per bone, never per frame: a moving bone passing through
+    # T-pose mid-animation must not snap to the nudge.
+    for j in (PARENT if only is None else only):
+        if all(abs(qs[j][0]) > 0.99999 for _, _, qs in frames):
+            for _, _, qs in frames:
+                qs[j] = NUDGE
     return frames
 
 
@@ -461,7 +461,7 @@ def anim_yank():
               rArm=((-0.35, -0.3, 0.3), (0.2, 0.95, -0.1)),
               lArm=((0.05, -0.6, 0.6), (-0.7, 0.5, 0.4)),
               **FIGHT_LEGS)
-    return [(0.0, WAIT), (0.35, up), (0.65, up), (1.3, FIGHT)]
+    return [(0.0, WAIT), (0.5, up), (0.8, up), (1.5, FIGHT)]
 
 
 def _fight_loop(b, amp_pitch=3.0, step=0.5, length=2.0, shake=0.0):
@@ -520,7 +520,7 @@ def anim_cheer():
                 rArm=((-0.3, -0.95, 0.1), (-0.05, -0.35, 1.0)),
                 lArm=((0.45, -0.2, 0.4), (0.0, 1.0, 0.1)), lHand=(0, 0, 0))
     up = pose(down, chest=(0, -8, 0), lArm=((0.3, 0.95, 0.05), (0.05, 1.0, 0.0)), lCollar=(0, 8))
-    return [(0.0, WAIT), (0.45, down), (0.9, up), (1.35, down), (1.8, up), (2.25, down), (2.9, WAIT)]
+    return [(0.0, WAIT), (0.55, down), (1.1, up), (1.65, down), (2.2, up), (2.75, down), (3.4, WAIT)]
 
 
 def anim_reel():
@@ -688,6 +688,34 @@ def peak_speed(frames):
     return top
 
 
+MAX_SPEED = 400.0   # deg/s: fastest any joint may turn
+
+
+def check_rules(name, keys, only, loop_from, dense, anim_joints):
+    """The animation rules (docs/BEST_PRACTICES.md 61, README). Any break stops the build."""
+    errs = []
+    # 1. Every bone held in a full-body animation (an unmoved bone is free for
+    #    other animations to move). Layered animations list theirs in `only`.
+    want = len(SKEL) if only is None else len(only & set(PARENT))
+    if anim_joints != want:
+        errs.append(f"holds {anim_joints} bones, needs {want}")
+    # 2. A loop restarts on a keyframe whose pose equals the last one
+    #    (checked by build) — and a looping animation must declare where.
+    if SETTINGS[name][1] and loop_from is None:
+        errs.append("loops but has no loop keyframe")
+    # 3. Not too fast.
+    sp = peak_speed(dense)
+    if sp > MAX_SPEED:
+        errs.append(f"peak {sp:.0f} deg/s > {MAX_SPEED:.0f}")
+    # 4. Keyframes in time order, none closer than one frame.
+    ts = [t for t, _ in keys]
+    if any(b - a < 1.0 / FPS - 1e-9 for a, b in zip(ts, ts[1:])):
+        errs.append("keyframes out of order or closer than one frame")
+    if errs:
+        raise SystemExit(f"{name}: " + "; ".join(errs))
+    return sp
+
+
 if __name__ == "__main__":
     import sys
     _selftest()
@@ -700,9 +728,10 @@ if __name__ == "__main__":
         dur = keys[-1][0]
         grid = [i * KEY_STEP for i in range(int(dur / KEY_STEP + 1e-6) + 1)]
         ktimes = sorted({round(t, 4) for t in grid + [t for t, _ in keys]})
-        path, secs, nj, size = write_anim(name, build(keys, only, loop_from, ktimes))
         dense = build(keys, only, loop_from)
+        path, secs, nj, size = write_anim(name, build(keys, only, loop_from, ktimes))
+        sp = check_rules(name, keys, only, loop_from, dense, nj)
         if "--bvh" in sys.argv:   # for previewing in Blender
             write_bvh(name, dense)
         print(f"{name:26s} prio {SETTINGS[name][0]}  {secs:4.2f}s  {len(ktimes):3d} keys  "
-              f"{nj:2d} joints  {size:6d} B  peak {peak_speed(dense):4.0f} deg/s")
+              f"{nj:2d} joints  {size:6d} B  peak {sp:4.0f} deg/s")
