@@ -38,6 +38,16 @@ integer gCountLegendary = 0;
 integer CH_GATHER_HUD = -7710006;
 
 // ── Helpers ──
+// Missing animations are skipped (llStartAnimation on a missing one errors).
+startAnim(string a) {
+    if (llGetInventoryType(a) != INVENTORY_ANIMATION) return;
+    if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) llStartAnimation(a);
+}
+stopAnim(string a) {
+    if (llGetInventoryType(a) != INVENTORY_ANIMATION) return;
+    if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) llStopAnimation(a);
+}
+
 
 hudMsg(key who, string msg) {
     llRegionSayTo(who, CH_GATHER_HUD, "GATHER_MSG|" + msg);
@@ -207,10 +217,8 @@ clearSitter() {
         llListenRemove(gDialogHandle);
         gDialogHandle = 0;
     }
-    if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-        llStopAnimation("gather_search");
-        llStopAnimation("gather_found");
-    }
+    stopAnim("prep_chop");
+    stopAnim("prep_done");
     gSitter = NULL_KEY;
     gAllFishIds = [];
     gAllFishLabels = [];
@@ -340,18 +348,12 @@ default {
             string special = llJsonGetValue(body, ["special_bait"]);
 
             // Chopping animation
-            if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                llStartAnimation("gather_search");
-            }
+            startAnim("prep_chop");
             llSleep(2.0);
-            if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                llStopAnimation("gather_search");
-                llStartAnimation("gather_found");
-            }
-            llSleep(1.0);
-            if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                llStopAnimation("gather_found");
-            }
+            stopAnim("prep_chop");
+            startAnim("prep_done");
+            llSleep(1.5);
+            stopAnim("prep_done");
 
             hudMsg(gSitter, msg);
 
@@ -394,18 +396,12 @@ default {
             string msg = llJsonGetValue(body, ["message"]);
             if (msg == JSON_INVALID) msg = "Item crafted!";
 
-            if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                llStartAnimation("gather_search");
-            }
+            startAnim("prep_chop");
             llSleep(2.0);
-            if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                llStopAnimation("gather_search");
-                llStartAnimation("gather_found");
-            }
-            llSleep(1.0);
-            if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                llStopAnimation("gather_found");
-            }
+            stopAnim("prep_chop");
+            startAnim("prep_done");
+            llSleep(1.5);
+            stopAnim("prep_done");
 
             hudMsg(gSitter, msg);
             llSleep(1.5);
