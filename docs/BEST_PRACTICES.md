@@ -227,7 +227,9 @@ Grid-specific LSL ↔ PHP detail: `docs/GRID_COMMS_LESSONS.md`.
     collars, hands). Leave a bone at T-pose only on purpose, for a layered
     animation that moves just some joints. (Morphs/shape sliders are a
     different thing; this is animations and poses only.)
-    `lsl/Animations/make_animations.py` does this with a 1° nudge.
+    `lsl/Animations/make_animations.py` does this with a 1° nudge, decided
+    per bone over the whole animation (a per-frame check makes moving bones
+    snap to the nudge as they pass through T-pose: a visible twitch).
 
 ## 7. Web and admin UI
 

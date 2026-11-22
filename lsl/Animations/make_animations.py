@@ -276,12 +276,17 @@ def build(keys, only=None):
             qs = {j: (qs[j] if j in only else QI) for j in qs}
             if "hip" not in only:
                 hp = (0.0, HIP_Y, 0.0)
-        else:
-            # A joint left at T-pose is dropped from the animation and stays free
-            # for any other animation (AO, stands) to move. Full-body poses must
-            # hold every bone, so nudge resting joints 1 degree off T-pose.
-            qs = {j: (NUDGE if abs(q[0]) > 0.99996 else q) for j, q in qs.items()}
         frames.append((hp, qs))
+    if only is None:
+        # A bone left at T-pose for the whole animation is dropped from it and
+        # stays free for any other animation (AO, stands) to move. Full-body
+        # poses must hold every bone, so a bone that never moves is set 1 degree
+        # off T-pose for EVERY frame. Decide per bone, never per frame: a moving
+        # bone passing through T-pose mid-animation must not snap to the nudge.
+        for j in PARENT:
+            if all(abs(qs[j][0]) > 0.99999 for _, qs in frames):
+                for _, qs in frames:
+                    qs[j] = NUDGE
     return frames
 
 
