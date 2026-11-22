@@ -3,7 +3,8 @@
 Every animation the in-world scripts call, as SL/OpenSim binary `.anim` files
 (KeyframeMotion 1.0). Priority, loop, ease and hand pose are **baked into each
 file**, so uploading needs no settings: Build → Upload → Animation, pick the
-file, upload. Made by `make_animations.py` (pure Python, no installs):
+file, upload. Made by `make_animations.py` (pure Python, no installs), except
+the two gather animations (see below):
 
 ```
 python lsl/Animations/make_animations.py          # .anim files
@@ -59,7 +60,7 @@ animation that's missing.
 | `fishing_fight_lean_left` | FishingHUD | 4 | yes | Fight pose turned and leaning to the avatar's left |
 | `fishing_fight_lean_right` | FishingHUD | 4 | yes | Mirror of lean left |
 | `fishing_fight_strain` | FishingHUD | 4 | yes | Heavy lean back, deep knees, shaking |
-| `gather_search` | BaitGatherPoint | 4 | yes | Squatting, digging in the ground with both hands |
+| `gather_search` | BaitGatherPoint | 4 | yes | Kneeling, digging in the dirt with alternating hands (Blender: DigForWorms) |
 | `prep_chop` | PrepTable | 4 | no | Standing at the table, left hand on the fish, right hand chopping |
 | `prep_done` | PrepTable | 4 | no | Holds the result up and nods (follows `prep_chop`, which is stopped first) |
 | `fishing_cast` | FishingHUD | 5 | no | Forward snap to release, then settle into the hold (over `fishing_wait`) |
@@ -69,17 +70,34 @@ animation that's missing.
 | `fishing_landed` | FishingHUD | 5 | raise once, then loops the hold | Rod lowered, fish raised up in the left hand (over the fight poses) |
 | `fishing_disappointed` | FishingHUD | 5 | no | Shoulders slump, head shake (over `fishing_wait`) |
 | `cheer` | FishingHUD | 5 | no | Left-hand fist pump twice. The HUD only *stops* this one today; nothing plays it yet |
-| `gather_found` | BaitGatherPoint | 5 | no | Still squatting, holds the find up to look at it (over `gather_search`) |
+| `gather_found` | BaitGatherPoint | 5 | no | Pinches at the dirt, sits up, holds the worm up and turns it to look, back to digging (over `gather_search`; Blender: DigFound) |
 
 `fishing_wait` and the fight poses share priority 4, so the HUD stops
 `fishing_wait` at hook set and the fight poses take over cleanly.
 
 ## Sit-based objects
 
-`gather_search` / `gather_found` squat (hips about 17 in lower) and the prep
-animations stand. Both objects seat the avatar with `llSitTarget`, so after
-uploading, check the avatar's height in-world. If it floats or sinks, adjust
-the sit target Z in `BaitGatherPoint.lsl` (0.4) or `PrepTable.lsl` (0.6).
+`gather_search` / `gather_found` kneel, knees on the ground, and the prep
+animations stand. BaitGatherPoint stops the default sit and places the
+sitter's feet on the object's bottom for their height (the third description
+field fine-tunes it); PrepTable uses a fixed sit target Z (0.6).
+
+## Gather animations (Blender)
+
+`gather_search` and `gather_found` are made in Blender with Avastar, on the
+Avatar rig in `C:/Users/Matthew/Blender/animations/DigForWorms.blend`
+(not in the repo, 12 MB). Their scripts are in `blender/`:
+
+- `DigForWorms_pose.py` builds the action **DigForWorms** (the dig loop).
+- `DigFound_pose.py` builds **DigFound** from the same kneel, reusing those
+  helpers. It rolls each upper arm so the elbow bends on its hinge: the rig's
+  Limit Rotation constraints would otherwise clamp a raised arm straight, and
+  the export bakes the clamped pose.
+
+Export each action with Avastar (`bpy.ops.avastar.export_single_anim`).
+DigFound exports as `gather_found.anim` (priority 5). DigForWorms is exported
+at priority 5; `gather_search.anim` is that file with the priority set to 4
+in the header and every joint, so `gather_found` plays over it.
 
 PrepTable used to borrow `gather_search` / `gather_found`, which would have put
 the avatar in a squat at the table. It now uses `prep_chop` / `prep_done`.

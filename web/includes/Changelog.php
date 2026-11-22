@@ -37,7 +37,7 @@ class Changelog
         ['id' => '2026-11-21-cast-record', 'date' => '2026-11-21', 'type' => 'fixed',
          'text' => 'Casting distance now matters: a full-power cast reaches fish up to 10% heavier. Double Hook now gives you the XP for both fish, not just one. A snapped line with a Magnet on costs one Magnet, not two. If you walk away with your line still in the water, your bait now follows the same rules as reeling in after a minute.'],
         ['id' => '2026-11-21-gather-sit', 'date' => '2026-11-21', 'type' => 'fixed',
-         'text' => 'Gathering bait no longer leaves you stuck in the normal sitting pose, and you now dig with your feet on the ground however tall your avatar is. (Needs updated gather points.)'],
+         'text' => 'Gathering bait looks right now: you kneel and dig in the dirt, and hold up each find to look at it. You are no longer stuck in the normal sitting pose, and it fits avatars of any height. (Needs updated gather points.)'],
         ['id' => '2026-11-21-animations', 'date' => '2026-11-21', 'type' => 'new',
          'text' => 'Your avatar now acts out the fishing: winding up and casting, waiting with the rod, leaning in at a nibble, setting the hook, cranking the reel, and fighting the fish (leaning the way it runs, straining when it pulls hard). Then you hold up your catch, or shake your head when one gets away. Gathering bait has you digging in the ground, and the prep table has you chopping. (Needs the updated HUD, gather points and prep tables.)'],
         ['id' => '2026-11-20-inventory-tab', 'date' => '2026-11-20', 'type' => 'changed',

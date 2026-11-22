@@ -405,8 +405,8 @@ FIGHT_LEGS = dict(lLeg=((0, -14, 8), 14), rLeg=((0, 10, -8), 8))
 FIGHT = pose(STAND, hip=(0, -4, 0), hip_pos=(0, 0, -1.0), abdomen=(0, -4, 0), chest=(0, -2, 0),
              head=(0, 10, 0), **FIGHT_ARMS, **FIGHT_LEGS)
 
-# Squat for gathering bait.
-SQUAT_LEGS = dict(lLeg=((0, -95, 10), 125), rLeg=((0, -80, -8), 115))
+# gather_search / gather_found are not made here: they are the kneeling
+# DigForWorms / DigFound, built in Blender (see blender/ and README.md).
 
 
 def wobble(base, t0, t1, step, fn):
@@ -534,27 +534,6 @@ def anim_reel():
     return pts
 
 
-def anim_gather_search():
-    b = pose(BASE, hip=(0, 10, 0), abdomen=(0, 15, 0), chest=(0, 15, 0), head=(0, 15, 0),
-             rArm=((-0.2, -0.55, 0.8), (0.1, -0.85, 0.5)),
-             lArm=((0.2, -0.55, 0.8), (-0.1, -0.85, 0.5)), **SQUAT_LEGS)
-    def dig(i, base):
-        s = 1 if i % 2 else -1
-        return pose(base, head=(6 * s, 16, 0),
-                    rArm=((-0.2, -0.55 + 0.15 * s, 0.8), (0.1, -0.85 + 0.25 * s, 0.5)),
-                    lArm=((0.2, -0.55 - 0.15 * s, 0.8), (-0.1, -0.85 - 0.25 * s, 0.5)))
-    return wobble(b, 0, 3.0, 0.375, dig)
-
-
-def anim_gather_found():
-    base = anim_gather_search()[0][1]
-    look = pose(base, hip=(0, 4, 0), abdomen=(0, 4, 0), chest=(0, 2, 0), head=(12, -6, 0),
-                lArm=((0.15, -0.2, 0.95), (-0.1, 0.65, 0.75)), lHand=(0, 0, 15),
-                rArm=((-0.2, -0.8, 0.5), (0.05, -0.6, 0.8)))
-    turn = pose(look, lHand=(25, 0, 15), head=(16, -4, 0))
-    return [(0.0, base), (0.35, look), (0.8, turn), (1.1, look), (1.5, base)]
-
-
 def anim_prep_chop():
     b = pose(STAND, abdomen=(0, 10, 0), chest=(0, 8, 0), head=(0, 20, 0),
              lArm=((0.1, -0.7, 0.7), (-0.3, -0.3, 0.9)),
@@ -588,8 +567,6 @@ ANIMS = {
     "fishing_landed":           (anim_landed, None),
     "fishing_disappointed":     (anim_disappointed, None),
     "cheer":                    (anim_cheer, None),
-    "gather_search":            (anim_gather_search, None),
-    "gather_found":             (anim_gather_found, None),
     "prep_chop":                (anim_prep_chop, None),
     "prep_done":                (anim_prep_done, None),
 }
@@ -619,7 +596,6 @@ SETTINGS = {
     "fishing_fight_lean_left":  (4, True,  0.0,  0.3, 0.3, HAND_FIST),
     "fishing_fight_lean_right": (4, True,  0.0,  0.3, 0.3, HAND_FIST),
     "fishing_fight_strain":     (4, True,  0.0,  0.3, 0.3, HAND_FIST),
-    "gather_search":            (4, True,  0.0,  0.5, 0.5, HAND_RELAXED),
     "prep_chop":                (4, False, 0.0,  0.2, 0.2, HAND_FIST),
     "prep_done":                (4, False, 0.0,  0.2, 0.4, HAND_RELAXED),
     "fishing_cast":             (5, False, 0.0,  0.1, 0.4, HAND_FIST),
@@ -629,7 +605,6 @@ SETTINGS = {
     "fishing_landed":           (5, True,  1.6,  0.3, 0.5, HAND_FIST),
     "fishing_disappointed":     (5, False, 0.0,  0.3, 0.5, HAND_FIST),
     "cheer":                    (5, False, 0.0,  0.2, 0.4, HAND_FIST),
-    "gather_found":             (5, False, 0.0,  0.2, 0.3, HAND_RELAXED),
 }
 
 
