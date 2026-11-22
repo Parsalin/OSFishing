@@ -12,7 +12,12 @@
 // ANIMATIONS: Place these in the object inventory (optional):
 //   "gather_search" — looping search animation
 //   "gather_found"  — brief found animation (plays on each gather)
-// If missing, animations are silently skipped.
+// If missing, animations are silently skipped (and the viewer's own sit
+// animation is left playing, so nobody ends up standing in the prim).
+//
+// The sitter is placed with their feet on the bottom of this object,
+// whatever their height. An optional third description field moves them
+// up (or down, negative) in metres: Worm Patch,1,0.05
 //
 // The object self-registers with the server on rez.
 // ============================================================
@@ -32,6 +37,12 @@ float   gNextGather = 0.0;         // When to fire next gather tick
 integer gDepleted   = FALSE;
 integer gStockPct   = 100;
 float   gNextRegenCheck = 0.0;  // When to ask server for regen update
+float   gFloorLocalZ = 0.0;     // Bottom of the object, relative to the root
+float   gHeightAdjust = 0.0;    // Optional 3rd description field (metres)
+integer gFitLeft = 0;           // Re-fit passes left (the sit can settle late)
+
+// The viewer's built-in sit animations, stopped while gathering
+list    SIT_ANIMS = ["sit", "sit_generic", "sit_female", "sit_ground", "sit_ground_constrained"];
 
 // ── Config parsing ──
 parseConfig() {
@@ -40,6 +51,9 @@ parseConfig() {
     if (llGetListLength(parts) >= 2) {
         gPointName = llStringTrim(llList2String(parts, 0), STRING_TRIM);
         gBaitId    = (integer)llStringTrim(llList2String(parts, 1), STRING_TRIM);
+        gHeightAdjust = 0.0;
+        if (llGetListLength(parts) >= 3)
+            gHeightAdjust = (float)llStringTrim(llList2String(parts, 2), STRING_TRIM);
     } else {
         llOwnerSay("ERROR: Set description to: name,bait_id");
         llOwnerSay("Example: Worm Patch,1");
@@ -81,6 +95,54 @@ safeStopAnim(key av, string animName) {
     if (animName == "") return;
     if (llGetInventoryType(animName) != INVENTORY_ANIMATION) return;
     llStopAnimation(animName);
+}
+
+// Where the object's bottom is. Measured only while nobody sits, because
+// a seated avatar counts toward the bounding box.
+measureFloor() {
+    list bb = llGetBoundingBox(llGetKey());
+    vector lo = llList2Vector(bb, 0);
+    gFloorLocalZ = lo.z;
+}
+
+// Link number of the seated avatar, 0 if gone
+integer sitterLink() {
+    integer n = llGetNumberOfPrims();
+    for (; n > 1; --n) {
+        if (llGetLinkKey(n) == gSitter) return n;
+    }
+    return 0;
+}
+
+// Put the sitter's feet on the object's bottom, whatever their height.
+// An avatar's position is the middle of its agent box, so the feet are
+// half its height below. Measured and corrected rather than computed
+// from the sit target, because grids offset sit targets differently.
+fitSitter() {
+    if (gSitter == NULL_KEY) return;
+    integer link = sitterLink();
+    if (!link) return;
+    vector size = llGetAgentSize(gSitter);
+    if (size == ZERO_VECTOR) return;
+    vector now = llList2Vector(llGetObjectDetails(gSitter, [OBJECT_POS]), 0);
+    if (now == ZERO_VECTOR) return;
+    float want = llGetPos().z + gFloorLocalZ + size.z * 0.5 + gHeightAdjust;
+    float dz = want - now.z;
+    if (llFabs(dz) < 0.01) return;
+    vector local = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0);
+    // dz is in region axes; turn it into the root's axes
+    local += <0.0, 0.0, dz> / llGetRootRotation();
+    llSetLinkPrimitiveParamsFast(link, [PRIM_POS_LOCAL, local]);
+}
+
+// Swap the viewer's sit animation for the gather one (only when the
+// gather animation exists, so a bare prim still shows a normal sit)
+startGatherAnim() {
+    if (llGetInventoryType("gather_search") != INVENTORY_ANIMATION) return;
+    integer i;
+    for (i = 0; i < llGetListLength(SIT_ANIMS); ++i)
+        llStopAnimation(llList2String(SIT_ANIMS, i));
+    llStartAnimation("gather_search");
 }
 
 // ── Register with server ──
@@ -168,6 +230,7 @@ default {
         // Listen for gather results from HUD
         llListen(-7710006, "", NULL_KEY, "");
 
+        if (llAvatarOnSitTarget() == NULL_KEY) measureFloor();
         updateText();
         registerWithServer();
     }
@@ -249,6 +312,8 @@ default {
                 llRegionSayTo(gSitter, -7710006, "GATHER_MSG|Searching for " + gBaitName + "...");
                 updateText();
 
+                gFitLeft = 2;
+
                 // Schedule first gather
                 llResetTime();
                 scheduleNextGather();
@@ -275,11 +340,17 @@ default {
         if (change & (CHANGED_REGION | CHANGED_OWNER)) {
             llResetScript();
         }
+
+        if (change & CHANGED_SCALE) {
+            if (gSitter == NULL_KEY) measureFloor();
+        }
     }
 
     run_time_permissions(integer perm) {
         if (perm & PERMISSION_TRIGGER_ANIMATION) {
-            safeStartAnim(gSitter, "gather_search");
+            startGatherAnim();
+            // The sit has settled by the time permissions come back
+            fitSitter();
         }
     }
 
@@ -299,6 +370,11 @@ default {
             updateText();
             checkStatus();  // Recheck stock and start regen timer
             return;
+        }
+
+        if (gFitLeft > 0) {
+            --gFitLeft;
+            fitSitter();
         }
 
         float now = llGetTime();
@@ -326,7 +402,7 @@ default {
             llSleep(2.0);
             if (gSitter != NULL_KEY && llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
                 safeStopAnim(gSitter, "gather_found");
-                safeStartAnim(gSitter, "gather_search");
+                startGatherAnim();
             }
 
             scheduleNextGather();
