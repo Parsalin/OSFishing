@@ -32,7 +32,7 @@ string  gApiUrl = "https://osfishing.flamesfall.net/api/";
 // Script version, "YYYY.MM.DD.NN". Bumped automatically on every edit by
 // .claude/bump_version.ps1 (PostToolUse hook); never edit it by hand.
 // Sent with every hud_status and shown under Settings > devices.
-string  HUD_VERSION = "2026.11.21.02";
+string  HUD_VERSION = "2026.11.22.08";
 
 // ── Pairing State (lives only in script memory) ──
 integer gTokenId      = 0;
@@ -1007,6 +1007,38 @@ safeStopSound() {
     llStopSound();
 }
 
+// Every looping fishing animation and sound off. Every way out of a cast or
+// fight goes through this — fishing_reel and reel_loop loop forever, and the
+// fight's key handler (the only place that used to stop them) never runs
+// again once the fight ends with the reel key still held.
+stopFishingAnims() {
+    safeStopAnim("fishing_reel");
+    safeStopAnim("fishing_cast"); safeStopAnim("fishing_charge");
+    safeStopAnim("fishing_landed"); safeStopAnim("cheer");
+    safeStopAnim("fishing_wait");
+    safeStopAnim("fishing_fight_steady");
+    safeStopAnim("fishing_fight_lean_left");
+    safeStopAnim("fishing_fight_lean_right");
+    safeStopAnim("fishing_fight_strain");
+    safeStopAnim("fishing_yank");
+    safeStopAnim("fishing_nibble");
+    safeStopAnim("fishing_disappointed");
+    llStopSound();
+}
+
+// The fight is over (landed, waiting on confirm_catch): stop the reel and
+// the fight poses, which loop, but leave anything else playing.
+stopReeling() {
+    gPlayerReeling = FALSE;
+    gPlayerLineOut = FALSE;
+    safeStopAnim("fishing_reel");
+    safeStopAnim("fishing_fight_steady");
+    safeStopAnim("fishing_fight_lean_left");
+    safeStopAnim("fishing_fight_lean_right");
+    safeStopAnim("fishing_fight_strain");
+    llStopSound();
+}
+
 // ── HUD Display Updates ──
 
 // Status line, bait chip, FISH button and fight strip for the current state.
@@ -1450,9 +1482,7 @@ stopFishing() {
     gSchedFishJson = [];
     gSchedIndex = 0;
     gCastTotalElapsed = 0.0;
-    safeStopAnim("fishing_cast"); safeStopAnim("fishing_charge");
-    safeStopAnim("fishing_landed"); safeStopAnim("cheer");
-    llStopSound();
+    stopFishingAnims();
     llReleaseControls();
     clearInfo();
 
@@ -1492,17 +1522,7 @@ resetToReady() {
     gFightAngle = 0.0;
     gFightAngleTarget = 0.0;
     gIsJunkFight = FALSE;
-    safeStopAnim("fishing_cast"); safeStopAnim("fishing_charge");
-    safeStopAnim("fishing_landed"); safeStopAnim("cheer");
-    safeStopAnim("fishing_wait");
-    safeStopAnim("fishing_fight_steady");
-    safeStopAnim("fishing_fight_lean_left");
-    safeStopAnim("fishing_fight_lean_right");
-    safeStopAnim("fishing_fight_strain");
-    safeStopAnim("fishing_yank");
-    safeStopAnim("fishing_nibble");
-    safeStopAnim("fishing_disappointed");
-    llStopSound();
+    stopFishingAnims();
 
     hidePowerBar();
     hideFightDisplay();
@@ -2264,6 +2284,7 @@ default {
                 // Landed!
                 if (gFightDistance <= 0) {
                     gState = STATE_LANDING;
+                    stopReeling();
                     hudInfo("Hauled it in! Confirming...");
                     safePlaySound("catch_success", 1.0);
                     gHttpReq = apiCall("confirm_catch",
@@ -2406,6 +2427,7 @@ default {
             // Check success: fish landed
             if (gFightDistance <= 0) {
                 gState = STATE_LANDING;
+                stopReeling();
                 hudInfo("Fish landed! Confirming catch...");
                 safePlaySound("catch_success", 1.0);
 
@@ -2528,6 +2550,7 @@ default {
             // Token was revoked, expired, or signature failed -- clear and re-pair
             if (gToken != "" && (status == 401 || status == 403)) {
                 llOwnerSay("Saved pairing is no longer valid. Starting fresh pairing...");
+                if (gState != STATE_IDLE && gState != STATE_MENU) stopFishing();
                 clearToken();
                 showStatus("Re-pairing required...");
                 gHttpReq = apiCallPublic("check_account", "uuid=" + llEscapeURL((string)gOwner) + "&grid_name=" + llEscapeURL(detectGrid()));
@@ -2544,7 +2567,7 @@ default {
         if (success != "true" && success != "1" && success != JSON_TRUE) {
             string err = jsonGet(body, "error");
             llOwnerSay("Error: " + err);
-            if (gState == STATE_CAST) resetToReady();
+            if (gState == STATE_CAST || gState == STATE_LANDING) resetToReady();
             return;
         }
 
@@ -2910,19 +2933,8 @@ default {
             hideFightDisplay();
 
             // Stop ALL fight animations and sounds before victory
-            llStopSound();
-            if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) {
-                safeStopAnim("fishing_fight_steady");
-                safeStopAnim("fishing_fight_lean_left");
-                safeStopAnim("fishing_fight_lean_right");
-                safeStopAnim("fishing_fight_strain");
-                safeStopAnim("fishing_yank");
-                safeStopAnim("fishing_wait");
-                safeStopAnim("fishing_charge");
-                safeStopAnim("fishing_cast");
-                safeStopAnim("fishing_nibble");
-                safePlayAnim("fishing_landed");
-            }
+            stopFishingAnims();
+            safePlayAnim("fishing_landed");
 
             // Notify tournament boards of new catch
             llRegionSay(CH_TOURNAMENT, "CATCH|" + (string)gCurrentSpotId);

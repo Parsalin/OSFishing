@@ -22,6 +22,8 @@ require_once __DIR__ . '/bootstrap.php';
 class Changelog
 {
     const ENTRIES = [
+        ['id' => '2026-11-22-reel-anim-stuck', 'date' => '2026-11-22', 'type' => 'fixed',
+         'text' => 'Your avatar could keep cranking the reel after the fight was over (after landing a fish or snapping the line) until you fished again. It now stops when the fight ends. (Needs the updated HUD.)'],
         ['id' => '2026-11-21-change-log-page', 'date' => '2026-11-21', 'type' => 'changed',
          'text' => 'The What\'s New page is now called Change Log, with updates grouped by day.'],
         ['id' => '2026-11-21-board-sim-grid', 'date' => '2026-11-21', 'type' => 'fixed',
